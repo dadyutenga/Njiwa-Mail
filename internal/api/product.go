@@ -15,7 +15,7 @@ func (s *Server) productRoutes(mux *http.ServeMux) {
 	h := func(pattern, role string, fn adminFn) {
 		mux.HandleFunc(pattern, s.adm(role, fn))
 	}
-	const V, A = service.RoleViewer, service.RoleAdmin
+	const V, A = service.RoleAdmin, service.RoleAdmin
 	h("GET /admin/v1/analytics", V, func(r *http.Request, u *service.AdminUser) (any, error) {
 		q := r.URL.Query()
 		items, err := svc.Analytics(r.Context(), q.Get("project"), q.Get("mode"), q.Get("template"), q.Get("domain"))

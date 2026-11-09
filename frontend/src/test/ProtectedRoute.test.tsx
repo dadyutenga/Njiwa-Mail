@@ -77,4 +77,43 @@ describe("ProtectedRoute Component", () => {
     expect(screen.queryByText("Secret Dashboard Area")).not.toBeInTheDocument();
     expect(screen.getByText("Login Page Redirected")).toBeInTheDocument();
   });
+
+  it("sends an admin away from an owner-only screen", () => {
+    vi.spyOn(AuthContextModule, "useAuth").mockReturnValue({
+      user: {
+        id: "usr_admin",
+        name: "Admin",
+        email: "admin@example.com",
+        role: "admin",
+        createdAt: new Date().toISOString(),
+      },
+      token: "session",
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+      updateUser: vi.fn(),
+      switchRole: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/users"]}>
+        <Routes>
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute allowedRoles={["owner"]}>
+                <div>Owner users</div>
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/403" element={<div>Forbidden</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Owner users")).not.toBeInTheDocument();
+    expect(screen.getByText("Forbidden")).toBeInTheDocument();
+  });
 });

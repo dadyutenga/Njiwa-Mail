@@ -266,7 +266,7 @@ export function SandboxPage() {
   const query = useList("/sandbox", { offset: filters.offset });
   return (
     <div className="space-y-4">
-      <PageTitle title="Sandbox" description="Captured messages never left this server. Viewers cannot open this page." />
+      <PageTitle title="Sandbox" description="Captured messages never left this server. Admins and owners can open them." />
       <ServerTable
         columns={[
           { header: "Template", cell: (row) => `${show(row.template)} ${show(row.locale)}` },
@@ -317,7 +317,7 @@ export function UsersPage() {
   const filters = useDraft({});
   const query = useList("/users", { offset: filters.offset });
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ email: "", password: "", role: "viewer" });
+  const [form, setForm] = useState({ email: "", password: "", role: "admin" });
   const create = useMutation({
     mutationFn: () => send("post", "/users", form),
     onSuccess: () => {
@@ -348,7 +348,6 @@ export function UsersPage() {
                 value={show(row.role)}
                 onChange={(event) => update.mutate({ id: show(row.id), role: event.target.value })}
               >
-                <option value="viewer">viewer</option>
                 <option value="admin">admin</option>
                 <option value="owner">owner</option>
               </select>
@@ -381,7 +380,6 @@ export function UsersPage() {
           <Field label="Password"><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
           <Field label="Role">
             <select className={controlClass} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="viewer">viewer</option>
               <option value="admin">admin</option>
               <option value="owner">owner</option>
             </select>

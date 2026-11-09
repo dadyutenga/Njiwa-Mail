@@ -1,9 +1,9 @@
-export type MailRole = "owner" | "admin" | "viewer";
+export type MailRole = "owner" | "admin";
 
-const rank: Record<MailRole, number> = { viewer: 1, admin: 2, owner: 3 };
+const rank: Record<MailRole, number> = { admin: 1, owner: 2 };
 
 export function isMailRole(role: string | undefined): role is MailRole {
-  return role === "owner" || role === "admin" || role === "viewer";
+  return role === "owner" || role === "admin";
 }
 
 export function atLeast(role: string | undefined, min: MailRole): boolean {

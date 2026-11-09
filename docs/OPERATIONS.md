@@ -39,7 +39,7 @@ ditronics-mail user create -email you@example.com -role owner     # password is 
 ditronics-mail user password -email you@example.com               # reset a password; ends that user's sessions
 ditronics-mail user disable -email someone@example.com
 ```
-Roles: `owner` (everything, including users), `admin` (everything except users), `viewer` (read-only; cannot see inbound bodies, attachments or sandbox captures).
+Roles: `owner` (everything, including users) and `admin` (everything except users). Both can read the console, including inbound bodies and sandbox captures.
 The last enabled owner cannot be demoted or disabled. Logins are limited per account and per IP (15-minute windows; see Settings).
 Every write from the UI, the CLI or an API key is recorded in `audit_log` (UI: Audit log). TOTP is not implemented yet: keep `/admin/v1` behind HTTPS and an IP allowlist (`deploy/nginx.conf`).
 

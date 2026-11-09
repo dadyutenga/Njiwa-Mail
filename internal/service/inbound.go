@@ -429,8 +429,31 @@ WHERE a.id=$1 AND m.id=$2 AND ($3='' OR m.environment_id=NULLIF($3,'')::uuid)`, 
 	if s.Opts.DataDir == "" {
 		return nil, newErr(404, "not_found")
 	}
-	f.Path = filepath.Join(s.Opts.DataDir, filepath.Clean("/"+rel))
+	full, err := attachmentPath(s.Opts.DataDir, rel)
+	if err != nil {
+		return nil, newErr(404, "not_found")
+	}
+	f.Path = full
 	return &f, nil
+}
+
+// attachmentPath resolves a stored relative path and refuses anything that
+// would leave the data directory.
+func attachmentPath(root, rel string) (string, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." || rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "..") {
+		return "", errors.New("path escapes data dir")
+	}
+	full := filepath.Join(root, rel)
+	prefix := root + string(os.PathSeparator)
+	if full != root && !strings.HasPrefix(full, prefix) {
+		return "", errors.New("path escapes data dir")
+	}
+	return full, nil
 }
 
 // ---------------------------------------------------------------- addresses

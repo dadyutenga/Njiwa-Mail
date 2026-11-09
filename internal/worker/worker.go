@@ -205,6 +205,14 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	}
 
 	if c.Mode == "sandbox" {
+		if pl.Confidential {
+			// A recovery token must not become an admin-readable capture.
+			if ok, err := w.Svc.MarkFailed(ctx, c, "confidential_not_captured"); !ok {
+				w.lost(c, err)
+			}
+			w.log(c, "failed", "confidential_not_captured")
+			return
+		}
 		if ok, err := w.Svc.MarkCaptured(ctx, c, raw, msgID); !ok {
 			w.lost(c, err)
 		}

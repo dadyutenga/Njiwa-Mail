@@ -124,6 +124,7 @@ func download(f *service.AttachmentFile) rawResponse {
 		"Content-Disposition":     mime.FormatMediaType("attachment", map[string]string{"filename": safeFilename(f.Filename)}),
 		"Content-Length":          strconv.Itoa(f.Size),
 		"Content-Security-Policy": "sandbox; default-src 'none'",
+		"X-Content-Type-Options":  "nosniff",
 	}}
 }
 
@@ -193,7 +194,7 @@ func (s *Server) audit(r *http.Request, u *service.AdminUser, action, targetType
 }
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
-	const V, A, O = service.RoleViewer, service.RoleAdmin, service.RoleOwner
+	const V, A, O = service.RoleAdmin, service.RoleAdmin, service.RoleOwner
 	svc := s.Svc
 	q := func(r *http.Request, k string) string { return r.URL.Query().Get(k) }
 	h := func(pattern, role string, fn adminFn) {
@@ -276,7 +277,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		return list(r, items, more, err)
 	})
 
-	// ---- inbound (viewers see metadata only, never bodies or attachments)
+	// ---- inbound (admin and owner can read bodies; HTML is still served sandboxed)
 	h("GET /inbound", V, func(r *http.Request, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListInbound(r.Context(), "", q(r, "project"), q(r, "mode"), q(r, "q"), pageOf(r))
 		return list(r, items, more, err)
@@ -603,7 +604,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		return nil, nil
 	})
 	// Preview renders only; it never queues or sends. POST because it carries
-	// sample variables, so it needs the CSRF token but only the viewer role.
+	// sample variables, so it needs the CSRF token. Any signed-in admin or owner may preview.
 	h("POST /templates/{id}/versions/{version}/preview", V, func(r *http.Request, u *service.AdminUser) (any, error) {
 		v, err := ver(r)
 		if err != nil {

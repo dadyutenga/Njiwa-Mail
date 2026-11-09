@@ -340,21 +340,29 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 		return unavailable("reset_store", err)
 	}
 	link := strings.TrimRight(s.Opts.PublicURL, "/") + "/reset-password?token=" + token
+	// Live only. Sandbox mail is captured and readable by every admin, so a
+	// recovery token queued there is an account takeover. No live sender means
+	// the token stays hashed and is not written into any readable body.
 	var from, name, pid, eid string
 	err = s.Pool.QueryRow(ctx, `SELECT si.email, si.display_name, e.project_id::text, e.id::text
-FROM sender_identities si JOIN environments e ON e.id=si.environment_id WHERE e.mode='sandbox' LIMIT 1`).Scan(&from, &name, &pid, &eid)
+FROM sender_identities si
+JOIN environments e ON e.id=si.environment_id AND e.enabled
+JOIN projects p ON p.id=e.project_id AND p.enabled
+WHERE e.mode='live'
+ORDER BY si.created_at
+LIMIT 1`).Scan(&from, &name, &pid, &eid)
 	if err != nil {
 		return nil
 	}
 	mid := secure.NewUUID()
-	body, _ := json.Marshal(Payload{From: from, FromName: name, To: e, Template: "raw", Raw: true, Subject: "Password reset", Text: "Reset your Ditronics Mail password: " + link})
+	body, _ := json.Marshal(Payload{From: from, FromName: name, To: e, Template: "raw", Raw: true, Confidential: true, Subject: "Password reset", Text: "Reset your Ditronics Mail password: " + link})
 	sealed, err := s.Box.Seal(body, []byte(mid))
 	if err != nil {
 		return nil
 	}
 	_, err = s.Pool.Exec(ctx, `INSERT INTO messages (id, project_id, environment_id, template, template_version, state, payload_enc,
-recipient_hash, request_hmac, idempotency_key, expires_at, locale, priority)
-VALUES ($1,$2,$3,'raw',0,'queued',$4,$5,$6,$7, now() + interval '1 hour', 'en', 'high')`,
+recipient_hash, request_hmac, idempotency_key, metadata, expires_at, locale, priority)
+VALUES ($1,$2,$3,'raw',0,'queued',$4,$5,$6,$7,'{"purpose":"password_reset"}', now() + interval '1 hour', 'en', 'high')`,
 		mid, pid, eid, sealed, s.Box.MAC("recipient", []byte(e)), s.Box.MAC("request", body), "reset-"+mid)
 	return err
 }

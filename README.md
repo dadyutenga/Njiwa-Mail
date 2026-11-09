@@ -9,7 +9,7 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - **Inbound:** Mailcow relays `in.<domain>` to a private SMTP listener; mail is parsed to JSON (text, HTML, headers, attachments).
 - **Bounces:** DSNs are parsed; hard bounces suppress the recipient automatically; policy bounces raise an alert and never suppress.
 - **Webhooks:** signed (HMAC-SHA256), retried for about 24 hours, replayable, with SSRF controls.
-- **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, roles (`owner`, `admin`, `viewer`), audit log, DNS health check, metrics.
+- **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, roles (`owner`, `admin`), audit log, DNS health check, metrics.
 - Per-project, per-environment (sandbox/live) API keys, approved senders, approved link origins, recipient allowlist, rate limits.
 - Honest status: `submitted` = Mailcow acknowledged acceptance. Never "delivered".
 - Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. Only dependency is PostgreSQL.

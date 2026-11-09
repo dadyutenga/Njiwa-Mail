@@ -71,6 +71,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const response = await apiClient.post<SessionUser>("/auth/login", {
         email: credentials.email,
         password: credentials.password,
+        totp: credentials.totp || undefined,
       });
       setUser(asUser(response.data));
       setToken("session");
@@ -94,7 +95,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateUser = (updates: Partial<User>): void => {
-    setUser((current) => (current ? { ...current, ...updates } : current));
+    setUser((current) => {
+      if (!current) return current;
+      const { role: _role, id: _id, ...rest } = updates;
+      return { ...current, ...rest };
+    });
   };
 
   const switchRole = (_role: UserRole): void => {

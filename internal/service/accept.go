@@ -10,10 +10,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ditronics-tz/mail/internal/secure"
 	"github.com/ditronics-tz/mail/internal/tmpl"
@@ -68,13 +70,15 @@ type Payload struct {
 	Locale    string            `json:"locale,omitempty"`
 	Vars      map[string]string `json:"vars"`
 	Raw       bool              `json:"raw,omitempty"`
-	Subject   string            `json:"subject,omitempty"`
-	HTML      string            `json:"html,omitempty"`
-	Text      string            `json:"text,omitempty"`
-	ReplyTo   string            `json:"reply_to,omitempty"`
-	CC        []string          `json:"cc,omitempty"`
-	BCC       []string          `json:"bcc,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
+	// Confidential bodies (password resets) must never be written to sandbox captures.
+	Confidential bool              `json:"confidential,omitempty"`
+	Subject      string            `json:"subject,omitempty"`
+	HTML         string            `json:"html,omitempty"`
+	Text         string            `json:"text,omitempty"`
+	ReplyTo      string            `json:"reply_to,omitempty"`
+	CC           []string          `json:"cc,omitempty"`
+	BCC          []string          `json:"bcc,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
 }
 
 type storedAttachment struct {
@@ -304,20 +308,80 @@ func (s *Service) extraRecipients(req SendRequest, v *validated) error {
 	}
 	var total int
 	for _, a := range req.Attachments {
-		if !allowedAttachmentTypes[a.ContentType] || a.Filename == "" || strings.ContainsAny(a.Filename, "\r\n\x00/\\") {
-			return invalid("invalid_attachment")
+		name, err := attachmentName(a.Filename, a.ContentType)
+		if err != nil {
+			return err
 		}
 		data, derr := base64.StdEncoding.DecodeString(a.Content)
-		if derr != nil {
+		if derr != nil || !attachmentBytesMatch(a.ContentType, data) {
 			return invalid("invalid_attachment")
+		}
+		if len(data) > 5<<20 {
+			return invalid("attachments_too_large")
 		}
 		total += len(data)
 		if total > 5<<20 {
 			return invalid("attachments_too_large")
 		}
-		v.attachments = append(v.attachments, storedAttachment{Filename: a.Filename, ContentType: a.ContentType, Data: data})
+		v.attachments = append(v.attachments, storedAttachment{Filename: name, ContentType: a.ContentType, Data: data})
 	}
 	return nil
+}
+
+// attachmentName accepts one extension that matches the declared type.
+// A second suffix such as .pdf.exe or .html is rejected.
+func attachmentName(filename, contentType string) (string, error) {
+	name := strings.TrimSpace(filename)
+	if name == "" || len(name) > 100 || strings.ContainsAny(name, "/\\\r\n\x00") || strings.Contains(name, "..") {
+		return "", invalid("invalid_attachment")
+	}
+	if !allowedAttachmentTypes[contentType] {
+		return "", invalid("invalid_attachment")
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	switch contentType {
+	case "application/pdf":
+		if ext != ".pdf" {
+			return "", invalid("invalid_attachment")
+		}
+	case "image/png":
+		if ext != ".png" {
+			return "", invalid("invalid_attachment")
+		}
+	case "image/jpeg":
+		if ext != ".jpg" && ext != ".jpeg" {
+			return "", invalid("invalid_attachment")
+		}
+	case "text/plain":
+		if ext != ".txt" {
+			return "", invalid("invalid_attachment")
+		}
+	default:
+		return "", invalid("invalid_attachment")
+	}
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	for _, part := range strings.Split(base, ".") {
+		switch strings.ToLower(part) {
+		case "html", "htm", "js", "svg", "exe", "sh", "php", "msi", "bat", "cmd":
+			return "", invalid("invalid_attachment")
+		}
+	}
+	return name, nil
+}
+
+func attachmentBytesMatch(contentType string, data []byte) bool {
+	switch contentType {
+	case "application/pdf":
+		return bytes.HasPrefix(data, []byte("%PDF-"))
+	case "image/png":
+		return bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
+	case "image/jpeg":
+		return len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff
+	case "text/plain":
+		return len(data) > 0 && !bytes.Contains(data, []byte{0}) && utf8.Valid(data)
+	default:
+		return false
+	}
 }
 
 func customHeaders(in map[string]string) (map[string]string, error) {

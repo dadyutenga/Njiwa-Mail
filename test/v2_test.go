@@ -601,7 +601,7 @@ func TestInboundHappyPathLimitsAndXSS(t *testing.T) {
 	e.provision("sacas")
 	e.provision("other")
 	ctx := context.Background()
-	admin, viewer := e.user("admin@ditronics.co.tz", "admin"), e.user("viewer@ditronics.co.tz", "viewer")
+	admin := e.user("admin@ditronics.co.tz", "admin")
 	rc := newReceiver(t)
 	epID, _ := e.endpoint(rc, "live", []string{"inbound.received"})
 	e.admOK(admin, "POST", "/admin/v1/inbound-addresses", map[string]any{"project": "sacas", "mode": "live", "local_part": "support", "webhook_endpoint_id": epID})
@@ -709,18 +709,8 @@ func TestInboundHappyPathLimitsAndXSS(t *testing.T) {
 		t.Fatalf("inbound HTML must be served sandboxed: %d csp=%q", h.Code, csp)
 	}
 	det := e.admOK(admin, "GET", "/admin/v1/inbound/"+id, nil)
-	if !strings.Contains(str(det.JSON, "html"), "<script>") {
-		t.Fatal("admin detail should carry the original HTML for the sandboxed frame")
-	}
-	// Viewer: metadata only, enforced by the backend.
-	vd := e.admOK(viewer, "GET", "/admin/v1/inbound/"+id, nil)
-	if _, has := vd.JSON["html"]; has || strings.Contains(vd.Raw, "nahitaji") || strings.Contains(vd.Raw, "script") {
-		t.Fatalf("viewer received an inbound body: %s", vd.Raw)
-	}
-	for _, p := range []string{"/html", "/attachments/" + aid} {
-		if r := e.adm(viewer, "GET", "/admin/v1/inbound/"+id+p, nil); r.Code != 403 {
-			t.Errorf("viewer GET %s: %d", p, r.Code)
-		}
+	if !strings.Contains(str(det.JSON, "html"), "<script>") || !strings.Contains(str(det.JSON, "text"), "nahitaji") {
+		t.Fatal("admin detail should carry the inbound text and HTML")
 	}
 
 	// Retention deletes bodies and attachment files.
@@ -968,7 +958,7 @@ func TestClassifyBounce(t *testing.T) {
 func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	e := setup(t)
 	e.provision("sacas")
-	owner, admin, viewer := e.user("owner@ditronics.co.tz", "owner"), e.user("admin@ditronics.co.tz", "admin"), e.user("viewer@ditronics.co.tz", "viewer")
+	owner, admin := e.user("owner@ditronics.co.tz", "owner"), e.user("admin@ditronics.co.tz", "admin")
 
 	// No session, a made-up session and the API-key world are all rejected.
 	if r := e.raw("GET", "/admin/v1/overview", nil, nil); r.Code != 401 {
@@ -986,7 +976,7 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 
 	// CSRF: a state-changing request without (or with a wrong) token is rejected even with a valid session.
 	body := map[string]any{"name": "newproj"}
-	for _, hdr := range []map[string]string{{"Cookie": admin.cookie}, {"Cookie": admin.cookie, "X-CSRF-Token": "wrong"}, {"Cookie": admin.cookie, "X-CSRF-Token": viewer.csrf}} {
+	for _, hdr := range []map[string]string{{"Cookie": admin.cookie}, {"Cookie": admin.cookie, "X-CSRF-Token": "wrong"}, {"Cookie": admin.cookie, "X-CSRF-Token": owner.csrf}} {
 		if r := e.raw("POST", "/admin/v1/projects", hdr, body); r.Code != 403 || errCode(r) != "csrf_token_invalid" {
 			t.Fatalf("CSRF not enforced: %d %s", r.Code, r.Raw)
 		}
@@ -996,21 +986,10 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	}
 	e.admOK(admin, "POST", "/admin/v1/projects", body)
 
-	// Viewer: reads work, every write is refused by the backend, and content is off limits.
-	for _, p := range []string{"overview", "messages", "projects", "keys", "suppressions", "templates", "webhooks", "inbound", "dns", "settings", "senders", "bounces", "alerts"} {
-		e.admOK(viewer, "GET", "/admin/v1/"+p, nil)
-	}
-	writes := []struct{ m, p string }{
-		{"POST", "projects"}, {"PATCH", "projects/sacas"}, {"PATCH", "projects/sacas/environments/live"}, {"POST", "keys"},
-		{"POST", "keys/abc/revoke"}, {"POST", "keys/abc/rotate"}, {"POST", "senders"}, {"POST", "suppressions"},
-		{"DELETE", "suppressions/00000000-0000-4000-8000-000000000000"}, {"POST", "templates"}, {"POST", "webhooks"},
-		{"POST", "inbound-addresses"}, {"PUT", "settings"}, {"POST", "dns/check"}, {"POST", "messages/00000000-0000-4000-8000-000000000000/resolve"},
-		{"GET", "sandbox"}, {"GET", "audit"}, {"GET", "users"}, {"POST", "users"},
-	}
-	for _, wr := range writes {
-		if r := e.adm(viewer, wr.m, "/admin/v1/"+wr.p, map[string]any{}); r.Code != 403 || errCode(r) != "forbidden" {
-			t.Errorf("viewer %s %s: %d %s", wr.m, wr.p, r.Code, r.Raw)
-		}
+	// Admin and owner can read the console. User management stays with the owner.
+	for _, p := range []string{"overview", "messages", "projects", "keys", "suppressions", "templates", "webhooks", "inbound", "dns", "settings", "senders", "bounces", "alerts", "sandbox"} {
+		e.admOK(admin, "GET", "/admin/v1/"+p, nil)
+		e.admOK(owner, "GET", "/admin/v1/"+p, nil)
 	}
 	// Admin: everything except users.
 	for _, wr := range []struct{ m, p string }{{"GET", "users"}, {"POST", "users"}, {"PATCH", "users/00000000-0000-4000-8000-000000000000"}} {
@@ -1035,12 +1014,15 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	}
 
 	// Owner manages users; the last owner cannot be removed.
-	nu := e.admOK(owner, "POST", "/admin/v1/users", map[string]any{"email": "New.Person@ditronics.co.tz", "password": adminPass, "role": "viewer"})
-	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "weak@ditronics.co.tz", "password": "short", "role": "viewer"}); r.Code != 400 {
+	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "old.role@ditronics.co.tz", "password": adminPass, "role": "viewer"}); r.Code != 400 {
+		t.Fatalf("viewer role accepted: %d %s", r.Code, r.Raw)
+	}
+	nu := e.admOK(owner, "POST", "/admin/v1/users", map[string]any{"email": "New.Person@ditronics.co.tz", "password": adminPass, "role": "admin"})
+	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "weak@ditronics.co.tz", "password": "short", "role": "admin"}); r.Code != 400 {
 		t.Fatalf("weak password accepted: %d", r.Code)
 	}
 	me := e.admOK(owner, "GET", "/admin/v1/auth/me", nil)
-	if r := e.adm(owner, "PATCH", "/admin/v1/users/"+str(me.JSON, "id"), map[string]any{"role": "viewer"}); r.Code != 409 || errCode(r) != "last_owner" {
+	if r := e.adm(owner, "PATCH", "/admin/v1/users/"+str(me.JSON, "id"), map[string]any{"role": "admin"}); r.Code != 409 || errCode(r) != "last_owner" {
 		t.Fatalf("last owner was demoted: %d %s", r.Code, r.Raw)
 	}
 	if r := e.adm(owner, "PATCH", "/admin/v1/users/"+str(me.JSON, "id"), map[string]any{"disabled": true}); r.Code != 409 {
@@ -1058,10 +1040,11 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	}
 
 	// Logout really ends the session.
-	e.admOK(viewer, "POST", "/admin/v1/auth/logout", nil)
-	if r := e.adm(viewer, "GET", "/admin/v1/overview", nil); r.Code != 401 {
+	e.admOK(admin, "POST", "/admin/v1/auth/logout", nil)
+	if r := e.adm(admin, "GET", "/admin/v1/overview", nil); r.Code != 401 {
 		t.Fatalf("session survived logout: %d", r.Code)
 	}
+	admin = e.login("admin@ditronics.co.tz")
 
 	// Every write above is in the audit log, with no secrets.
 	au := e.admOK(admin, "GET", "/admin/v1/audit?limit=100", nil)

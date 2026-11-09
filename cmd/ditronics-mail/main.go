@@ -53,7 +53,7 @@ Provisioning (operator CLI only):
   key revoke    -prefix P
   key list      [-project N]
   suppress add|remove -project N -mode M -email addr [-reason R]
-  user create   -email E -role owner|admin|viewer   (password read from stdin; first owner is created here)
+  user create   -email E -role owner|admin   (password read from stdin; first owner is created here)
   user password -email E                            (new password read from stdin)
   user disable|enable -email E
 

@@ -21,9 +21,8 @@ import (
 // server-side session. There is no signup: the first owner is created by CLI.
 
 const (
-	RoleOwner  = "owner"
-	RoleAdmin  = "admin"
-	RoleViewer = "viewer"
+	RoleOwner = "owner"
+	RoleAdmin = "admin"
 
 	argonTime    = 2
 	argonMemory  = 64 * 1024 // KiB
@@ -33,15 +32,13 @@ const (
 	MinPasswordLen = 12
 )
 
-// RoleLevel orders roles: viewer < admin < owner. Unknown roles get 0.
+// RoleLevel orders roles: admin < owner. Unknown roles, including the removed viewer role, get 0.
 func RoleLevel(role string) int {
 	switch role {
-	case RoleViewer:
-		return 1
 	case RoleAdmin:
-		return 2
+		return 1
 	case RoleOwner:
-		return 3
+		return 2
 	}
 	return 0
 }
@@ -91,7 +88,7 @@ func checkPassword(pw string) error {
 
 func validRole(r string) error {
 	if RoleLevel(r) == 0 {
-		return badRequest("role must be owner, admin or viewer")
+		return badRequest("role must be owner or admin")
 	}
 	return nil
 }

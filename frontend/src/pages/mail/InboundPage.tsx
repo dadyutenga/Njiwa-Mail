@@ -28,7 +28,7 @@ export function InboundPage() {
   const query = useList("/inbound", { ...filters.applied, offset: filters.offset });
   return (
     <div className="space-y-4">
-      <PageTitle title="Inbound" description="Parsed mail for in.<domain>. Viewers see metadata only. HTML is shown in a sandboxed frame." />
+      <PageTitle title="Inbound" description="Parsed mail for in.<domain>. HTML is shown in a sandboxed frame." />
       <form className="flex flex-wrap items-end gap-3" onSubmit={filters.apply}>
         <Field label="Project"><Input value={filters.draft.project} onChange={(e) => filters.setDraft({ ...filters.draft, project: e.target.value })} /></Field>
         <Field label="Mode">
@@ -104,7 +104,7 @@ export function InboundDetailPage() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">Viewers cannot read inbound bodies or attachments.</p>
+            <p className="text-sm text-muted-foreground">Inbound bodies are available to admins and owners.</p>
           )}
         </div>
       )}

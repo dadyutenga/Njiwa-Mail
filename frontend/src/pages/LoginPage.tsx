@@ -10,10 +10,12 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { safeRedirect } from "@/lib/redirect";
 
 const loginSchema = z.object({
   email: z.string().email("Enter the email on the operator account"),
   password: z.string().min(1, "Enter the password"),
+  totp: z.string().optional(),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -23,11 +25,11 @@ export function LoginPage() {
   const [searchParams] = useSearchParams();
   const { login, isLoading } = useAuth();
   const { t } = useLanguage();
-  const redirectUrl = searchParams.get("redirect") || "/dashboard";
+  const redirectUrl = safeRedirect(searchParams.get("redirect"));
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { email: "", password: "", totp: "" },
   });
 
   const onSubmit = async (values: LoginFormValues) => {
@@ -43,12 +45,7 @@ export function LoginPage() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{t("login")}</h1>
-        <p className="text-sm text-muted-foreground">
-          Sign in with the operator account. There is no public signup, and project API keys are not used here.
-        </p>
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">{t("login")}</h1>
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -73,6 +70,20 @@ export function LoginPage() {
                 <FormLabel>{t("password")}</FormLabel>
                 <FormControl>
                   <PasswordInput placeholder="Password" autoComplete="current-password" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="totp"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Code</FormLabel>
+                <FormControl>
+                  <Input inputMode="numeric" autoComplete="one-time-code" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

@@ -1,9 +1,12 @@
 package test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -138,6 +141,84 @@ func TestReencrypt(t *testing.T) {
 	}
 	if !strings.Contains(string(pt), "otp") {
 		t.Fatalf("reencrypted payload: %s", pt)
+	}
+}
+
+func TestRejectedUploadsAndUnauthorizedAttachmentAccess(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.provision("files")
+	e.provision("otherfiles")
+	rawKey, _, err := e.svc.CreateKey(ctx, "files", "sandbox", []string{"emails:send_raw", "inbound:read"}, "raw", 0)
+	e.must(err)
+	otherKey, _, err := e.svc.CreateKey(ctx, "otherfiles", "sandbox", []string{"inbound:read"}, "raw", 0)
+	e.must(err)
+	sendOnly, _, err := e.svc.CreateKey(ctx, "files", "sandbox", []string{"emails:send"}, "send", 0)
+	e.must(err)
+	e.srv.EmailMaxBytes = 8 << 20
+
+	pdf := base64.StdEncoding.EncodeToString([]byte("%PDF-1.4\n"))
+	rejects := []map[string]string{
+		{"filename": "note.html", "content_type": "text/html", "content": base64.StdEncoding.EncodeToString([]byte("<html>"))},
+		{"filename": "note.pdf.exe", "content_type": "application/pdf", "content": pdf},
+		{"filename": "note.exe.pdf", "content_type": "application/pdf", "content": pdf},
+		{"filename": "note.pdf", "content_type": "application/pdf", "content": base64.StdEncoding.EncodeToString([]byte("<html>not a pdf"))},
+		{"filename": "../note.pdf", "content_type": "application/pdf", "content": pdf},
+		{"filename": "note.txt", "content_type": "text/plain", "content": base64.StdEncoding.EncodeToString([]byte("hello\x00"))},
+	}
+	for i, att := range rejects {
+		r := e.do("POST", "/v1/emails", rawKey, idem("bad-"+string(rune('a'+i))), map[string]any{
+			"from": liveFrom, "to": testRcpt, "subject": "File", "text": "x",
+			"attachments": []map[string]string{att},
+		})
+		if r.Code != 422 || errCode(r) != "invalid_attachment" {
+			t.Fatalf("accepted unsafe upload %s: %d %s", att["filename"], r.Code, r.Raw)
+		}
+	}
+	big := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("a"), (5<<20)+1))
+	r := e.do("POST", "/v1/emails", rawKey, idem("too-big"), map[string]any{
+		"from": liveFrom, "to": testRcpt, "subject": "File", "text": "x",
+		"attachments": []map[string]string{{"filename": "note.txt", "content_type": "text/plain", "content": big}},
+	})
+	if r.Code != 422 || errCode(r) != "attachments_too_large" {
+		t.Fatalf("oversized upload: %d %s", r.Code, r.Raw)
+	}
+
+	var projectID, envID string
+	e.must(e.pool.QueryRow(ctx, `SELECT p.id::text, e.id::text FROM projects p JOIN environments e ON e.project_id=p.id WHERE p.name='files' AND e.mode='sandbox'`).Scan(&projectID, &envID))
+	msgID := "11111111-1111-4111-8111-111111111111"
+	attID := "22222222-2222-4222-8222-222222222222"
+	spoolID := "33333333-3333-4333-8333-333333333333"
+	rel := filepath.Join("attachments", msgID, "01-file")
+	full := filepath.Join(e.svc.Opts.DataDir, rel)
+	e.must(os.MkdirAll(filepath.Dir(full), 0o700))
+	e.must(os.WriteFile(full, []byte("%PDF-1.4"), 0o600))
+	e.must(e.pool.QueryRow(ctx, `INSERT INTO inbound_messages(id, project_id, environment_id, spool_id, envelope_from, envelope_to, raw_size, retention_expires_at)
+VALUES ($1,$2,$3,$4,'a@b.example','in@in.example',8, now() + interval '1 day') RETURNING id`, msgID, projectID, envID, spoolID).Scan(&msgID))
+	e.must(e.pool.QueryRow(ctx, `INSERT INTO inbound_attachments(id, inbound_message_id, filename, content_type, size, storage_path, sha256)
+VALUES ($1,$2,'note.pdf','application/pdf',8,$3,'abc') RETURNING id`, attID, msgID, rel).Scan(&attID))
+
+	if r := e.raw("GET", "/v1/inbound/"+msgID+"/attachments/"+attID, nil, nil); r.Code != 401 {
+		t.Fatalf("anonymous download: %d", r.Code)
+	}
+	if r := e.do("GET", "/v1/inbound/"+msgID+"/attachments/"+attID, sendOnly, "", nil); r.Code != 403 {
+		t.Fatalf("key without inbound:read: %d", r.Code)
+	}
+	if r := e.do("GET", "/v1/inbound/"+msgID+"/attachments/"+attID, otherKey, "", nil); r.Code != 404 {
+		t.Fatalf("other project download: %d", r.Code)
+	}
+	if r := e.raw("GET", "/admin/v1/inbound/"+msgID+"/attachments/"+attID, nil, nil); r.Code != 401 {
+		t.Fatalf("anonymous admin download: %d", r.Code)
+	}
+	ok := e.do("GET", "/v1/inbound/"+msgID+"/attachments/"+attID, rawKey, "", nil)
+	if ok.Code != 200 || ok.Hdr.Get("X-Content-Type-Options") != "nosniff" || ok.Hdr.Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("authorized download: %d %v", ok.Code, ok.Hdr)
+	}
+	if _, err := e.pool.Exec(ctx, `UPDATE inbound_attachments SET storage_path='../../etc/passwd' WHERE id=$1`, attID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.OpenAttachment(ctx, envID, msgID, attID); err == nil {
+		t.Fatal("storage path escaped the data directory")
 	}
 }
 

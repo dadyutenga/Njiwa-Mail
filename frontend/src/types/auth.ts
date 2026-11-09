@@ -1,4 +1,4 @@
-export type UserRole = "owner" | "admin" | "viewer";
+export type UserRole = "owner" | "admin";
 
 export interface User {
   id: string;
@@ -20,6 +20,7 @@ export interface AuthState {
 export interface LoginCredentials {
   email: string;
   password: string;
+  totp?: string;
   rememberMe?: boolean;
 }
 
