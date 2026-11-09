@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Allow: /login
+Allow: /register
+Allow: /forgot-password
+Allow: /reset-password
+
+Disallow: /dashboard
+Disallow: /records
+Disallow: /reports
+Disallow: /profile
+Disallow: /settings
+Disallow: /api/

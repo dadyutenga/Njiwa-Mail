@@ -30,10 +30,10 @@ run `ditronics-mail migrate`, then `serve` and `worker` (systemd units in `deplo
 
 ## Operator console
 
-`template-01` is a read-only console for this API. The browser never receives a project API key.
+`frontend` is a read-only console for this API. The browser never receives a project API key.
 
 1. Set `CONSOLE_PASSWORD` (at least 12 characters) in `.env` and start the API on `127.0.0.1:8080`.
-2. From `template-01`: `cp .env.example .env && npm install && npm run dev`.
+2. From `frontend`: `cp .env.example .env && npm install && npm run dev`.
 3. Open `http://localhost:3000` and sign in with that password.
 
 Vite proxies `/console` to the API. Projects, senders, and keys are still created with the CLI. The console shows queue state, project quotas, and key prefixes. It does not show recipients, template variables, sandbox captures, or secrets. Leave `CONSOLE_PASSWORD` empty to disable `/console`.
