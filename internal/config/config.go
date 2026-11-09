@@ -42,6 +42,11 @@ type Config struct {
 	MaxAttempts       int
 	RetentionInterval time.Duration
 	LogLevel          string
+
+	// ConsolePassword gates the read-only operator UI. Empty disables /console.
+	// It is not a project API key and must never be embedded in frontend code.
+	ConsolePassword   string
+	ConsoleSessionTTL time.Duration
 }
 
 func get(name, def string) string {
@@ -185,5 +190,17 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	c.LogLevel = get("LOG_LEVEL", "info")
+	if c.ConsolePassword, err = secret("CONSOLE_PASSWORD"); err != nil {
+		return nil, err
+	}
+	if c.ConsolePassword != "" && len(c.ConsolePassword) < 12 {
+		return nil, fmt.Errorf("CONSOLE_PASSWORD must be at least 12 characters")
+	}
+	if c.ConsoleSessionTTL, err = durVar("CONSOLE_SESSION_TTL", 12*time.Hour); err != nil {
+		return nil, err
+	}
+	if c.ConsoleSessionTTL < time.Minute || c.ConsoleSessionTTL > 24*time.Hour {
+		return nil, fmt.Errorf("CONSOLE_SESSION_TTL must be between 1m and 24h")
+	}
 	return &c, nil
 }

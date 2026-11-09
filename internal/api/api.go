@@ -15,8 +15,11 @@ import (
 )
 
 type Server struct {
-	Svc          *service.Service
-	MaxBodyBytes int64
+	Svc             *service.Service
+	MaxBodyBytes    int64
+	ConsolePassword string
+	SessionTTL      time.Duration
+	SMTPConfigured  bool
 }
 
 func (s *Server) Handler() http.Handler {
@@ -25,6 +28,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/emails/{id}", s.getEmail)
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("POST /console/login", s.consoleLogin)
+	mux.HandleFunc("POST /console/logout", s.consoleLogout)
+	mux.HandleFunc("GET /console/me", s.consoleMe)
+	mux.HandleFunc("GET /console/overview", s.consoleOverview)
+	mux.HandleFunc("GET /console/messages", s.consoleMessages)
+	mux.HandleFunc("GET /console/messages/{id}", s.consoleMessage)
+	mux.HandleFunc("GET /console/projects", s.consoleProjects)
+	mux.HandleFunc("GET /console/keys", s.consoleKeys)
 	return s.wrap(mux)
 }
 

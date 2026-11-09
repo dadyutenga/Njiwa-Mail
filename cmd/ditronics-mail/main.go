@@ -145,8 +145,12 @@ func smtpTransport(cfg *config.Config) *mailer.SMTP {
 
 func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	srv := &http.Server{
-		Addr:              cfg.ListenAddr,
-		Handler:           (&api.Server{Svc: svc, MaxBodyBytes: cfg.MaxBodyBytes}).Handler(),
+		Addr: cfg.ListenAddr,
+		Handler: (&api.Server{
+			Svc: svc, MaxBodyBytes: cfg.MaxBodyBytes,
+			ConsolePassword: cfg.ConsolePassword, SessionTTL: cfg.ConsoleSessionTTL,
+			SMTPConfigured: cfg.SMTP.Configured(),
+		}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
