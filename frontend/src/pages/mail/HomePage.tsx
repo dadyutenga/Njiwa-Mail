@@ -23,8 +23,7 @@ export function NoSignupPage() {
     <div className="space-y-4 text-center">
       <h1 className="text-2xl font-bold">Accounts are created by an owner</h1>
       <p className="text-sm text-muted-foreground">
-        There is no public signup and no self-service password reset. An owner adds users from the Users
-        page, or with <span className="font-mono">ditronics-mail user create</span>.
+        There is no public signup. An owner creates accounts. Password reset is available from sign in.
       </p>
       <Button asChild variant="outline">
         <Link to="/login">Back to sign in</Link>

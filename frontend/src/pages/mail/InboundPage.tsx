@@ -119,13 +119,15 @@ export function AddressesPage() {
   const query = useList("/inbound-addresses", { offset: filters.offset });
   const [open, setOpen] = useState(false);
   const [removeId, setRemoveId] = useState("");
-  const [form, setForm] = useState({ project: "", mode: "live", local_part: "", webhook_endpoint_id: "" });
+  const [form, setForm] = useState({ project: "", mode: "live", local_part: "", webhook_endpoint_id: "", route: "store", forward_to: "" });
   const create = useMutation({
     mutationFn: () => send("post", "/inbound-addresses", {
       project: form.project,
       mode: form.mode,
       local_part: form.local_part,
       webhook_endpoint_id: form.webhook_endpoint_id || null,
+      route: form.route,
+      forward_to: form.forward_to,
     }),
     onSuccess: () => {
       toast.success("Address created.");
@@ -157,8 +159,9 @@ export function AddressesPage() {
         columns={[
           { header: "Address", cell: (row) => show(row.address) },
           { header: "Project", cell: (row) => `${show(row.project)} / ${show(row.mode)}` },
+          { header: "Route", cell: (row) => show(row.route) },
+          { header: "Forward", cell: (row) => show(row.forward_to) },
           { header: "Enabled", cell: (row) => show(row.enabled) },
-          { header: "Webhook", cell: (row) => show(row.webhook_endpoint_id) },
           {
             header: "",
             cell: (row) => canWrite ? (
@@ -187,7 +190,19 @@ export function AddressesPage() {
             </select>
           </Field>
           <Field label="Local part"><Input value={form.local_part} onChange={(e) => setForm({ ...form, local_part: e.target.value })} placeholder="support or *" /></Field>
-          <Field label="Webhook endpoint id"><Input value={form.webhook_endpoint_id} onChange={(e) => setForm({ ...form, webhook_endpoint_id: e.target.value })} /></Field>
+          <Field label="Route">
+            <select className={controlClass} value={form.route} onChange={(e) => setForm({ ...form, route: e.target.value })}>
+              <option value="store">store</option>
+              <option value="webhook">webhook</option>
+              <option value="forward">forward</option>
+            </select>
+          </Field>
+          {form.route === "forward" && (
+            <Field label="Forward to"><Input type="email" value={form.forward_to} onChange={(e) => setForm({ ...form, forward_to: e.target.value })} /></Field>
+          )}
+          {form.route === "webhook" && (
+            <Field label="Webhook endpoint id"><Input value={form.webhook_endpoint_id} onChange={(e) => setForm({ ...form, webhook_endpoint_id: e.target.value })} /></Field>
+          )}
         </div>
       </Modal>
       <ConfirmDialog

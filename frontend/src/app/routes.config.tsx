@@ -26,6 +26,8 @@ import { roleAllowed } from "@/lib/roles";
 const HomePage = lazy(() => import("@/pages/mail/HomePage"));
 const NoSignupPage = lazy(() => import("@/pages/mail/HomePage").then((m) => ({ default: m.NoSignupPage })));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
 const OverviewPage = lazy(() => import("@/pages/mail/OverviewPage"));
 const MessagesPage = lazy(() => import("@/pages/mail/MessagesPage"));
 const MessagePage = lazy(() => import("@/pages/mail/MessagesPage").then((m) => ({ default: m.MessagePage })));
@@ -63,8 +65,8 @@ export const routesConfig: RouteConfigItem[] = [
   { path: "/", title: "Home", element: <HomePage />, layout: "blank", inNav: false },
   { path: "/login", title: "Sign In", element: <LoginPage />, layout: "auth", inNav: false },
   { path: "/register", title: "Sign Up", element: <NoSignupPage />, layout: "auth", inNav: false },
-  { path: "/forgot-password", title: "Forgot Password", element: <NoSignupPage />, layout: "auth", inNav: false },
-  { path: "/reset-password", title: "Reset Password", element: <NoSignupPage />, layout: "auth", inNav: false },
+  { path: "/forgot-password", title: "Forgot Password", element: <ForgotPasswordPage />, layout: "auth", inNav: false },
+  { path: "/reset-password", title: "Reset Password", element: <ResetPasswordPage />, layout: "auth", inNav: false },
 
   { path: "/dashboard", title: "Overview", icon: LayoutDashboard, element: <OverviewPage />, layout: "dashboard", inNav: true, navSection: "main" },
   { path: "/messages", title: "Messages", icon: Mail, element: <MessagesPage />, layout: "dashboard", inNav: true, navSection: "main" },

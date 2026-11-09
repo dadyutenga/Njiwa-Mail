@@ -23,7 +23,7 @@ import {
   type Row,
 } from "@/components/admin/bits";
 
-const STATES = ["", "queued", "submitting", "submitted", "retry_wait", "failed", "unknown", "expired", "captured"];
+const STATES = ["", "queued", "scheduled", "submitting", "submitted", "retry_wait", "failed", "unknown", "expired", "captured", "cancelled"];
 
 export function MessagesPage() {
   const [params] = useSearchParams();
@@ -157,6 +157,8 @@ export function MessagePage() {
             <p>Project {show(message.project)} / {show(message.mode)}</p>
             <p>Template {show(message.template)} version {show(message.template_version)} locale {show(message.locale)}</p>
             <p>Bounce <StateBadge value={message.bounce_state} /></p>
+            <p>Priority {show(message.priority)} · Send at <When value={message.send_at} /></p>
+            <p>Reply-to {show(message.reply_to)}</p>
             <p>Attempts {show(message.attempts)} · SMTP reply {show(message.smtp_reply)}</p>
             <p>Key prefix {show(message.api_key_prefix)}</p>
             <p>Created <When value={message.created_at} /> · Submitted <When value={message.submitted_at} /></p>

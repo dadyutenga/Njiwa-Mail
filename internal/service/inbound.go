@@ -550,7 +550,7 @@ func (s *Service) DeleteInboundAddress(ctx context.Context, id string) error {
 
 func (s *Service) ListInboundAddresses(ctx context.Context, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT a.id::text AS id, a.local_part || '@' || a.domain AS address, a.local_part, a.domain, a.enabled,
-  a.webhook_endpoint_id::text AS webhook_endpoint_id, p.name AS project, e.mode, a.created_at
+  a.route, a.forward_to, a.webhook_endpoint_id::text AS webhook_endpoint_id, p.name AS project, e.mode, a.created_at
 FROM inbound_addresses a JOIN projects p ON p.id=a.project_id JOIN environments e ON e.id=a.environment_id
 ORDER BY a.domain, a.local_part`)
 }

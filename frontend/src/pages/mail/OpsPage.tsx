@@ -451,7 +451,46 @@ export function MailSettingsPage() {
         ))}
         {canWrite && <Button type="submit" disabled={save.isPending}>Save</Button>}
       </form>
+      <PrivacyActions />
     </div>
+  );
+}
+
+function PrivacyActions() {
+  const canWrite = useCan("admin");
+  const [form, setForm] = useState({ project: "", mode: "live", email: "" });
+  const [exported, setExported] = useState<Row | null>(null);
+  const run = useMutation({
+    mutationFn: (kind: "export" | "delete") => kind === "export"
+      ? send("post", "/privacy/export", form)
+      : send("post", "/privacy/delete", form),
+    onSuccess: (data, kind) => {
+      if (kind === "export") setExported(data as Row);
+      else {
+        setExported(null);
+        toast.success("Recipient data deleted.");
+      }
+    },
+    onError: (error) => toast.error(errText(error)),
+  });
+  if (!canWrite) return null;
+  return (
+    <form className="grid max-w-lg gap-3 rounded-xl border p-4" onSubmit={(event) => { event.preventDefault(); run.mutate("export"); }}>
+      <h2 className="font-semibold">Recipient data</h2>
+      <Field label="Project"><Input value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} /></Field>
+      <Field label="Mode">
+        <select className={controlClass} value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
+          <option value="sandbox">sandbox</option>
+          <option value="live">live</option>
+        </select>
+      </Field>
+      <Field label="Email"><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
+      <div className="flex gap-2">
+        <Button type="submit" variant="outline" disabled={run.isPending}>Export</Button>
+        <Button type="button" variant="destructive" disabled={run.isPending} onClick={() => run.mutate("delete")}>Delete</Button>
+      </div>
+      {exported && <pre className="overflow-x-auto text-xs">{JSON.stringify(exported, null, 2)}</pre>}
+    </form>
   );
 }
 
@@ -459,7 +498,7 @@ export function AccountPage() {
   const { user } = useAuth();
   return (
     <div className="space-y-3">
-      <PageTitle title="Account" description="This session is an operator account. Password changes are done by an owner or with the CLI." />
+      <PageTitle title="Account" />
       <div className="max-w-md space-y-2 rounded-xl border p-4 text-sm">
         <p>{user?.email}</p>
         <p>Role <StateBadge value={user?.role} /></p>

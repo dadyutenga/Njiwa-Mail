@@ -1,4 +1,4 @@
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -93,6 +93,9 @@ export function LoginPage() {
           <Button type="submit" className="w-full gap-2" disabled={isLoading}>
             {isLoading ? "Signing in..." : t("login")}
             <ArrowRight className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" asChild className="w-full">
+            <Link to="/forgot-password">Forgot password</Link>
           </Button>
         </form>
       </Form>

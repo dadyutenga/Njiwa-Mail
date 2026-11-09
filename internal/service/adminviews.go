@@ -19,7 +19,7 @@ type MessageFilter struct {
 }
 
 const adminMessageCols = `m.id::text AS id, m.state, m.bounce_state, m.template, m.template_version, m.locale, p.name AS project, e.mode,
-  m.attempts, m.created_at, m.updated_at, m.expires_at, m.submitted_at, m.completed_at, m.idempotency_key, m.smtp_reply,
+  m.priority, m.send_at, m.reply_to, m.attempts, m.created_at, m.updated_at, m.expires_at, m.submitted_at, m.completed_at, m.idempotency_key, m.smtp_reply,
   m.metadata, k.prefix AS api_key_prefix`
 
 // AdminMessages lists messages with filters. A recipient filter is matched by

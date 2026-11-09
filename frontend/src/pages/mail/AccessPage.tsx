@@ -25,7 +25,7 @@ import {
   type Row,
 } from "@/components/admin/bits";
 
-const SCOPES = ["emails:send", "emails:read", "inbound:read", "suppressions:manage"];
+const SCOPES = ["emails:send", "emails:send_raw", "emails:read", "inbound:read", "suppressions:manage"];
 
 export function ProjectsPage() {
   const canWrite = useCan("admin");
