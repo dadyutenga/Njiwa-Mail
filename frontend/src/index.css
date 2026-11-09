@@ -86,7 +86,7 @@ All colors MUST be HSL.
   
   /* Apply Poppins font to headings for better visual hierarchy */
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Poppins', 'Outfit', 'Inter', system-ui, sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     font-weight: 600;
     letter-spacing: -0.02em;
   }
@@ -148,6 +148,6 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground text-[15px] leading-6 sm:text-base;
-    font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   }
 }

@@ -1,11 +1,14 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { routesConfig } from "./routes.config";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
 import { PageLoader } from "@/components/shared/PageLoader";
+
+const DashboardLayout = lazy(() =>
+  import("@/components/layout/DashboardLayout").then((m) => ({ default: m.DashboardLayout })),
+);
 
 /**
  * Builds the modern React Router data router directly from `routesConfig`.
@@ -17,13 +20,17 @@ export const router = createBrowserRouter([
   {
     element: (
       <ProtectedRoute>
-        <DashboardLayout />
+        <Suspense fallback={<PageLoader />}>
+          <DashboardLayout />
+        </Suspense>
       </ProtectedRoute>
     ),
     errorElement: (
-      <DashboardLayout>
-        <ErrorBoundary />
-      </DashboardLayout>
+      <Suspense fallback={<PageLoader />}>
+        <DashboardLayout>
+          <ErrorBoundary />
+        </DashboardLayout>
+      </Suspense>
     ),
     children: routesConfig
       .filter((r) => r.layout === "dashboard")
