@@ -103,7 +103,8 @@ func main() {
 	svc := service.New(pool, box, service.Options{MetadataRetention: cfg.MetadataRetention, CaptureRetention: cfg.CaptureRetention,
 		UnknownPurge: cfg.UnknownPurge, MaxAttempts: cfg.MaxAttempts,
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
-		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL})
+		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
+		RequireTOTP: cfg.RequireTOTP, PublicURL: cfg.PublicURL})
 
 	cmd, args := os.Args[1], os.Args[2:]
 	switch cmd {
@@ -193,7 +194,7 @@ func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	srv := &http.Server{
 		Addr: cfg.ListenAddr,
 		Handler: (&api.Server{
-			Svc: svc, MaxBodyBytes: cfg.MaxBodyBytes,
+			Svc: svc, MaxBodyBytes: cfg.MaxBodyBytes, EmailMaxBytes: 6 << 20,
 			ConsolePassword: cfg.ConsolePassword, SessionTTL: cfg.ConsoleSessionTTL,
 			SMTPConfigured: cfg.SMTP.Configured(),
 			TrustProxy:     cfg.TrustProxy, InsecureCookies: cfg.InsecureCookies, MetricsToken: cfg.MetricsToken,
@@ -287,6 +288,10 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 			}
 		}()
 	}
+	every(30*time.Second, "scheduled_send", func() error {
+		_, err := svc.PromoteScheduled(ctx)
+		return err
+	})
 	every(30*time.Second, "lease_recovery", func() error {
 		if n, err := svc.ReapLeases(ctx); err != nil {
 			return err
@@ -304,6 +309,14 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 		return err
 	})
 	every(5*time.Minute, "bounce_rate_alerts", func() error { return svc.CheckBounceRates(ctx) })
+	every(24*time.Hour, "daily_summary", func() error {
+		body, owners, err := svc.DailySummary(ctx)
+		if err != nil {
+			return err
+		}
+		slog.Info("daily summary", "owners", len(owners), "bytes", len(body))
+		return nil
+	})
 	every(time.Hour, "dns_checks", func() error { // runs the check when the last one is a day old
 		due, err := svc.DNSCheckDue(ctx, 24*time.Hour)
 		if err != nil || !due {

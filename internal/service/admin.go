@@ -150,6 +150,14 @@ func (s *Service) AddSender(ctx context.Context, project, mode, email, display s
 	if err != nil {
 		return err
 	}
+	domain := e[strings.LastIndexByte(e, '@')+1:]
+	var n int
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM sender_identities WHERE project_id=$1 AND split_part(email,'@',2)=$2 AND email <> $3`, pid, domain, e).Scan(&n); err != nil {
+		return err
+	}
+	if n >= 100 {
+		return errors.New("a domain can have at most 100 sender identities")
+	}
 	_, err = s.Pool.Exec(ctx, `INSERT INTO sender_identities(project_id, environment_id, email, display_name) VALUES ($1,$2,$3,$4)
 ON CONFLICT (environment_id, email) DO UPDATE SET display_name=EXCLUDED.display_name`, pid, eid, e, display)
 	return err

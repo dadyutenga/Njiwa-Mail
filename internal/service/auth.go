@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"net"
 	"strings"
 	"time"
 
@@ -19,11 +20,37 @@ type Principal struct {
 	ProjectID, EnvironmentID   string
 	Mode                       string
 	Scopes                     []string
+	IPAllowlist                []string
+	KeyPerMinute               int
 	Origins                    []string
 	RestrictRecipients         bool
 	Allowlist                  []string
 	PerMinute, PerDay          int
 	RcptPerMinute, RcptPerHour int
+}
+
+// AllowIP reports whether ip may use this key. An empty allowlist allows any address.
+func (p *Principal) AllowIP(ip string) error {
+	if p == nil || len(p.IPAllowlist) == 0 {
+		return nil
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return newErr(403, "ip_not_allowed")
+	}
+	for _, entry := range p.IPAllowlist {
+		entry = strings.TrimSpace(entry)
+		if !strings.Contains(entry, "/") {
+			if net.ParseIP(entry) != nil && net.ParseIP(entry).Equal(parsed) {
+				return nil
+			}
+			continue
+		}
+		if _, n, err := net.ParseCIDR(entry); err == nil && n.Contains(parsed) {
+			return nil
+		}
+	}
+	return newErr(403, "ip_not_allowed")
 }
 
 func (p *Principal) HasScope(s string) bool {
@@ -78,14 +105,14 @@ func (s *Service) Authenticate(ctx context.Context, header string) (*Principal, 
 		mode                    string
 	)
 	err := s.Pool.QueryRow(ctx, `
-SELECT k.id, k.secret_hash, k.scopes, k.expires_at, k.revoked_at,
+SELECT k.id, k.secret_hash, k.scopes, k.ip_allowlist, k.rate_per_minute, k.expires_at, k.revoked_at,
        p.id, p.enabled, p.send_per_minute, p.send_per_day, p.recipient_per_minute, p.recipient_per_hour,
        e.id, e.mode, e.enabled, e.approved_origins, e.restrict_recipients, e.recipient_allowlist
 FROM api_keys k
 JOIN environments e ON e.id = k.environment_id AND e.project_id = k.project_id
 JOIN projects p ON p.id = k.project_id
 WHERE k.prefix = $1`, parts[2]).Scan(
-		&p.KeyID, &hash, &p.Scopes, &expires, &revoked,
+		&p.KeyID, &hash, &p.Scopes, &p.IPAllowlist, &p.KeyPerMinute, &expires, &revoked,
 		&p.ProjectID, &projEnabled, &p.PerMinute, &p.PerDay, &p.RcptPerMinute, &p.RcptPerHour,
 		&p.EnvironmentID, &mode, &envEnabled, &p.Origins, &p.RestrictRecipients, &p.Allowlist)
 	if errors.Is(err, pgx.ErrNoRows) {

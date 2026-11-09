@@ -7,7 +7,7 @@ import (
 	"github.com/ditronics-tz/mail/internal/service"
 )
 
-// Application API additions in v2: inbound mail and suppressions. Every
+// Application API on /v1: inbound mail and suppressions. Every
 // request authenticates an API key and every query is scoped to that key's
 // project AND environment.
 
@@ -17,6 +17,10 @@ func (s *Server) key(scope string, h keyFn) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := s.Svc.Authenticate(r.Context(), r.Header.Get("Authorization"))
 		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if err := p.AllowIP(s.clientIP(r)); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -43,7 +47,7 @@ func (s *Server) key(scope string, h keyFn) http.HandlerFunc {
 func (s *Server) appRoutes(mux *http.ServeMux) {
 	svc := s.Svc
 	mux.HandleFunc("GET /v1/inbound", s.key(service.ScopeInboundRead, func(r *http.Request, p *service.Principal) (any, error) {
-		items, more, err := svc.ListInbound(r.Context(), p.EnvironmentID, "", "", pageOf(r))
+		items, more, err := svc.ListInbound(r.Context(), p.EnvironmentID, "", "", r.URL.Query().Get("q"), pageOf(r))
 		return list(r, items, more, err)
 	}))
 	mux.HandleFunc("GET /v1/inbound/{id}", s.key(service.ScopeInboundRead, func(r *http.Request, p *service.Principal) (any, error) {

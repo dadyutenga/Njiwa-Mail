@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,10 @@ import {
 const STATES = ["", "queued", "submitting", "submitted", "retry_wait", "failed", "unknown", "expired", "captured"];
 
 export function MessagesPage() {
-  const filters = useDraft({ project: "", mode: "", state: "", template: "", recipient: "", bounce_state: "" });
+  const [params] = useSearchParams();
+  const location = useLocation();
+  const initialState = location.pathname === "/scheduled" ? "scheduled" : (params.get("state") ?? "");
+  const filters = useDraft({ project: "", mode: "", state: initialState, template: "", recipient: "", bounce_state: "" });
   const query = useList("/messages", { ...filters.applied, offset: filters.offset });
   return (
     <div className="space-y-4">

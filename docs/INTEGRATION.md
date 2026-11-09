@@ -1,83 +1,130 @@
-# Integrating an application with Ditronics Mail
+# App integration
 
-Ditronics Mail is application-agnostic. Each application gets its own **project** with a **sandbox** and a **live**
-environment, each with its own keys, approved sender(s), approved link origins and recipient policy.
+Every Ditronics app uses this contract. There is no per-app adapter and no app-specific mail package in this repository. An app is a project with its own API keys.
 
-## 1. Onboard an application (operator)
+The application API is `/v1`. The operator API (`/admin/v1`) is not for apps.
+
+## 1. What the operator gives the app
+
+One project, two environments, two keys. The secret is shown once.
 
 ```bash
 ditronics-mail project create -name billing
-ditronics-mail project quotas -name billing -per-minute 30 -per-day 500 -rcpt-per-minute 3 -rcpt-per-hour 10
-for M in sandbox live; do
-  ditronics-mail env origins -project billing -mode $M -origin https://billing.example.com   # required for password-reset links
-  ditronics-mail sender add  -project billing -mode $M -email noreply@notify.example.com -display "Billing"
-done
-ditronics-mail env allow -project billing -mode live -pattern tester@example.org   # live starts closed; open deliberately
+ditronics-mail env origins -project billing -mode sandbox -origin https://billing.example.com
+ditronics-mail env origins -project billing -mode live    -origin https://billing.example.com
+ditronics-mail sender add -project billing -mode sandbox -email noreply@notify.example.com -display "Billing"
+ditronics-mail sender add -project billing -mode live    -email noreply@notify.example.com -display "Billing"
 ditronics-mail key create -project billing -mode sandbox -scopes emails:send,emails:read -label billing-sandbox
-ditronics-mail key create -project billing -mode live    -scopes emails:send,emails:read -label billing-live -ttl 2160h
+ditronics-mail key create -project billing -mode live    -scopes emails:send,emails:read -label billing-live
 ```
-Hand the key to the application owner through your secret manager; it is shown once and cannot be recovered
-(rotate with `key rotate`). The sender address must be authorised for the SMTP account on Mailcow.
 
-## 2. Rules every client must follow
+Add `emails:send_raw` only for an app that sends its own subject and body. Add `inbound:read` or `suppressions:manage` only when that app needs them.
 
-1. **Call from the backend only.** Never put a key in browser/mobile code.
-2. **One idempotency key per logical event** (e.g. per OTP issued). Reuse it on every retry. A *new* OTP/reset gets a *new* key.
-3. **Retry** timeouts, network errors, 429 (honor `Retry-After`) and 5xx with the **same** key. Do not retry other 4xx.
-4. **Uncertain result ⇒ never fall back to another provider.** Retry later with the same key or report failure.
-5. `202` means *durably queued*, not sent. `submitted` means Mailcow acknowledged; it is not delivery.
-6. **Your app owns token/OTP validity.** TTL only stops *our worker* sending stale mail; it cannot recall mail already accepted.
-   Always check real expiry/attempts/used-state when the user submits the code.
-7. Keep account-recovery responses generic (do not reveal whether an account exists); apply per-user/IP limits in your app.
+Put the key in the app's server configuration:
 
-## 3. Go (dependency-free client)
+| Variable | Value |
+|---|---|
+| `DITRONICS_MAIL_URL` | `https://mail-api.example.com` |
+| `DITRONICS_MAIL_API_KEY` | the key (`dmk_sbx_…` or `dmk_liv_…`) |
+| `DITRONICS_MAIL_FROM` | an approved sender for that key's environment |
+
+Never put the key in a browser, a mobile app, or a frontend build.
+
+## 2. Send
+
+```http
+POST /v1/emails
+Authorization: Bearer <api key>
+Idempotency-Key: <one id per logical event>
+Content-Type: application/json
+
+{
+  "from": "noreply@notify.example.com",
+  "to": "user@example.org",
+  "template": "otp",
+  "locale": "sw",
+  "variables": { "name": "Ada", "code": "482913", "expires_in_minutes": 5 }
+}
+```
+
+`202` body: `{"id":"…","status":"queued"}` (or `scheduled` when `send_at` is in the future). A repeat with the same key and the same body returns the same id. The same key with a different body returns `409`.
+
+| Field | Rule |
+|---|---|
+| `template` | `otp`, `password-reset`, or `account-notice`, or a template published for that project |
+| `locale` | `en` (default) or `sw`. Missing Kiswahili content falls back to English |
+| `template_version` | Omit it to pin the newest published version. A number pins that version |
+| `variables` | Names and types from the template schema. HTML is escaped |
+| `ttl_seconds` | Optional. The worker will not start submission after this |
+| `reply_to`, `cc`, `bcc` | Optional. Together with `to`, at most 10 addresses |
+| `priority` | `high` or `normal`. OTP and password-reset default to `high` |
+| `send_at` | Optional RFC3339 time, at most 7 days ahead |
+| `metadata.request_id` | Optional correlation id. Not a secret |
+| Raw send | Omit `template`. Send `subject` plus `html` and/or `text`. Requires `emails:send_raw` |
+
+`otp` variables: `name` (optional), `code` (4–12 letters or digits), `expires_in_minutes`.
+`password-reset` variables: `name` (optional), `reset_url` (https, origin approved for the environment), `expires_in_minutes`.
+`account-notice` variables: `name` (optional), `title`, `message`.
+
+## 3. Status, cancel, batch
+
+```http
+GET /v1/emails/{id}
+Authorization: Bearer <api key>
+```
+
+The body is metadata: state, attempts, safe reason codes. It never includes variables, tokens, or the recipient.
+
+```http
+POST /v1/emails/{id}/cancel
+Authorization: Bearer <api key>
+```
+
+Cancels a message that is still `queued` or `scheduled`. `submitted` cannot be cancelled.
+
+```http
+POST /v1/emails/batch
+Authorization: Bearer <api key>
+
+{ "messages": [ { "idempotency_key": "evt-1", "from": "…", "to": "…", "template": "otp", "variables": { } } ] }
+```
+
+Up to 100 messages. Each item has its own key and its own result. One rejection does not undo the others.
+
+States an app may see: `queued`, `scheduled`, `submitting`, `submitted`, `retry_wait`, `failed`, `unknown`, `expired`, `captured`, `cancelled`. `submitted` means the SMTP server accepted the message. There is no `delivered` state.
+
+## 4. Rules
+
+1. Call from the app's backend only.
+2. One idempotency key per logical event (one OTP, one reset). A new event gets a new key. Retries reuse the key.
+3. Retry timeouts, network errors, `429` (honor `Retry-After`) and `5xx` with the same key. Do not retry other `4xx`.
+4. If the result is uncertain, do not send the same event through another provider.
+5. The app owns codes, links, expiry, and sessions. This service only carries the message.
+6. Account-recovery responses stay generic. Do not tell the user whether the address exists.
+7. Sandbox keys (`dmk_sbx_…`) never leave the server. Live keys (`dmk_liv_…`) submit to Mailcow.
+
+## 5. Clients
+
+Go:
 
 ```go
-import mail "github.com/ditronics-tz/mail/client"   // or copy client/client.go
+import mail "github.com/ditronics-tz/mail/ditronicsmail"
 
-c := &mail.Client{BaseURL: os.Getenv("DITRONICS_MAIL_URL"), APIKey: os.Getenv("DITRONICS_MAIL_API_KEY")}
-key := mail.NewIdempotencyKey("otp")               // once per OTP issued
+c := mail.New(os.Getenv("DITRONICS_MAIL_URL"), os.Getenv("DITRONICS_MAIL_API_KEY"))
+key := mail.NewIdempotencyKey("otp")
 _, err := c.Send(ctx, key, mail.Email{
-    From: "noreply@notify.example.com", To: user.Email, Template: "otp", TemplateVersion: 1,
-    Variables: map[string]any{"name": user.Name, "code": code, "expires_in_minutes": 5}, TTLSeconds: 300,
+    From: os.Getenv("DITRONICS_MAIL_FROM"), To: user.Email,
+    Template: "otp", Locale: "sw",
+    Variables: map[string]any{"name": user.Name, "code": code, "expires_in_minutes": 5},
 })
 ```
 
-## 4. Any other language
+`github.com/ditronics-tz/mail/client` is the same client. It retries with the same idempotency key.
 
-Implement the OpenAPI contract in [openapi.yaml](openapi.yaml): one `POST`, Bearer auth, `Idempotency-Key` header,
-the retry rules above. Generate a client with any OpenAPI generator if you prefer.
+TypeScript: `clients/typescript/index.ts` (`DitronicsMail.send`).
 
-## 5. Templates
+Any other language implements this document. The machine-readable contract is [openapi.yaml](openapi.yaml). Webhook verification is [WEBHOOKS.md](WEBHOOKS.md).
 
-| Template | Variables | Default / max TTL |
-|---|---|---|
-| `otp` | `name?`, `code` (4–12 alnum), `expires_in_minutes` | 300s / 900s |
-| `password-reset` | `name?`, `reset_url` (https, origin approved), `expires_in_minutes` | 300s / 900s |
-| `account-notice` | `name?`, `title` (≤100), `message` (≤1000) | 1h / 24h |
+## 6. Webhooks
 
-Each is available in English and Kiswahili: send `"locale": "sw"` (default `en`; a version without Kiswahili content falls back to English).
-
-Templates live in the database as immutable published versions. `template_version` is optional: leave it out and the newest
-published version is pinned when the request is accepted; later edits never change mail already queued. Send a number to pin a
-specific version. Variables are always escaped and never evaluated as template code. New copy is a new version published
-from the admin UI, not a per-request override. A project can also have its own templates, which other projects cannot use.
-
-Inbound mail, suppressions and webhooks for applications: see [openapi.yaml](openapi.yaml), [WEBHOOKS.md](WEBHOOKS.md)
-and, for SACAS, [SACAS_INTEGRATION.md](SACAS_INTEGRATION.md).
-
-## 6. Example: SACAS (one client among many)
-
-SACAS (Go) already abstracts mail behind `NotificationService`; it is integrated like any other client, from its own repo:
-
-- `SendEmailOTP` → `otp` v1 (`expires_in_minutes: 5`, `ttl_seconds: 300`, matches SACAS's "valid for 5 minutes").
-- `SendTransactionalEmail(to, subject, body)` → `account-notice` v1 (`title=subject`, `message=body`).
-- `SendPasswordReset` — **note**: SACAS currently emails an admin-generated *temporary password*, not a reset link,
-  so `password-reset` (link-based) does not fit. To preserve current behaviour it can use `account-notice` with a short TTL
-  (e.g. 900s); the better long-term design is a link-based reset using the `password-reset` template, or a dedicated
-  `temporary-password` template here. That is a product decision for SACAS owners.
-- SACAS's existing `EmailProvider.Send(to, subject, plain, html)` interface takes pre-rendered content, which this service
-  deliberately does not accept; map at the `NotificationService` method level, keep the provider switch
-  (`EMAIL_PROVIDER`) configurable for new requests, and keep SendGrid as the default until the release gate passes.
-
-No SACAS code was changed by this repository.
+Subscribe in the operator UI or `POST /admin/v1/webhooks`. Payloads contain ids and states, not bodies or tokens. Verify `X-DM-Signature` before trusting the body. The app stores the message id returned by send if it needs to match a later `email.bounced` event to a user.

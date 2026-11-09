@@ -12,6 +12,7 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 dmail \
  && mkdir -p /var/lib/ditronics-mail && chown 10001:10001 /var/lib/ditronics-mail
 COPY --from=build /out/ditronics-mail /usr/local/bin/ditronics-mail
+COPY --from=build /out/ditronics-mail /usr/local/bin/dmctl
 USER 10001
 VOLUME /var/lib/ditronics-mail
 EXPOSE 8080 2525

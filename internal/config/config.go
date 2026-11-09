@@ -52,6 +52,9 @@ type Config struct {
 	AdminSessionTTL time.Duration
 	TrustProxy      bool
 	InsecureCookies bool
+	RequireTOTP     bool
+	PublicURL       string
+	IngressAddr     string
 	MetricsToken    string
 
 	// Inbound mail and bounces.
@@ -243,6 +246,15 @@ func Load() (*Config, error) {
 	if c.InsecureCookies, err = boolVar("ADMIN_INSECURE_COOKIES"); err != nil {
 		return nil, err
 	}
+	switch strings.ToLower(get("TOTP_REQUIRED", "true")) {
+	case "true", "1", "yes":
+		c.RequireTOTP = true
+	case "false", "0", "no":
+	default:
+		return nil, fmt.Errorf("TOTP_REQUIRED must be true or false")
+	}
+	c.PublicURL = get("PUBLIC_URL", "")
+	c.IngressAddr = get("INGRESS_ADDR", "")
 	if c.MetricsToken, err = secret("METRICS_TOKEN"); err != nil {
 		return nil, err
 	}

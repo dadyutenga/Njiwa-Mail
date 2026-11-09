@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ditronics-tz/mail/internal/mailer"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -30,7 +31,7 @@ func (s *Service) Claim(ctx context.Context, limit int, lease time.Duration, mod
 WITH c AS (
   SELECT m.id FROM messages m JOIN environments e ON e.id = m.environment_id
   WHERE m.state IN ('queued','retry_wait') AND m.next_attempt_at <= now() AND m.expires_at > now() AND e.mode = ANY($1)
-  ORDER BY m.next_attempt_at LIMIT $2
+  ORDER BY (m.priority = 'high') DESC, m.next_attempt_at LIMIT $2
   FOR UPDATE OF m SKIP LOCKED),
 u AS (
   UPDATE messages m SET state='submitting', attempts = m.attempts + 1, lease_token = gen_random_uuid(),
@@ -51,6 +52,39 @@ FROM u JOIN environments e ON e.id = u.environment_id`, modes, limit, lease.Seco
 			return nil, err
 		}
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// PromoteScheduled moves due scheduled messages onto the dispatch queue.
+func (s *Service) PromoteScheduled(ctx context.Context) (int64, error) {
+	tag, err := s.Pool.Exec(ctx, `UPDATE messages SET state='queued', updated_at=now()
+WHERE state='scheduled' AND send_at <= now() AND expires_at > now()`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// LoadAttachments decrypts outbound files for a message that is about to be submitted.
+func (s *Service) LoadAttachments(ctx context.Context, messageID string) ([]mailer.Attachment, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT filename, content_type, data_enc FROM message_attachments WHERE message_id=$1 ORDER BY filename`, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []mailer.Attachment
+	for rows.Next() {
+		var a mailer.Attachment
+		var enc []byte
+		if err := rows.Scan(&a.Filename, &a.ContentType, &enc); err != nil {
+			return nil, err
+		}
+		a.Data, err = s.Box.Open(enc, []byte("attachment:"+messageID+":"+a.Filename))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
 	}
 	return out, rows.Err()
 }
@@ -112,6 +146,11 @@ WHERE id=$1 AND lease_token=$2::uuid AND state = ANY($9)`,
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO message_events(message_id, event_type, reason_code) VALUES ($1,$2,$3)`, id, o.event, o.reason); err != nil {
 		return false, err
+	}
+	if o.clear {
+		if _, err := tx.Exec(ctx, `DELETE FROM message_attachments WHERE message_id=$1`, id); err != nil {
+			return false, err
+		}
 	}
 	if o.extra != nil {
 		if err := o.extra(ctx, tx); err != nil {

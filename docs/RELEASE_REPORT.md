@@ -72,6 +72,17 @@ never been built or run end to end. The Go binary itself builds and runs nativel
 
 See `docs/OPERATIONS.md#rollback`. Nothing is deployed, so there is currently nothing to roll back.
 
+## v1 API additions (2026-11-10)
+
+The HTTP API remains `/v1` and `/admin/v1`. New behaviour covered by `go test ./test/ -run 'TestRawSend|TestDomainGate|TestTOTP|TestReencrypt'` against local PostgreSQL:
+
+- Raw send with scope `emails:send_raw`, cc/bcc/reply-to, attachments, priority, schedule, cancel, and batch.
+- A sending domain that has been added cannot be used for live mail until its TXT challenge, SPF, DKIM and DMARC pass.
+- Owner and admin accounts must enroll TOTP when `TOTP_REQUIRED=true`.
+- Recipient export and deletion, and re-encryption onto a new key.
+
+Not verified here: real Mailcow delivery and a restore drill. Apps integrate through `docs/INTEGRATION.md` and an API key; there is no per-app adapter. The daily summary is computed by the scheduler and written to the log. `scripts/backup.sh` and `scripts/restore.sh` are the operator commands; they were not run against a production database.
+
 ## Remaining full-product backlog (not implemented)
 
 Postfix log collector/bounce processor; automated suppression; signed webhooks; operational dashboard; admin auth/roles/MFA; domain onboarding;

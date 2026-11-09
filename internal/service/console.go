@@ -13,7 +13,7 @@ import (
 // sandbox captures, or API key secrets.
 
 var consoleStates = []string{
-	"queued", "submitting", "submitted", "retry_wait", "failed", "unknown", "expired", "captured",
+	"queued", "scheduled", "submitting", "submitted", "retry_wait", "failed", "unknown", "expired", "captured", "cancelled",
 }
 
 type ConsoleOverview struct {

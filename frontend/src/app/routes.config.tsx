@@ -1,7 +1,10 @@
 import React, { lazy } from "react";
 import {
   AlertTriangle,
+  BarChart3,
+  BookOpen,
   FolderKanban,
+  Globe,
   Inbox,
   KeyRound,
   LayoutDashboard,
@@ -43,6 +46,11 @@ const SandboxDetailPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => 
 const UsersPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.UsersPage })));
 const AuditPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.AuditPage })));
 const MailSettingsPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.MailSettingsPage })));
+const DomainsPage = lazy(() => import("@/pages/mail/ProductPage").then((m) => ({ default: m.DomainsPage })));
+const AnalyticsPage = lazy(() => import("@/pages/mail/ProductPage").then((m) => ({ default: m.AnalyticsPage })));
+const DocsPage = lazy(() => import("@/pages/mail/ProductPage").then((m) => ({ default: m.DocsPage })));
+const SecurityPage = lazy(() => import("@/pages/mail/ProductPage").then((m) => ({ default: m.SecurityPage })));
+const AlertsPage = lazy(() => import("@/pages/mail/ProductPage").then((m) => ({ default: m.AlertsPage })));
 const AccountPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.AccountPage })));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 const ForbiddenPage = lazy(() => import("@/pages/ForbiddenPage"));
@@ -60,6 +68,7 @@ export const routesConfig: RouteConfigItem[] = [
 
   { path: "/dashboard", title: "Overview", icon: LayoutDashboard, element: <OverviewPage />, layout: "dashboard", inNav: true, navSection: "main" },
   { path: "/messages", title: "Messages", icon: Mail, element: <MessagesPage />, layout: "dashboard", inNav: true, navSection: "main" },
+  { path: "/scheduled", title: "Scheduled", icon: Mail, element: <MessagesPage />, layout: "dashboard", inNav: true, navSection: "main" },
   { path: "/messages/:id", title: "Message", element: <MessagePage />, layout: "dashboard", inNav: false },
   { path: "/unknown", title: "Unknown", icon: HelpCircle, element: <UnknownPage />, layout: "dashboard", inNav: true, navSection: "main" },
   { path: "/bounces", title: "Bounces", icon: AlertTriangle, element: <BouncesPage />, layout: "dashboard", inNav: true, navSection: "main" },
@@ -70,6 +79,9 @@ export const routesConfig: RouteConfigItem[] = [
   { path: "/projects", title: "Projects", icon: FolderKanban, element: <ProjectsPage />, layout: "dashboard", inNav: true, navSection: "management" },
   { path: "/keys", title: "API keys", icon: KeyRound, element: <KeysPage />, layout: "dashboard", inNav: true, navSection: "management" },
   { path: "/senders", title: "Senders and DNS", icon: Mail, element: <SendersPage />, layout: "dashboard", inNav: true, navSection: "management" },
+  { path: "/domains", title: "Domains", icon: Globe, element: <DomainsPage />, layout: "dashboard", inNav: true, navSection: "management" },
+  { path: "/analytics", title: "Analytics", icon: BarChart3, element: <AnalyticsPage />, layout: "dashboard", inNav: true, navSection: "main" },
+  { path: "/alerts", title: "Alerts", icon: AlertTriangle, element: <AlertsPage />, layout: "dashboard", inNav: true, navSection: "main" },
   { path: "/templates", title: "Templates", icon: FileText, element: <TemplatesPage />, layout: "dashboard", inNav: true, navSection: "management" },
   { path: "/templates/:id", title: "Template", element: <TemplatePage />, layout: "dashboard", inNav: false },
   { path: "/webhooks", title: "Webhooks", icon: Webhook, element: <WebhooksPage />, layout: "dashboard", inNav: true, navSection: "management" },
@@ -81,6 +93,8 @@ export const routesConfig: RouteConfigItem[] = [
   { path: "/audit", title: "Audit log", icon: ScrollText, element: <AuditPage />, layout: "dashboard", inNav: true, navSection: "system", roles: [...staff] },
   { path: "/settings", title: "Settings", icon: Settings, element: <MailSettingsPage />, layout: "dashboard", inNav: true, navSection: "system" },
   { path: "/profile", title: "Account", icon: User, element: <AccountPage />, layout: "dashboard", inNav: true, navSection: "system" },
+  { path: "/security", title: "Security", icon: ShieldBan, element: <SecurityPage />, layout: "dashboard", inNav: true, navSection: "system" },
+  { path: "/docs", title: "API docs", icon: BookOpen, element: <DocsPage />, layout: "dashboard", inNav: true, navSection: "system" },
 
   { path: "/403", title: "Access Forbidden", element: <ForbiddenPage />, layout: "blank", inNav: false },
   { path: "/500", title: "Server Error", element: <ServerErrorPage />, layout: "blank", inNav: false },

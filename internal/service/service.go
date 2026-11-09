@@ -34,6 +34,11 @@ type Options struct {
 	DKIMSelector string
 
 	SessionTTL time.Duration
+
+	// RequireTOTP forces owner and admin accounts to enroll a second factor
+	// before they can change anything. Tests leave it off.
+	RequireTOTP bool
+	PublicURL   string // origin used in admin password-reset links
 }
 
 type Service struct {
@@ -111,12 +116,13 @@ func notFound(err error) error {
 
 const (
 	ScopeSend         = "emails:send"
+	ScopeSendRaw      = "emails:send_raw"
 	ScopeRead         = "emails:read"
 	ScopeInboundRead  = "inbound:read"
 	ScopeSuppressions = "suppressions:manage"
 )
 
-var allScopes = []string{ScopeSend, ScopeRead, ScopeInboundRead, ScopeSuppressions}
+var allScopes = []string{ScopeSend, ScopeSendRaw, ScopeRead, ScopeInboundRead, ScopeSuppressions}
 
 func validScope(sc string) bool {
 	for _, x := range allScopes {

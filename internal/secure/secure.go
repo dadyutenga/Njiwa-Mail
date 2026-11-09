@@ -66,6 +66,11 @@ func (b *Box) Open(data, aad []byte) ([]byte, error) {
 	return pt, nil
 }
 
+// WithEncryptionKey returns a box that encrypts with encKey and keeps this HMAC key.
+func (b *Box) WithEncryptionKey(encKey []byte) (*Box, error) {
+	return New(encKey, b.hmacKey)
+}
+
 // MAC returns HMAC-SHA256 over domain-separated, length-prefixed parts.
 func (b *Box) MAC(domain string, parts ...[]byte) []byte {
 	h := hmac.New(sha256.New, b.hmacKey)

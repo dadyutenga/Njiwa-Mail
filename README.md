@@ -2,7 +2,7 @@
 
 Standalone transactional email service for Ditronics software, built on the existing Mailcow instance.
 It is **independent of any client application**: it has its own repository layout, database, Compose stack,
-configuration and release cycle. Applications (SACAS, or any other) are just API clients.
+configuration and release cycle. Every app is an API client with its own key. The contract is [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 - **Outbound:** authenticated `POST /v1/emails` → durable PostgreSQL queue → worker → verified-TLS SMTP submission to Mailcow.
 - **Templates** in the database, versioned and immutable once published, in English and Kiswahili (`locale`: `en` or `sw`). Seeded: `otp`, `password-reset`, `account-notice`.

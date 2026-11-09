@@ -69,6 +69,11 @@ func (s *Server) adm(minRole string, h adminFn) http.HandlerFunc {
 			writeErr(w, forbidden())
 			return
 		}
+		if s.Svc.Opts.RequireTOTP && (u.Role == service.RoleOwner || u.Role == service.RoleAdmin) && !u.TOTPEnabled &&
+			r.Method != http.MethodGet && r.Method != http.MethodHead && !strings.Contains(r.URL.Path, "/auth/totp") {
+			writeErr(w, &service.Error{Status: 403, Code: "totp_required"})
+			return
+		}
 		out, err := h(r, u)
 		if err != nil {
 			writeErr(w, err)
@@ -273,7 +278,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 
 	// ---- inbound (viewers see metadata only, never bodies or attachments)
 	h("GET /inbound", V, func(r *http.Request, u *service.AdminUser) (any, error) {
-		items, more, err := svc.ListInbound(r.Context(), "", q(r, "project"), q(r, "mode"), pageOf(r))
+		items, more, err := svc.ListInbound(r.Context(), "", q(r, "project"), q(r, "mode"), q(r, "q"), pageOf(r))
 		return list(r, items, more, err)
 	})
 	h("GET /inbound/{id}", V, func(r *http.Request, u *service.AdminUser) (any, error) {
@@ -313,11 +318,13 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 			Mode       string  `json:"mode"`
 			LocalPart  string  `json:"local_part"`
 			EndpointID *string `json:"webhook_endpoint_id"`
+			Route      string  `json:"route"`
+			ForwardTo  string  `json:"forward_to"`
 		}
 		if err := decode(r, &in); err != nil {
 			return nil, err
 		}
-		id, err := svc.CreateInboundAddress(r.Context(), in.Project, in.Mode, in.LocalPart, in.EndpointID)
+		id, err := svc.CreateInboundAddress(r.Context(), in.Project, in.Mode, in.LocalPart, in.EndpointID, in.Route, in.ForwardTo)
 		if err != nil {
 			return nil, err
 		}
@@ -816,13 +823,14 @@ func (s *Server) adminLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		TOTP     string `json:"totp"`
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
 	if err != nil || json.Unmarshal(body, &in) != nil || in.Email == "" || in.Password == "" {
 		writeErr(w, &service.Error{Status: 401, Code: "invalid_credentials"})
 		return
 	}
-	tok, u, err := s.Svc.Login(r.Context(), in.Email, in.Password, s.clientIP(r), r.UserAgent())
+	tok, u, err := s.Svc.Login(r.Context(), in.Email, in.Password, s.clientIP(r), r.UserAgent(), in.TOTP)
 	if err != nil {
 		writeErr(w, err)
 		return

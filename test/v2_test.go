@@ -741,7 +741,7 @@ func TestInboundSourceRestrictionAndRestart(t *testing.T) {
 	e := setup(t)
 	e.provision("sacas")
 	ctx := context.Background()
-	_, err := e.svc.CreateInboundAddress(ctx, "sacas", "live", "*", nil)
+	_, err := e.svc.CreateInboundAddress(ctx, "sacas", "live", "*", nil, "store", "")
 	e.must(err)
 
 	// Only the Mailcow address may talk to the listener; we connect from 127.0.0.1.

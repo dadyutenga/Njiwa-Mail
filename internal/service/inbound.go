@@ -52,6 +52,7 @@ func splitAddr(addr string) (local, domain string, ok bool) {
 type inboundRoute struct {
 	AddressID, ProjectID, EnvironmentID string
 	EndpointID                          *string
+	Route, ForwardTo                    string
 }
 
 // route finds the enabled inbound address for a recipient: an exact local
@@ -62,10 +63,10 @@ func (s *Service) route(ctx context.Context, addr string) (*inboundRoute, error)
 		return nil, nil
 	}
 	var r inboundRoute
-	err := s.Pool.QueryRow(ctx, `SELECT a.id::text, a.project_id::text, a.environment_id::text, a.webhook_endpoint_id::text
+	err := s.Pool.QueryRow(ctx, `SELECT a.id::text, a.project_id::text, a.environment_id::text, a.webhook_endpoint_id::text, a.route, a.forward_to
 FROM inbound_addresses a JOIN environments e ON e.id=a.environment_id JOIN projects p ON p.id=a.project_id
 WHERE a.domain=$1 AND a.local_part IN ($2,'*') AND a.enabled AND e.enabled AND p.enabled
-ORDER BY (a.local_part='*') LIMIT 1`, domain, local).Scan(&r.AddressID, &r.ProjectID, &r.EnvironmentID, &r.EndpointID)
+ORDER BY (a.local_part='*') LIMIT 1`, domain, local).Scan(&r.AddressID, &r.ProjectID, &r.EnvironmentID, &r.EndpointID, &r.Route, &r.ForwardTo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -244,9 +245,20 @@ ON CONFLICT (spool_id, envelope_to) DO NOTHING`,
 				}
 			}
 		}
+		ref, dmID := headerOne(p.Headers, "In-Reply-To"), headerOne(p.Headers, "X-DM-Message-ID")
+		if _, err := tx.Exec(ctx, `UPDATE inbound_messages SET search_tsv=to_tsvector('simple', $2),
+in_reply_to_message_id=(SELECT id FROM messages WHERE smtp_message_id=$3 OR id::text=$4 LIMIT 1) WHERE id=$1`,
+			id, clean(p.Subject+" "+p.HeaderFrom+" "+p.Text, 8000), strings.Trim(ref, "<> "), dmID); err != nil {
+			return 0, err
+		}
 		if _, err := tx.Exec(ctx, `SELECT dm_emit($1::uuid, 'inbound.received', jsonb_build_object('inbound_id', $2::text, 'address_id', $3::text,
   'attachment_count', $4::int, 'raw_size', $5::int), $6::uuid)`, r.EnvironmentID, id, r.AddressID, len(p.Attachments), it.Size, r.EndpointID); err != nil {
 			return 0, err
+		}
+		if r.Route == "forward" && r.ForwardTo != "" {
+			if err := s.queueForward(ctx, tx, r, p); err != nil {
+				return 0, err
+			}
 		}
 		stored++
 	}
@@ -312,11 +324,49 @@ const inboundCols = `m.id::text AS id, m.address_id::text AS address_id, m.envel
 
 // ListInbound lists inbound messages. envID "" lists every environment (admin
 // only); project and mode filter by name.
-func (s *Service) ListInbound(ctx context.Context, envID, project, mode string, pg Page) ([]map[string]any, bool, error) {
-	return s.page(ctx, pg, `SELECT `+inboundCols+`, p.name AS project, e.mode
+func headerOne(h map[string][]string, name string) string {
+	for k, v := range h {
+		if strings.EqualFold(k, name) && len(v) > 0 {
+			return v[0]
+		}
+	}
+	return ""
+}
+
+// queueForward records a raw queued message to the address's forward target.
+// It uses the environment's first approved sender. No sender means the copy is skipped.
+func (s *Service) queueForward(ctx context.Context, tx pgx.Tx, r *inboundRoute, p *ParsedInbound) error {
+	var from, name string
+	err := tx.QueryRow(ctx, `SELECT email, display_name FROM sender_identities WHERE environment_id=$1 LIMIT 1`, r.EnvironmentID).Scan(&from, &name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	to, ok := NormalizeEmail(r.ForwardTo)
+	if !ok {
+		return nil
+	}
+	id := secure.NewUUID()
+	body, _ := json.Marshal(Payload{From: from, FromName: name, To: to, Template: "raw", Raw: true, Subject: "Fwd: " + clean(p.Subject, 200), Text: p.Text, HTML: p.HTML})
+	sealed, err := s.Box.Seal(body, []byte(id))
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO messages (id, project_id, environment_id, template, template_version, state, payload_enc,
+recipient_hash, request_hmac, idempotency_key, expires_at, locale, priority)
+VALUES ($1,$2,$3,'raw',0,'queued',$4,$5,$6,$7, now() + interval '1 day', 'en', 'normal')`,
+		id, r.ProjectID, r.EnvironmentID, sealed, s.Box.MAC("recipient", []byte(to)), s.Box.MAC("request", body), "fwd-"+id)
+	return err
+}
+
+func (s *Service) ListInbound(ctx context.Context, envID, project, mode, query string, pg Page) ([]map[string]any, bool, error) {
+	return s.page(ctx, pg, `SELECT `+inboundCols+`, p.name AS project, e.mode, m.in_reply_to_message_id::text AS in_reply_to
 FROM inbound_messages m JOIN projects p ON p.id=m.project_id JOIN environments e ON e.id=m.environment_id
 WHERE ($1='' OR m.environment_id=NULLIF($1,'')::uuid) AND ($2='' OR p.name=$2) AND ($3='' OR e.mode=$3)
-ORDER BY m.received_at DESC`, envID, project, mode)
+  AND ($4='' OR m.subject ILIKE '%' || $4 || '%' OR m.header_from ILIKE '%' || $4 || '%' OR m.search_tsv @@ plainto_tsquery('simple', $4))
+ORDER BY m.received_at DESC`, envID, project, mode, query)
 }
 
 // GetInbound returns one inbound message. Bodies are decrypted only when
@@ -387,13 +437,24 @@ WHERE a.id=$1 AND m.id=$2 AND ($3='' OR m.environment_id=NULLIF($3,'')::uuid)`, 
 
 // CreateInboundAddress adds local@<inbound domain>; local "*" catches every
 // address under the domain not claimed by an exact entry.
-func (s *Service) CreateInboundAddress(ctx context.Context, project, mode, local string, endpointID *string) (string, error) {
+func (s *Service) CreateInboundAddress(ctx context.Context, project, mode, local string, endpointID *string, route, forwardTo string) (string, error) {
 	if s.Opts.InboundDomain == "" {
 		return "", newErr(409, "inbound_not_configured")
 	}
 	local = strings.ToLower(strings.TrimSpace(local))
 	if local != "*" && !localPartRe.MatchString(local) {
 		return "", badRequest("local part must be letters, digits, dot, dash, underscore or plus, or * for a wildcard")
+	}
+	if route == "" {
+		route = "store"
+	}
+	if route != "store" && route != "webhook" && route != "forward" {
+		return "", badRequest("route must be store, webhook or forward")
+	}
+	if route == "forward" {
+		if _, ok := NormalizeEmail(forwardTo); !ok {
+			return "", badRequest("forward_to must be an email address")
+		}
 	}
 	pid, eid, err := s.envID(ctx, project, mode)
 	if err != nil {
@@ -403,8 +464,8 @@ func (s *Service) CreateInboundAddress(ctx context.Context, project, mode, local
 		return "", err
 	}
 	var id string
-	err = s.Pool.QueryRow(ctx, `INSERT INTO inbound_addresses(project_id, environment_id, domain, local_part, webhook_endpoint_id)
-VALUES ($1,$2,$3,$4,$5) ON CONFLICT (domain, local_part) DO NOTHING RETURNING id::text`, pid, eid, s.Opts.InboundDomain, local, endpointID).Scan(&id)
+	err = s.Pool.QueryRow(ctx, `INSERT INTO inbound_addresses(project_id, environment_id, domain, local_part, webhook_endpoint_id, route, forward_to)
+VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (domain, local_part) DO NOTHING RETURNING id::text`, pid, eid, s.Opts.InboundDomain, local, endpointID, route, strings.ToLower(forwardTo)).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", newErr(409, "address_exists")
 	}

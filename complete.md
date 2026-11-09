@@ -86,7 +86,7 @@ The product is finished only when all of these are true:
 
 1. **Audit first.** Read the whole repository. Write `docs/AUDIT.md` marking every item in the plan and in "Additional scope" as Done, Partial or Missing.
 2. **Keep a progress file.** Maintain `docs/PROGRESS.md` with a checklist of every feature, its state and the tests that cover it. Update it after each unit of work. At the start of every session, read it and continue from the first unfinished item.
-3. **Build in this order:** harden outbound → admin auth and 2FA → core UI → templates → domains and DNS → SACAS adapter → inbound → bounces and suppression → webhooks → raw, batch, scheduled and SMTP ingress → analytics and alerts → client packages and docs → backup, CI and runbook.
+3. **Build in this order:** harden outbound → admin auth and 2FA → core UI → templates → domains and DNS → the shared API-key integration in `docs/INTEGRATION.md` → inbound → bounces and suppression → webhooks → raw, batch, scheduled and SMTP ingress → analytics and alerts → client packages and docs → backup, CI and runbook.
 4. **Finish each feature fully before the next:** migration, backend logic, API, UI page, tests, documentation. Do not leave a backend feature without its UI or a UI page without its backend.
 5. **Write tests with the code,** not at the end. Run the full suite after each feature and fix regressions immediately.
 6. **Do not stop to ask** about things you can decide from the plan or the existing code. Make the decision, write one line about it in `docs/PROGRESS.md`, and continue.

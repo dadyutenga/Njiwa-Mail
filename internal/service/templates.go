@@ -122,8 +122,11 @@ WHERE v.id = $1 AND c.locale IN ($2, 'en') ORDER BY (c.locale = 'en') LIMIT 1`, 
 
 // RenderPayload renders a queued message from its pinned template version.
 func (s *Service) RenderPayload(ctx context.Context, pl *Payload) (subject, text, html string, err error) {
+	if pl.Raw {
+		return pl.Subject, pl.Text, pl.HTML, nil
+	}
 	vid := pl.VersionID
-	if vid == "" { // queued before the v2 migration: shared template by slug and number
+	if vid == "" { // queued before template versions were stored on the message: shared template by slug and number
 		if err = s.Pool.QueryRow(ctx, `SELECT v.id::text FROM templates t JOIN template_versions v ON v.template_id=t.id
 WHERE t.project_id IS NULL AND t.slug=$1 AND v.version=$2 AND v.published_at IS NOT NULL`, pl.Template, pl.Version).Scan(&vid); err != nil {
 			return

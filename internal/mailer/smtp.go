@@ -40,8 +40,9 @@ type Result struct {
 }
 
 type Envelope struct {
-	From, To string
-	Raw      []byte
+	From, To   string
+	Recipients []string // To, Cc and Bcc. Empty means To alone.
+	Raw        []byte
 }
 
 // Transport submits a message. Implementations must classify honestly.
@@ -193,8 +194,14 @@ func (s *SMTP) Send(ctx context.Context, e Envelope) Result {
 	if err := cl.Mail(e.From); err != nil {
 		return classifyPre(err, "mail")
 	}
-	if err := cl.Rcpt(e.To); err != nil {
-		return classifyPre(err, "rcpt")
+	rcpts := e.Recipients
+	if len(rcpts) == 0 {
+		rcpts = []string{e.To}
+	}
+	for _, rcpt := range rcpts {
+		if err := cl.Rcpt(rcpt); err != nil {
+			return classifyPre(err, "rcpt")
+		}
 	}
 
 	// DATA command. A failure here means no body has been sent yet.

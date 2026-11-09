@@ -17,6 +17,7 @@ import (
 type Server struct {
 	Svc             *service.Service
 	MaxBodyBytes    int64
+	EmailMaxBytes   int64 // larger cap for POST /v1/emails so attachments fit; 0 uses MaxBodyBytes
 	ConsolePassword string
 	SessionTTL      time.Duration
 	SMTPConfigured  bool
@@ -44,6 +45,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /console/keys", s.consoleKeys)
 	s.appRoutes(mux)
 	s.adminRoutes(mux)
+	s.productRoutes(mux)
 	return s.wrap(mux)
 }
 
@@ -109,11 +111,19 @@ func (s *Server) postEmail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	if r.ContentLength > s.MaxBodyBytes {
+	if err := p.AllowIP(s.clientIP(r)); err != nil {
+		writeErr(w, err)
+		return
+	}
+	limit := s.MaxBodyBytes
+	if s.EmailMaxBytes > limit {
+		limit = s.EmailMaxBytes
+	}
+	if r.ContentLength > limit {
 		writeErr(w, &service.Error{Status: 413, Code: "body_too_large"})
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.MaxBodyBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
@@ -134,6 +144,10 @@ func (s *Server) postEmail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getEmail(w http.ResponseWriter, r *http.Request) {
 	p, err := s.Svc.Authenticate(r.Context(), r.Header.Get("Authorization"))
 	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := p.AllowIP(s.clientIP(r)); err != nil {
 		writeErr(w, err)
 		return
 	}

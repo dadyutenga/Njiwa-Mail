@@ -117,6 +117,9 @@ func (w *Worker) RunOnce(ctx context.Context) (int, error) {
 	if _, err := w.Svc.ExpireDue(ctx); err != nil {
 		return 0, err
 	}
+	if _, err := w.Svc.PromoteScheduled(ctx); err != nil {
+		return 0, err
+	}
 	modes := []string{"sandbox"}
 	if w.SMTP != nil {
 		modes = append(modes, "live")
@@ -187,8 +190,15 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	}
 	domain := pl.From[strings.LastIndexByte(pl.From, '@')+1:]
 	msgID := c.ID + "@" + domain
+	atts, err := w.Svc.LoadAttachments(ctx, c.ID)
+	if err != nil {
+		fail("attachment_unreadable")
+		return
+	}
+	rcpts := append([]string{pl.To}, append(append([]string{}, pl.CC...), pl.BCC...)...)
 	raw, err := mailer.Build(mailer.Message{FromName: pl.FromName, FromEmail: pl.From, To: pl.To, Subject: subject,
-		Text: text, HTML: html, MessageID: msgID, DMMessageID: c.ID, Date: time.Now()})
+		Text: text, HTML: html, MessageID: msgID, DMMessageID: c.ID, Date: time.Now(),
+		ReplyTo: pl.ReplyTo, CC: pl.CC, BCC: pl.BCC, Attachments: atts})
 	if err != nil {
 		fail("build_failed")
 		return
@@ -209,7 +219,7 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	if w.BounceAddress != "" {
 		envFrom = w.BounceAddress
 	}
-	res := w.SMTP.Send(sctx, mailer.Envelope{From: envFrom, To: pl.To, Raw: raw})
+	res := w.SMTP.Send(sctx, mailer.Envelope{From: envFrom, To: pl.To, Recipients: rcpts, Raw: raw})
 	cancel()
 
 	switch res.Outcome {
