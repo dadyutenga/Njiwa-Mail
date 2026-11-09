@@ -93,8 +93,10 @@ client/              dependency-free Go client and webhook verifier
 test/                acceptance tests                  deploy/            nginx + systemd; Dockerfile, compose.yaml at root
 ```
 
-## Current limitations
+## What a message can carry
 
-One recipient per message; no attachments/CC/BCC/custom headers/raw HTML on outbound; ASCII addresses only;
-no TOTP second factor yet; IMAP-polling fallback for inbound is not implemented; single outbound server; no HA.
-Transactional mail only: not a bulk or marketing service.
+One request accepts a `to` address plus `cc` and `bcc` (10 addresses altogether), file attachments, raw HTML or plain text, and custom `X-` headers. Addresses may use international domains. Owners and admins use TOTP when `TOTP_REQUIRED=true`.
+
+Inbound mail arrives by Mailcow relay, or by IMAP polling of a catch-all mailbox (`IMAP_HOST`). Outbound submission uses `SMTP_HOST` and, when that host fails before acceptance, `SMTP_FAILOVER_HOST`. Extra `api` and `worker` replicas share the same PostgreSQL queue, so a second instance does not double-send.
+
+This remains a transactional service. It does not send marketing campaigns.

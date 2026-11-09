@@ -75,7 +75,7 @@ Mailcow UI → mailbox → Edit → **Sender ACL** / "Allow to send as". Without
 
 ## If relay routing cannot be configured
 
-The plan names IMAP polling of a catch-all mailbox as the fallback. **It is not implemented.** If step 2 or 3 is impossible on your Mailcow, stop and report it; do not expose the listener publicly as a workaround.
+If Mailcow cannot relay to the listener, set `IMAP_HOST`, `IMAP_USERNAME` and `IMAP_PASSWORD` (port 993, mailbox `INBOX` by default) and run the `inbound` role. It polls unseen mail once a minute, spools it, and marks it seen. Do not expose the SMTP listener publicly as a workaround.
 
 ## Rollback
 

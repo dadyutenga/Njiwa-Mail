@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ditronics-tz/mail/internal/secure"
+	"github.com/ditronics-tz/mail/internal/service"
 )
 
 func TestRawSendScheduleCancelAndBatch(t *testing.T) {
@@ -137,5 +138,15 @@ func TestReencrypt(t *testing.T) {
 	}
 	if !strings.Contains(string(pt), "otp") {
 		t.Fatalf("reencrypted payload: %s", pt)
+	}
+}
+
+func TestInternationalAddress(t *testing.T) {
+	got, ok := service.NormalizeEmail("User@Bücher.example")
+	if !ok || got != "user@xn--bcher-kva.example" {
+		t.Fatalf("idna address: %q %v", got, ok)
+	}
+	if _, ok := service.NormalizeEmail("not an address"); ok {
+		t.Fatal("space accepted")
 	}
 }

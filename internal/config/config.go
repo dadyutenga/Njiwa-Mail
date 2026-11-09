@@ -12,13 +12,14 @@ import (
 )
 
 type SMTP struct {
-	Host     string
-	Port     int
-	Username string
-	Password string
-	Implicit bool // implicit TLS (port 465) instead of STARTTLS
-	HeloName string
-	Timeout  time.Duration
+	Host         string
+	Port         int
+	Username     string
+	Password     string
+	Implicit     bool // implicit TLS (port 465) instead of STARTTLS
+	HeloName     string
+	Timeout      time.Duration
+	FailoverHost string
 }
 
 func (s SMTP) Configured() bool { return s.Host != "" }
@@ -55,7 +56,14 @@ type Config struct {
 	RequireTOTP     bool
 	PublicURL       string
 	IngressAddr     string
-	MetricsToken    string
+
+	// IMAP is the inbound fallback when Mailcow cannot relay to the SMTP listener.
+	IMAPHost     string
+	IMAPPort     int
+	IMAPUsername string
+	IMAPPassword string
+	IMAPMailbox  string
+	MetricsToken string
 
 	// Inbound mail and bounces.
 	InboundListenAddr     string
@@ -181,6 +189,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("SMTP_TLS_MODE must be starttls or implicit (plaintext SMTP is not supported)")
 	}
 	c.SMTP.HeloName = get("SMTP_HELO_NAME", "")
+	c.SMTP.FailoverHost = get("SMTP_FAILOVER_HOST", "")
 	if c.SMTP.Timeout, err = durVar("SMTP_TIMEOUT", 40*time.Second); err != nil {
 		return nil, err
 	}
@@ -262,6 +271,18 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("METRICS_TOKEN must be at least 16 characters")
 	}
 	c.InboundListenAddr = get("INBOUND_LISTEN_ADDR", "0.0.0.0:2525")
+	c.IMAPHost = get("IMAP_HOST", "")
+	if c.IMAPPort, err = intVar("IMAP_PORT", 993); err != nil {
+		return nil, err
+	}
+	c.IMAPUsername = get("IMAP_USERNAME", "")
+	if c.IMAPPassword, err = secret("IMAP_PASSWORD"); err != nil {
+		return nil, err
+	}
+	c.IMAPMailbox = get("IMAP_MAILBOX", "INBOX")
+	if c.IMAPHost != "" && (c.IMAPUsername == "" || c.IMAPPassword == "") {
+		return nil, fmt.Errorf("IMAP_USERNAME and IMAP_PASSWORD are required when IMAP_HOST is set")
+	}
 	c.InboundDomain = strings.ToLower(get("INBOUND_DOMAIN", ""))
 	c.BounceAddress = strings.ToLower(get("BOUNCE_ADDRESS", ""))
 	if c.BounceAddress != "" && (strings.Count(c.BounceAddress, "@") != 1 || strings.ContainsAny(c.BounceAddress, " <>\r\n")) {

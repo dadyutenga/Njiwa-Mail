@@ -198,7 +198,7 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	rcpts := append([]string{pl.To}, append(append([]string{}, pl.CC...), pl.BCC...)...)
 	raw, err := mailer.Build(mailer.Message{FromName: pl.FromName, FromEmail: pl.From, To: pl.To, Subject: subject,
 		Text: text, HTML: html, MessageID: msgID, DMMessageID: c.ID, Date: time.Now(),
-		ReplyTo: pl.ReplyTo, CC: pl.CC, BCC: pl.BCC, Attachments: atts})
+		ReplyTo: pl.ReplyTo, CC: pl.CC, BCC: pl.BCC, Attachments: atts, Extra: pl.Headers})
 	if err != nil {
 		fail("build_failed")
 		return

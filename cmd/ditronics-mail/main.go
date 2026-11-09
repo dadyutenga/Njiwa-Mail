@@ -186,8 +186,13 @@ func main() {
 }
 
 func smtpTransport(cfg *config.Config) *mailer.SMTP {
-	return mailer.NewSMTP(mailer.SMTPConfig{Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
+	primary := mailer.NewSMTP(mailer.SMTPConfig{Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
 		Password: cfg.SMTP.Password, Implicit: cfg.SMTP.Implicit, HeloName: cfg.SMTP.HeloName, Timeout: cfg.SMTP.Timeout})
+	if cfg.SMTP.FailoverHost != "" {
+		primary.SetFailover(mailer.NewSMTP(mailer.SMTPConfig{Host: cfg.SMTP.FailoverHost, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
+			Password: cfg.SMTP.Password, Implicit: cfg.SMTP.Implicit, HeloName: cfg.SMTP.HeloName, Timeout: cfg.SMTP.Timeout}))
+	}
+	return primary
 }
 
 func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
@@ -233,19 +238,27 @@ func runWorker(ctx context.Context, cfg *config.Config, svc *service.Service) {
 
 // runInbound serves the private SMTP listener and parses what it spools.
 func runInbound(ctx context.Context, cfg *config.Config, svc *service.Service) {
-	if cfg.InboundDomain == "" && cfg.BounceAddress == "" {
-		die(errors.New("set INBOUND_DOMAIN and/or BOUNCE_ADDRESS to run the inbound role"))
+	if cfg.InboundDomain == "" && cfg.BounceAddress == "" && cfg.IMAPHost == "" {
+		die(errors.New("set INBOUND_DOMAIN, BOUNCE_ADDRESS, or IMAP_HOST to run the inbound role"))
 	}
 	sources, err := inbound.ParseSources(cfg.InboundAllowedSources)
 	if err != nil {
 		die(err)
 	}
-	if len(sources) == 0 {
-		die(errors.New("INBOUND_ALLOWED_SOURCES is required: the Mailcow address(es) allowed to connect (the listener refuses everyone else)"))
-	}
 	id := hostID()
 	go beat(ctx, svc, "inbound", id)
 	go (&inbound.Processor{Svc: svc}).Run(ctx)
+	if cfg.IMAPHost != "" {
+		go inbound.PollLoop(ctx, inbound.IMAPConfig{Host: cfg.IMAPHost, Port: cfg.IMAPPort, Username: cfg.IMAPUsername,
+			Password: cfg.IMAPPassword, Mailbox: cfg.IMAPMailbox}, svc)
+	}
+	if len(sources) == 0 {
+		if cfg.IMAPHost == "" {
+			die(errors.New("INBOUND_ALLOWED_SOURCES is required when the SMTP listener is used"))
+		}
+		<-ctx.Done()
+		return
+	}
 	srv := &inbound.Server{Svc: svc, Addr: cfg.InboundListenAddr, AllowedSources: sources, Hostname: cfg.MailHostname, MaxBytes: int64(cfg.InboundMaxBytes)}
 	if err := srv.ListenAndServe(ctx); err != nil {
 		die(err)

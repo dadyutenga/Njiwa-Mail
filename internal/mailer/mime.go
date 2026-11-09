@@ -13,6 +13,7 @@ import (
 	"mime/quotedprintable"
 	"net/mail"
 	"net/textproto"
+	"sort"
 	"strings"
 	"time"
 )
@@ -33,6 +34,8 @@ type Message struct {
 	CC          []string
 	BCC         []string // envelope only; never written as a header
 	Attachments []Attachment
+	// Extra headers are caller-supplied X- headers. Names are already checked.
+	Extra map[string]string
 }
 
 type Attachment struct {
@@ -71,6 +74,12 @@ func Build(m Message) ([]byte, error) {
 	hdr("MIME-Version", "1.0")
 	hdr("Auto-Submitted", "auto-generated")
 	hdr("X-Auto-Response-Suppress", "All")
+	for _, name := range headerNames(m.Extra) {
+		if !noCRLF(m.Extra[name]) || !noCRLF(name) {
+			return nil, errors.New("header injection rejected")
+		}
+		hdr(name, m.Extra[name])
+	}
 
 	alt, altBoundary, err := alternative(m.Text, m.HTML)
 	if err != nil {
@@ -125,6 +134,15 @@ func Build(m Message) ([]byte, error) {
 		return nil, err
 	}
 	return b.Bytes(), nil
+}
+
+func headerNames(h map[string]string) []string {
+	names := make([]string, 0, len(h))
+	for name := range h {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func alternative(text, html string) ([]byte, string, error) {

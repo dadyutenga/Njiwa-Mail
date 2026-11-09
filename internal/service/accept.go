@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,15 +30,16 @@ type SendRequest struct {
 	TTLSeconds      *int           `json:"ttl_seconds"`
 	Metadata        map[string]any `json:"metadata"`
 	// Raw sends (emails:send_raw) carry subject and a body instead of a template.
-	Subject     string         `json:"subject"`
-	HTML        string         `json:"html"`
-	Text        string         `json:"text"`
-	ReplyTo     string         `json:"reply_to"`
-	CC          []string       `json:"cc"`
-	BCC         []string       `json:"bcc"`
-	Priority    string         `json:"priority"` // high or normal; OTP and password-reset default to high
-	SendAt      string         `json:"send_at"`  // RFC3339, at most 7 days ahead
-	Attachments []AttachmentIn `json:"attachments"`
+	Subject     string            `json:"subject"`
+	HTML        string            `json:"html"`
+	Text        string            `json:"text"`
+	ReplyTo     string            `json:"reply_to"`
+	CC          []string          `json:"cc"`
+	BCC         []string          `json:"bcc"`
+	Priority    string            `json:"priority"` // high or normal; OTP and password-reset default to high
+	SendAt      string            `json:"send_at"`  // RFC3339, at most 7 days ahead
+	Attachments []AttachmentIn    `json:"attachments"`
+	Headers     map[string]string `json:"headers"`
 }
 
 // AttachmentIn is one outbound file. Content is standard base64.
@@ -72,6 +74,7 @@ type Payload struct {
 	ReplyTo   string            `json:"reply_to,omitempty"`
 	CC        []string          `json:"cc,omitempty"`
 	BCC       []string          `json:"bcc,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
 }
 
 type storedAttachment struct {
@@ -104,7 +107,10 @@ type validated struct {
 	sendAt                       time.Time
 	attachments                  []storedAttachment
 	recipients                   []string
+	headers                      map[string]string
 }
+
+var customHeaderRe = regexp.MustCompile(`^X-[A-Za-z0-9-]{1,40}$`)
 
 func invalid(code string) error { return newErr(422, code) }
 
@@ -220,6 +226,7 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 		ReplyTo            string   `json:",omitempty"`
 		CC, BCC            []string `json:",omitempty"`
 		SendAt             int64    `json:",omitempty"`
+		Headers            string   `json:",omitempty"`
 		RawSubject         string   `json:",omitempty"`
 		BodySHA            string   `json:",omitempty"`
 		AttachmentSHA      []string `json:",omitempty"`
@@ -230,6 +237,9 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 		doc.Priority = v.priority
 	}
 	doc.ReplyTo, doc.CC, doc.BCC = v.replyTo, v.cc, v.bcc
+	if len(v.headers) > 0 {
+		doc.Headers = headerCanon(v.headers)
+	}
 	if !v.sendAt.IsZero() {
 		doc.SendAt = v.sendAt.Unix()
 	}
@@ -257,6 +267,9 @@ func (s *Service) extraRecipients(req SendRequest, v *validated) error {
 		return err
 	}
 	if v.bcc, err = manyAddr(req.BCC); err != nil {
+		return err
+	}
+	if v.headers, err = customHeaders(req.Headers); err != nil {
 		return err
 	}
 	v.recipients = append([]string{v.to}, append(append([]string{}, v.cc...), v.bcc...)...)
@@ -305,6 +318,39 @@ func (s *Service) extraRecipients(req SendRequest, v *validated) error {
 		v.attachments = append(v.attachments, storedAttachment{Filename: a.Filename, ContentType: a.ContentType, Data: data})
 	}
 	return nil
+}
+
+func customHeaders(in map[string]string) (map[string]string, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	if len(in) > 8 {
+		return nil, invalid("invalid_header")
+	}
+	out := make(map[string]string, len(in))
+	for name, value := range in {
+		if !customHeaderRe.MatchString(name) || strings.ContainsAny(value, "\r\n\x00") || len(value) > 200 {
+			return nil, invalid("invalid_header")
+		}
+		out[name] = value
+	}
+	return out, nil
+}
+
+func headerCanon(h map[string]string) string {
+	names := make([]string, 0, len(h))
+	for name := range h {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, name := range names {
+		b.WriteString(name)
+		b.WriteByte('=')
+		b.WriteString(h[name])
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func oneAddr(s string) (string, error) {
@@ -476,7 +522,7 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 	id := secure.NewUUID()
 	pl, _ := json.Marshal(Payload{From: v.from, FromName: v.fromName, To: v.to, Template: v.tpl.Slug, Version: v.tpl.Version,
 		VersionID: v.tpl.VersionID, Locale: v.locale, Vars: v.vars, Raw: v.raw, Subject: v.subject, HTML: v.html, Text: v.text,
-		ReplyTo: v.replyTo, CC: v.cc, BCC: v.bcc})
+		ReplyTo: v.replyTo, CC: v.cc, BCC: v.bcc, Headers: v.headers})
 	sealed, err := s.Box.Seal(pl, []byte(id))
 	if err != nil {
 		return nil, false, unavailable("seal", err)

@@ -10,6 +10,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+
+	"golang.org/x/net/idna"
 
 	"github.com/ditronics-tz/mail/internal/secure"
 	"github.com/jackc/pgx/v5"
@@ -192,19 +195,49 @@ func (s *Service) one(ctx context.Context, sql string, args ...any) (map[string]
 	return out[0], nil
 }
 
-var emailRe = regexp.MustCompile(`^[a-z0-9!#$%&'*+/=?^_{|}~-]+(\.[a-z0-9!#$%&'*+/=?^_{|}~-]+)*@([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+var (
+	localRe  = regexp.MustCompile(`^[a-z0-9!#$%&'*+/=?^_{|}~-]+(\.[a-z0-9!#$%&'*+/=?^_{|}~-]+)*$`)
+	domainRe = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+)
 
-// NormalizeEmail lowercases and strictly validates a bare ASCII address.
+// NormalizeEmail validates an address and returns it in a stable form.
+// The domain is converted to ASCII (IDNA). A non-ASCII local part is kept
+// as Unicode when it contains only letters, digits and the usual symbols.
 func NormalizeEmail(s string) (string, bool) {
-	if s != strings.TrimSpace(s) || len(s) > 254 {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 320 || strings.ContainsAny(s, " \t\r\n") {
 		return "", false
 	}
-	l := strings.ToLower(s)
-	at := strings.LastIndexByte(l, '@')
-	if at < 1 || at > 64 || !emailRe.MatchString(l) {
+	at := strings.LastIndex(s, "@")
+	if at < 1 || at > 64 || at == len(s)-1 {
 		return "", false
 	}
-	return l, true
+	local := strings.ToLower(s[:at])
+	asciiDomain, err := idna.Lookup.ToASCII(strings.ToLower(s[at+1:]))
+	if err != nil || !localOK(local) || !domainRe.MatchString(strings.ToLower(asciiDomain)) {
+		return "", false
+	}
+	addr := local + "@" + strings.ToLower(asciiDomain)
+	if len(addr) > 254 {
+		return "", false
+	}
+	return addr, true
+}
+
+func localOK(local string) bool {
+	if local == "" || len(local) > 64 || strings.HasPrefix(local, ".") || strings.HasSuffix(local, ".") || strings.Contains(local, "..") {
+		return false
+	}
+	if localRe.MatchString(local) {
+		return true
+	}
+	for _, r := range local {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune(".!#$%&'*+/=?^_{|}~-", r) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func maskEmail(e string) string {

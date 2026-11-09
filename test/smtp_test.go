@@ -103,6 +103,22 @@ func TestSMTPCheck(t *testing.T) {
 	}
 }
 
+func TestCustomHeaderAndFailover(t *testing.T) {
+	raw, err := mailer.Build(mailer.Message{FromEmail: liveFrom, To: testRcpt, Subject: "s", Text: "t", HTML: "<p>t</p>", MessageID: "a@b.c", Date: time.Now(), Extra: map[string]string{"X-App": "billing"}})
+	if err != nil || !strings.Contains(string(raw), "X-App: billing") {
+		t.Fatalf("custom header: %v", err)
+	}
+	if _, err := mailer.Build(mailer.Message{FromEmail: liveFrom, To: testRcpt, Subject: "s", MessageID: "a@b.c", Date: time.Now(), Extra: map[string]string{"X-App": "a\r\nBcc: x"}}); err == nil {
+		t.Fatal("header injection accepted")
+	}
+	_, pool, port := startSMTP(t, scenario{})
+	dead := mailer.NewSMTP(mailer.SMTPConfig{Host: "127.0.0.1", Port: 1, Username: "notify@example.com", Password: passSecret, HeloName: "test.local", Timeout: time.Second, RootCAs: pool})
+	dead.SetFailover(smtpClient(port, pool))
+	if res := dead.Send(context.Background(), env1()); res.Outcome != mailer.Accepted {
+		t.Fatalf("failover: %+v", res)
+	}
+}
+
 func TestMIMEBuildSafe(t *testing.T) {
 	if _, err := mailer.Build(mailer.Message{FromEmail: liveFrom, To: testRcpt, Subject: "a\r\nBcc: x@evil.net", MessageID: "a@b.c", Date: time.Now()}); err == nil {
 		t.Fatal("subject header injection accepted")

@@ -63,7 +63,10 @@ type SMTPConfig struct {
 	RootCAs *x509.CertPool
 }
 
-type SMTP struct{ cfg SMTPConfig }
+type SMTP struct {
+	cfg  SMTPConfig
+	next *SMTP
+}
 
 func NewSMTP(cfg SMTPConfig) *SMTP {
 	if cfg.Timeout <= 0 {
@@ -183,8 +186,20 @@ func (s *SMTP) Check(ctx context.Context) error {
 	return cl.Quit()
 }
 
-// Send submits one message and classifies the outcome conservatively.
+// Failover is tried only when this host provably did not accept the message.
 func (s *SMTP) Send(ctx context.Context, e Envelope) Result {
+	r := s.submit(ctx, e)
+	if s.next != nil && r.Outcome == TempFailure {
+		return s.next.Send(ctx, e)
+	}
+	return r
+}
+
+// SetFailover sets the next SMTP host. A temporary failure before acceptance
+// is tried there. A message that may already have been accepted is not.
+func (s *SMTP) SetFailover(next *SMTP) { s.next = next }
+
+func (s *SMTP) submit(ctx context.Context, e Envelope) Result {
 	cl, _, r := s.dial(ctx)
 	if r != nil {
 		return *r
