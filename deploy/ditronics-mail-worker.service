@@ -1,0 +1,19 @@
+# Alternative to compose: supervised native worker (adjust paths / env file).
+[Unit]
+Description=Ditronics Mail worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=ditronics-mail
+EnvironmentFile=/etc/ditronics-mail/env
+ExecStart=/usr/local/bin/ditronics-mail worker
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
