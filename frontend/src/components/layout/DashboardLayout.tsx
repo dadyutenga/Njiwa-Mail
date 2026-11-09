@@ -20,14 +20,16 @@ import { NotificationBell } from "@/components/shared/NotificationBell";
 import { CommandPalette } from "@/components/shared/CommandPalette";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { getNavSections } from "@/app/routes.config";
 import { APP_CONFIG, STORAGE_KEYS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 export function DashboardLayout() {
   const location = useLocation();
+  const { user } = useAuth();
   const { language, toggleLanguage } = useLanguage();
-  const navSections = getNavSections();
+  const navSections = getNavSections(user?.role);
 
   const [isCollapsed, setIsCollapsed] = React.useState<boolean>(() => {
     try {
@@ -66,7 +68,7 @@ export function DashboardLayout() {
           <div className="h-16 flex items-center justify-between px-4 border-b">
             <NavLink to="/dashboard" className="flex items-center gap-2.5 overflow-hidden">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-base shadow-sm">
-                T
+                M
               </div>
               {!isCollapsed && (
                 <div className="flex flex-col">
@@ -74,7 +76,7 @@ export function DashboardLayout() {
                     {APP_CONFIG.name}
                   </span>
                   <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">
-                    Console
+                    Operator
                   </span>
                 </div>
               )}
@@ -103,7 +105,9 @@ export function DashboardLayout() {
                 <nav className="space-y-1">
                   {section.items.map((item) => {
                     const Icon = item.icon;
-                    const isActive = location.pathname === item.path;
+                    const isActive = item.path === "/dashboard"
+                      ? location.pathname === item.path
+                      : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
 
                     const linkContent = (
                       <NavLink
@@ -194,7 +198,9 @@ export function DashboardLayout() {
                         <nav className="space-y-1">
                           {section.items.map((item) => {
                             const Icon = item.icon;
-                            const isActive = location.pathname === item.path;
+                            const isActive = item.path === "/dashboard"
+                      ? location.pathname === item.path
+                      : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
 
                             return (
                               <NavLink

@@ -33,7 +33,8 @@ type Email struct {
 	From            string
 	To              string
 	Template        string
-	TemplateVersion int
+	TemplateVersion int    // 0 = newest published version (pinned by the service at accept time)
+	Locale          string // "en" (default) or "sw"
 	Variables       map[string]any
 	TTLSeconds      int    // 0 = template default
 	RequestID       string // optional correlation id (metadata.request_id)
@@ -137,7 +138,13 @@ func (c *Client) do(ctx context.Context, method, path, idem string, body []byte)
 // the same key.
 func (c *Client) Send(ctx context.Context, idempotencyKey string, e Email) (*Accepted, error) {
 	payload := map[string]any{
-		"from": e.From, "to": e.To, "template": e.Template, "template_version": e.TemplateVersion, "variables": e.Variables,
+		"from": e.From, "to": e.To, "template": e.Template, "variables": e.Variables,
+	}
+	if e.TemplateVersion > 0 {
+		payload["template_version"] = e.TemplateVersion
+	}
+	if e.Locale != "" {
+		payload["locale"] = e.Locale
 	}
 	if e.TTLSeconds > 0 {
 		payload["ttl_seconds"] = e.TTLSeconds

@@ -33,6 +33,8 @@ const (
 	otpCode    = "493817"
 	pgDefault  = "postgres://dadi@/ditronics_mail_test?host=/var/run/postgresql"
 	passSecret = "smtp-password-secret"
+	inDomain   = "in.example.com"
+	bounceAddr = "bounces@notify.example.com"
 )
 
 type fakeTransport struct {
@@ -60,6 +62,7 @@ type env struct {
 	svc  *service.Service
 	box  *secure.Box
 	h    http.Handler
+	srv  *api.Server
 	tr   *fakeTransport
 	w    *worker.Worker
 }
@@ -97,12 +100,17 @@ func setup(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	box := newBox(t)
-	svc := service.New(pool, box, service.Options{})
+	svc := service.New(pool, box, service.Options{InboundDomain: inDomain, BounceAddress: bounceAddr, DataDir: t.TempDir(),
+		MailHost: "mail.example.com", OutboundIP: "203.0.113.10"})
+	if err := svc.SeedTemplates(ctx); err != nil {
+		t.Fatal(err)
+	}
 	tr := &fakeTransport{}
 	e := &env{t: t, pool: pool, svc: svc, box: box, tr: tr}
-	e.h = (&api.Server{Svc: svc, MaxBodyBytes: 32 * 1024}).Handler()
+	e.srv = &api.Server{Svc: svc, MaxBodyBytes: 32 * 1024, MetricsToken: "metrics-token-0123456789"}
+	e.h = e.srv.Handler()
 	e.w = &worker.Worker{Svc: svc, SMTP: tr, ID: "test", Lease: 30 * time.Second, SendTimeout: 5 * time.Second,
-		Backoff: []time.Duration{10 * time.Millisecond}}
+		Backoff: []time.Duration{10 * time.Millisecond}, BounceAddress: bounceAddr}
 	return e
 }
 

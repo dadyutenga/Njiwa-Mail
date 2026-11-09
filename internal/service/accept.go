@@ -20,7 +20,8 @@ type SendRequest struct {
 	From            string         `json:"from"`
 	To              string         `json:"to"`
 	Template        string         `json:"template"`
-	TemplateVersion *int           `json:"template_version"`
+	TemplateVersion *int           `json:"template_version"` // optional: omitted pins the newest published version
+	Locale          string         `json:"locale"`           // "en" (default) or "sw"
 	Variables       map[string]any `json:"variables"`
 	TTLSeconds      *int           `json:"ttl_seconds"`
 	Metadata        map[string]any `json:"metadata"`
@@ -28,12 +29,15 @@ type SendRequest struct {
 
 // Payload is the sensitive content stored encrypted until a terminal outcome.
 type Payload struct {
-	From     string            `json:"from"`
-	FromName string            `json:"from_name"`
-	To       string            `json:"to"`
-	Template string            `json:"template"`
-	Version  int               `json:"version"`
-	Vars     map[string]string `json:"vars"`
+	From     string `json:"from"`
+	FromName string `json:"from_name"`
+	To       string `json:"to"`
+	Template string `json:"template"`
+	Version  int    `json:"version"`
+	// VersionID pins the exact template version; Locale selects its content.
+	VersionID string            `json:"version_id,omitempty"`
+	Locale    string            `json:"locale,omitempty"`
+	Vars      map[string]string `json:"vars"`
 }
 
 type Accepted struct {
@@ -48,7 +52,8 @@ var (
 
 type validated struct {
 	from, fromName, to string
-	tpl                *tmpl.Template
+	tpl                *tplRef
+	locale             string
 	vars               map[string]string
 	ttl                time.Duration
 	requestID          string
@@ -68,6 +73,12 @@ func (s *Service) validate(ctx context.Context, p *Principal, body []byte) (*val
 	if _, err := dec.Token(); err != io.EOF {
 		return nil, invalid("invalid_request")
 	}
+	return s.validateRequest(ctx, p, req, nil)
+}
+
+// validateRequest validates a decoded request. pinned, when set, is a template
+// version chosen by the caller (admin test-send) instead of resolved by slug.
+func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendRequest, pinned *tplRef) (*validated, error) {
 	v := &validated{}
 	var ok bool
 	if v.to, ok = NormalizeEmail(req.To); !ok {
@@ -76,13 +87,22 @@ func (s *Service) validate(ctx context.Context, p *Principal, body []byte) (*val
 	if v.from, ok = NormalizeEmail(req.From); !ok {
 		return nil, invalid("invalid_sender")
 	}
-	if req.TemplateVersion == nil {
-		return nil, invalid("template_version_required")
+	if v.locale = req.Locale; v.locale == "" {
+		v.locale = "en"
 	}
-	if v.tpl = tmpl.Lookup(req.Template, *req.TemplateVersion); v.tpl == nil {
+	if !tmpl.ValidLocale(v.locale) {
+		return nil, invalid("invalid_locale")
+	}
+	if req.TemplateVersion != nil && *req.TemplateVersion < 1 {
 		return nil, invalid("unknown_template")
 	}
-	vars, verr := v.tpl.Validate(req.Variables, p.Origins)
+	if v.tpl = pinned; v.tpl == nil {
+		var err error
+		if v.tpl, err = s.resolveTemplate(ctx, p.ProjectID, req.Template, req.TemplateVersion); err != nil {
+			return nil, err
+		}
+	}
+	vars, verr := v.tpl.Schema.Validate(req.Variables, p.Origins)
 	if verr != nil {
 		return nil, invalid(verr.Code)
 	}
@@ -117,14 +137,24 @@ func (s *Service) validate(ctx context.Context, p *Principal, body []byte) (*val
 	v.fromName = name
 
 	// Keyed canonical fingerprint of the validated request (not a plain digest:
-	// OTP-bearing payloads would otherwise be offline-guessable).
+	// OTP-bearing payloads would otherwise be offline-guessable). It records
+	// the version the caller ASKED for (0 = newest), so a retry of the same
+	// request still matches after a newer version is published.
+	asked, locale := 0, ""
+	if req.TemplateVersion != nil {
+		asked = *req.TemplateVersion
+	}
+	if v.locale != "en" {
+		locale = v.locale
+	}
 	canon, _ := json.Marshal(struct {
 		From, To, Template string
 		Version            int
 		Vars               map[string]string
 		TTL                int64
 		RequestID          string
-	}{v.from, v.to, v.tpl.Name, v.tpl.Version, v.vars, int64(v.ttl / time.Second), v.requestID})
+		Locale             string `json:",omitempty"`
+	}{v.from, v.to, v.tpl.Slug, asked, v.vars, int64(v.ttl / time.Second), v.requestID, locale})
 	v.canonical = canon
 	return v, nil
 }
@@ -152,6 +182,10 @@ func (s *Service) Accept(ctx context.Context, p *Principal, idemKey string, body
 	if err != nil {
 		return nil, err
 	}
+	return s.acceptValidated(ctx, p, v, idemKey)
+}
+
+func (s *Service) acceptValidated(ctx context.Context, p *Principal, v *validated, idemKey string) (*Accepted, error) {
 	reqMAC := s.Box.MAC("request", v.canonical)
 	rcptHash := s.Box.MAC("recipient", []byte(v.to))
 
@@ -227,7 +261,8 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 
 	// 4. Durable insert.
 	id := secure.NewUUID()
-	pl, _ := json.Marshal(Payload{From: v.from, FromName: v.fromName, To: v.to, Template: v.tpl.Name, Version: v.tpl.Version, Vars: v.vars})
+	pl, _ := json.Marshal(Payload{From: v.from, FromName: v.fromName, To: v.to, Template: v.tpl.Slug, Version: v.tpl.Version,
+		VersionID: v.tpl.VersionID, Locale: v.locale, Vars: v.vars})
 	sealed, err := s.Box.Seal(pl, []byte(id))
 	if err != nil {
 		return nil, false, unavailable("seal", err)
@@ -239,10 +274,11 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 	mj, _ := json.Marshal(meta)
 	tag, err := tx.Exec(ctx, `
 INSERT INTO messages (id, project_id, environment_id, api_key_id, template, template_version, state, payload_enc,
-                      recipient_hash, request_hmac, idempotency_key, metadata, expires_at, next_attempt_at)
-VALUES ($1,$2,$3,$4,$5,$6,'queued',$7,$8,$9,$10,$11, now() + make_interval(secs => $12::float8), now())
+                      recipient_hash, request_hmac, idempotency_key, metadata, expires_at, next_attempt_at, locale, template_version_id)
+VALUES ($1,$2,$3,$4,$5,$6,'queued',$7,$8,$9,$10,$11, now() + make_interval(secs => $12::float8), now(), $13, $14)
 ON CONFLICT (project_id, environment_id, idempotency_key) DO NOTHING`,
-		id, p.ProjectID, p.EnvironmentID, p.KeyID, v.tpl.Name, v.tpl.Version, sealed, rcptHash, reqMAC, idemKey, mj, v.ttl.Seconds())
+		id, p.ProjectID, p.EnvironmentID, nullable(p.KeyID), v.tpl.Slug, v.tpl.Version, sealed, rcptHash, reqMAC, idemKey, mj, v.ttl.Seconds(),
+		v.locale, v.tpl.VersionID)
 	if err != nil {
 		return nil, false, unavailable("insert", err)
 	}
@@ -286,4 +322,11 @@ RETURNING count`, key, ws).Scan(&n)
 		return wait, false, nil
 	}
 	return 0, true, nil
+}
+
+func nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

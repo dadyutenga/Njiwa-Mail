@@ -107,5 +107,28 @@ WHERE k.prefix = $1`, parts[2]).Scan(
 		return nil, newErr(403, "project_disabled")
 	}
 	p.Mode, p.KeyPrefix = mode, parts[2]
+	// Best effort, at most one write a minute per key.
+	s.Pool.Exec(ctx, `UPDATE api_keys SET last_used_at=now() WHERE id=$1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')`, p.KeyID)
+	return &p, nil
+}
+
+// principalFor builds the sending context of a project environment for an
+// operator action (admin test-send). It carries no API key.
+func (s *Service) principalFor(ctx context.Context, project, mode string) (*Principal, error) {
+	var p Principal
+	var projEnabled, envEnabled bool
+	err := s.Pool.QueryRow(ctx, `
+SELECT p.id, p.enabled, p.send_per_minute, p.send_per_day, p.recipient_per_minute, p.recipient_per_hour,
+       e.id, e.mode, e.enabled, e.approved_origins, e.restrict_recipients, e.recipient_allowlist
+FROM projects p JOIN environments e ON e.project_id = p.id WHERE p.name=$1 AND e.mode=$2`, project, mode).Scan(
+		&p.ProjectID, &projEnabled, &p.PerMinute, &p.PerDay, &p.RcptPerMinute, &p.RcptPerHour,
+		&p.EnvironmentID, &p.Mode, &envEnabled, &p.Origins, &p.RestrictRecipients, &p.Allowlist)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	if !projEnabled || !envEnabled {
+		return nil, newErr(403, "project_disabled")
+	}
+	p.Scopes = []string{ScopeSend, ScopeRead}
 	return &p, nil
 }

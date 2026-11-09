@@ -161,7 +161,7 @@ func (s *Service) CreateKey(ctx context.Context, project, mode string, scopes []
 		return
 	}
 	for _, sc := range scopes {
-		if sc != ScopeSend && sc != ScopeRead {
+		if !validScope(sc) {
 			return "", "", fmt.Errorf("unknown scope %q", sc)
 		}
 	}
@@ -333,6 +333,10 @@ func (s *Service) ResolveUnknown(ctx context.Context, id, to, note string) error
 		return errors.New("message not found or not in unknown state")
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO message_events(message_id, event_type, reason_code) VALUES ($1,'operator_resolved',$2)`, id, to+": "+note); err != nil {
+		return err
+	}
+	// The webhook carries a fixed reason code, never the operator's note.
+	if err := emitMessageEvent(ctx, tx, id, "email."+to, "operator_resolved"); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

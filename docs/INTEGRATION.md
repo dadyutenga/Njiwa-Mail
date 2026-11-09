@@ -52,12 +52,19 @@ the retry rules above. Generate a client with any OpenAPI generator if you prefe
 
 | Template | Variables | Default / max TTL |
 |---|---|---|
-| `otp` v1 | `name?`, `code` (4–12 alnum), `expires_in_minutes` | 300s / 900s |
-| `password-reset` v1 | `name?`, `reset_url` (https, origin approved), `expires_in_minutes` | 300s / 900s |
-| `account-notice` v1 | `name?`, `title` (≤100), `message` (≤1000) | 1h / 24h |
+| `otp` | `name?`, `code` (4–12 alnum), `expires_in_minutes` | 300s / 900s |
+| `password-reset` | `name?`, `reset_url` (https, origin approved), `expires_in_minutes` | 300s / 900s |
+| `account-notice` | `name?`, `title` (≤100), `message` (≤1000) | 1h / 24h |
 
-Content is fixed and code-owned; variables are escaped. If an application needs different copy or a new template,
-that is a new template version in this service (reviewed and released), not a per-request override.
+Each is available in English and Kiswahili: send `"locale": "sw"` (default `en`; a version without Kiswahili content falls back to English).
+
+Templates live in the database as immutable published versions. `template_version` is optional: leave it out and the newest
+published version is pinned when the request is accepted; later edits never change mail already queued. Send a number to pin a
+specific version. Variables are always escaped and never evaluated as template code. New copy is a new version published
+from the admin UI, not a per-request override. A project can also have its own templates, which other projects cannot use.
+
+Inbound mail, suppressions and webhooks for applications: see [openapi.yaml](openapi.yaml), [WEBHOOKS.md](WEBHOOKS.md)
+and, for SACAS, [SACAS_INTEGRATION.md](SACAS_INTEGRATION.md).
 
 ## 6. Example: SACAS (one client among many)
 

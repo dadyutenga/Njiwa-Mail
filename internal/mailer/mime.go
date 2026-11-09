@@ -23,15 +23,18 @@ type Message struct {
 	Subject   string
 	Text      string
 	HTML      string
-	MessageID string // without angle brackets
-	Date      time.Time
+	MessageID string // without angle brackets; stable for the life of the message
+	// DMMessageID is our message id, sent as X-DM-Message-ID so a returned DSN
+	// can be correlated even when the Message-ID was rewritten.
+	DMMessageID string
+	Date        time.Time
 }
 
 func noCRLF(s string) bool { return !strings.ContainsAny(s, "\r\n\x00") }
 
 // Build renders an RFC 5322 multipart/alternative message with CRLF line endings.
 func Build(m Message) ([]byte, error) {
-	for _, s := range []string{m.FromName, m.FromEmail, m.To, m.Subject, m.MessageID} {
+	for _, s := range []string{m.FromName, m.FromEmail, m.To, m.Subject, m.MessageID, m.DMMessageID} {
 		if !noCRLF(s) {
 			return nil, errors.New("header injection rejected")
 		}
@@ -43,6 +46,9 @@ func Build(m Message) ([]byte, error) {
 	hdr("Subject", mime.QEncoding.Encode("utf-8", m.Subject))
 	hdr("Date", m.Date.UTC().Format(time.RFC1123Z))
 	hdr("Message-ID", "<"+m.MessageID+">")
+	if m.DMMessageID != "" {
+		hdr("X-DM-Message-ID", m.DMMessageID)
+	}
 	hdr("MIME-Version", "1.0")
 	hdr("Auto-Submitted", "auto-generated")
 	hdr("X-Auto-Response-Suppress", "All")

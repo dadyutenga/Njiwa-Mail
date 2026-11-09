@@ -3,6 +3,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ditronics-tz/mail/internal/secure"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,6 +21,19 @@ type Options struct {
 	CaptureRetention  time.Duration
 	UnknownPurge      time.Duration
 	MaxAttempts       int
+
+	// Inbound mail. InboundDomain is the subdomain Mailcow relays to the Go
+	// listener; BounceAddress is the envelope sender DSNs come back to.
+	InboundDomain string
+	BounceAddress string
+	DataDir       string // spool and attachment storage, outside any web root
+
+	// DNS health checker expectations.
+	MailHost     string // Mailcow hostname (MX target, PTR value)
+	OutboundIP   string
+	DKIMSelector string
+
+	SessionTTL time.Duration
 }
 
 type Service struct {
@@ -40,13 +55,24 @@ func New(pool *pgxpool.Pool, box *secure.Box, o Options) *Service {
 	if o.UnknownPurge <= 0 || o.UnknownPurge > 24*time.Hour {
 		o.UnknownPurge = 24 * time.Hour
 	}
+	if o.DKIMSelector == "" {
+		o.DKIMSelector = "dkim"
+	}
+	if o.SessionTTL <= 0 {
+		o.SessionTTL = 12 * time.Hour
+	}
+	o.InboundDomain = strings.ToLower(o.InboundDomain)
+	o.BounceAddress = strings.ToLower(o.BounceAddress)
 	return &Service{Pool: pool, Box: box, Opts: o}
 }
 
 // Error is a safe, client-visible failure. Code never contains user content.
+// Message is optional operator-facing detail, used only by the admin API for
+// validation feedback on things the operator typed (never secrets or mail).
 type Error struct {
 	Status     int
 	Code       string
+	Message    string
 	RetryAfter time.Duration
 }
 
@@ -69,10 +95,96 @@ func IsError(err error) (*Error, bool) {
 	return nil, false
 }
 
+func badRequest(msg string) *Error { return &Error{Status: 400, Code: "invalid_request", Message: msg} }
+
+// notFound maps a lookup error: nil stays nil, no-rows becomes 404, anything
+// else is a persistence failure.
+func notFound(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return newErr(404, "not_found")
+	}
+	return unavailable("lookup", err)
+}
+
 const (
-	ScopeSend = "emails:send"
-	ScopeRead = "emails:read"
+	ScopeSend         = "emails:send"
+	ScopeRead         = "emails:read"
+	ScopeInboundRead  = "inbound:read"
+	ScopeSuppressions = "suppressions:manage"
 )
+
+var allScopes = []string{ScopeSend, ScopeRead, ScopeInboundRead, ScopeSuppressions}
+
+func validScope(sc string) bool {
+	for _, x := range allScopes {
+		if x == sc {
+			return true
+		}
+	}
+	return false
+}
+
+// Page is a server-side pagination request.
+type Page struct{ Limit, Offset int }
+
+func (p Page) norm() Page {
+	if p.Limit <= 0 {
+		p.Limit = 50
+	}
+	if p.Limit > 100 {
+		p.Limit = 100
+	}
+	if p.Offset < 0 {
+		p.Offset = 0
+	}
+	return p
+}
+
+// maps runs a read query and returns rows as JSON-ready maps. Queries must
+// cast uuid columns to text and must never select secret or encrypted columns.
+func (s *Service) maps(ctx context.Context, sql string, args ...any) ([]map[string]any, error) {
+	rows, err := s.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, unavailable("query", err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToMap)
+	if err != nil {
+		return nil, unavailable("query_rows", err)
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+// page is maps with LIMIT/OFFSET appended; it reports whether more rows exist.
+func (s *Service) page(ctx context.Context, pg Page, sql string, args ...any) ([]map[string]any, bool, error) {
+	pg = pg.norm()
+	n := len(args)
+	sql += fmt.Sprintf(" LIMIT $%d OFFSET $%d", n+1, n+2)
+	out, err := s.maps(ctx, sql, append(args, pg.Limit+1, pg.Offset)...)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(out) > pg.Limit {
+		return out[:pg.Limit], true, nil
+	}
+	return out, false, nil
+}
+
+func (s *Service) one(ctx context.Context, sql string, args ...any) (map[string]any, error) {
+	out, err := s.maps(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, newErr(404, "not_found")
+	}
+	return out[0], nil
+}
 
 var emailRe = regexp.MustCompile(`^[a-z0-9!#$%&'*+/=?^_{|}~-]+(\.[a-z0-9!#$%&'*+/=?^_{|}~-]+)*@([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 

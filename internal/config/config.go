@@ -47,6 +47,35 @@ type Config struct {
 	// It is not a project API key and must never be embedded in frontend code.
 	ConsolePassword   string
 	ConsoleSessionTTL time.Duration
+
+	// Admin API.
+	AdminSessionTTL time.Duration
+	TrustProxy      bool
+	InsecureCookies bool
+	MetricsToken    string
+
+	// Inbound mail and bounces.
+	InboundListenAddr     string
+	InboundDomain         string // e.g. in.example.com
+	BounceAddress         string // e.g. bounces@notify.example.com; also the SMTP envelope sender
+	InboundAllowedSources string // Mailcow host IPs / CIDRs allowed to connect to the listener
+	InboundMaxBytes       int
+	DataDir               string
+
+	// DNS health checker expectations.
+	MailHostname string
+	OutboundIP   string
+	DKIMSelector string
+}
+
+func boolVar(name string) (bool, error) {
+	switch strings.ToLower(get(name, "false")) {
+	case "true", "1", "yes":
+		return true, nil
+	case "false", "0", "no":
+		return false, nil
+	}
+	return false, fmt.Errorf("%s must be true or false", name)
 }
 
 func get(name, def string) string {
@@ -202,5 +231,37 @@ func Load() (*Config, error) {
 	if c.ConsoleSessionTTL < time.Minute || c.ConsoleSessionTTL > 24*time.Hour {
 		return nil, fmt.Errorf("CONSOLE_SESSION_TTL must be between 1m and 24h")
 	}
+	if c.AdminSessionTTL, err = durVar("ADMIN_SESSION_TTL", 12*time.Hour); err != nil {
+		return nil, err
+	}
+	if c.AdminSessionTTL < 5*time.Minute || c.AdminSessionTTL > 7*24*time.Hour {
+		return nil, fmt.Errorf("ADMIN_SESSION_TTL must be between 5m and 168h")
+	}
+	if c.TrustProxy, err = boolVar("TRUST_PROXY"); err != nil {
+		return nil, err
+	}
+	if c.InsecureCookies, err = boolVar("ADMIN_INSECURE_COOKIES"); err != nil {
+		return nil, err
+	}
+	if c.MetricsToken, err = secret("METRICS_TOKEN"); err != nil {
+		return nil, err
+	}
+	if c.MetricsToken != "" && len(c.MetricsToken) < 16 {
+		return nil, fmt.Errorf("METRICS_TOKEN must be at least 16 characters")
+	}
+	c.InboundListenAddr = get("INBOUND_LISTEN_ADDR", "0.0.0.0:2525")
+	c.InboundDomain = strings.ToLower(get("INBOUND_DOMAIN", ""))
+	c.BounceAddress = strings.ToLower(get("BOUNCE_ADDRESS", ""))
+	if c.BounceAddress != "" && (strings.Count(c.BounceAddress, "@") != 1 || strings.ContainsAny(c.BounceAddress, " <>\r\n")) {
+		return nil, fmt.Errorf("BOUNCE_ADDRESS must be a bare email address")
+	}
+	c.InboundAllowedSources = get("INBOUND_ALLOWED_SOURCES", "")
+	if c.InboundMaxBytes, err = intVar("INBOUND_MAX_BYTES", 10<<20); err != nil {
+		return nil, err
+	}
+	c.DataDir = get("DATA_DIR", "/var/lib/ditronics-mail")
+	c.MailHostname = strings.ToLower(get("MAIL_HOSTNAME", ""))
+	c.OutboundIP = get("OUTBOUND_IP", "")
+	c.DKIMSelector = get("DKIM_SELECTOR", "dkim")
 	return &c, nil
 }

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { User, UserRole, LoginCredentials, RegisterCredentials } from "@/types/auth";
 import { apiClient } from "@/lib/api";
-import type { ConsoleMe } from "@/types/mail";
+import { setCsrfToken } from "@/lib/csrf";
 
 interface AuthContextType {
   user: User | null;
@@ -15,15 +15,24 @@ interface AuthContextType {
   switchRole: (role: UserRole) => void;
 }
 
+interface SessionUser {
+  id: string;
+  email: string;
+  role: UserRole;
+  csrf_token: string;
+  expires_at: string;
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function operatorUser(me: ConsoleMe): User {
+function asUser(session: SessionUser): User {
+  setCsrfToken(session.csrf_token);
   return {
-    id: me.id,
-    name: me.name,
-    email: "operator@ditronics.mail",
-    role: "admin",
-    createdAt: new Date().toISOString(),
+    id: session.id,
+    name: session.email,
+    email: session.email,
+    role: session.role,
+    createdAt: session.expires_at,
   };
 }
 
@@ -36,13 +45,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let cancelled = false;
     (async () => {
       try {
-        const response = await apiClient.get<ConsoleMe>("/me");
+        const response = await apiClient.get<SessionUser>("/auth/me");
         if (!cancelled) {
-          setUser(operatorUser(response.data));
+          setUser(asUser(response.data));
           setToken("session");
         }
       } catch {
         if (!cancelled) {
+          setCsrfToken("");
           setUser(null);
           setToken(null);
         }
@@ -58,9 +68,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (credentials: LoginCredentials): Promise<void> => {
     setIsLoading(true);
     try {
-      await apiClient.post("/login", { password: credentials.password });
-      const response = await apiClient.get<ConsoleMe>("/me");
-      setUser(operatorUser(response.data));
+      const response = await apiClient.post<SessionUser>("/auth/login", {
+        email: credentials.email,
+        password: credentials.password,
+      });
+      setUser(asUser(response.data));
       setToken("session");
     } finally {
       setIsLoading(false);
@@ -68,13 +80,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const register = async (_data: RegisterCredentials): Promise<void> => {
-    throw new Error("Operator access is configured on the API. There is no self-service signup.");
+    throw new Error("There is no public signup. An owner creates accounts.");
   };
 
   const logout = async (): Promise<void> => {
     try {
-      await apiClient.post("/logout");
+      await apiClient.post("/auth/logout");
     } finally {
+      setCsrfToken("");
       setUser(null);
       setToken(null);
     }
@@ -85,7 +98,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const switchRole = (_role: UserRole): void => {
-    // The console has a single operator session. Role preview is not a backend role.
+    // Roles come from the server. The UI does not preview another role.
   };
 
   return (

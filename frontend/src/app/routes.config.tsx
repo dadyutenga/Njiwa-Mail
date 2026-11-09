@@ -1,208 +1,101 @@
 import React, { lazy } from "react";
 import {
+  AlertTriangle,
+  FolderKanban,
+  Inbox,
+  KeyRound,
   LayoutDashboard,
   Mail,
-  BarChart3,
-  FolderKanban,
-  User,
+  ScrollText,
   Settings,
+  ShieldBan,
+  User,
+  Users,
+  Webhook,
+  FileText,
+  AtSign,
+  FlaskConical,
   HelpCircle,
 } from "lucide-react";
 import type { RouteConfigItem } from "@/types/navigation";
+import { roleAllowed } from "@/lib/roles";
 
-// Lazy-loaded page components for automatic code-splitting
-const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
-const ListPage = lazy(() => import("@/pages/ListPage"));
-const DetailPage = lazy(() => import("@/pages/DetailPage"));
-const ProjectsPage = lazy(() => import("@/pages/ProjectsPage"));
-const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
-const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
-const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
-const ExamplePage = lazy(() => import("@/pages/ExamplePage"));
-
+const HomePage = lazy(() => import("@/pages/mail/HomePage"));
+const NoSignupPage = lazy(() => import("@/pages/mail/HomePage").then((m) => ({ default: m.NoSignupPage })));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
-const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
-const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
-const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
-
-const LandingPage = lazy(() => import("@/pages/LandingPage"));
+const OverviewPage = lazy(() => import("@/pages/mail/OverviewPage"));
+const MessagesPage = lazy(() => import("@/pages/mail/MessagesPage"));
+const MessagePage = lazy(() => import("@/pages/mail/MessagesPage").then((m) => ({ default: m.MessagePage })));
+const UnknownPage = lazy(() => import("@/pages/mail/MessagesPage").then((m) => ({ default: m.UnknownPage })));
+const BouncesPage = lazy(() => import("@/pages/mail/MessagesPage").then((m) => ({ default: m.BouncesPage })));
+const InboundPage = lazy(() => import("@/pages/mail/InboundPage"));
+const InboundDetailPage = lazy(() => import("@/pages/mail/InboundPage").then((m) => ({ default: m.InboundDetailPage })));
+const AddressesPage = lazy(() => import("@/pages/mail/InboundPage").then((m) => ({ default: m.AddressesPage })));
+const ProjectsPage = lazy(() => import("@/pages/mail/AccessPage"));
+const KeysPage = lazy(() => import("@/pages/mail/AccessPage").then((m) => ({ default: m.KeysPage })));
+const SendersPage = lazy(() => import("@/pages/mail/AccessPage").then((m) => ({ default: m.SendersPage })));
+const TemplatesPage = lazy(() => import("@/pages/mail/TemplatesPage"));
+const TemplatePage = lazy(() => import("@/pages/mail/TemplatesPage").then((m) => ({ default: m.TemplatePage })));
+const WebhooksPage = lazy(() => import("@/pages/mail/OpsPage"));
+const SuppressionsPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.SuppressionsPage })));
+const SandboxPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.SandboxPage })));
+const SandboxDetailPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.SandboxDetailPage })));
+const UsersPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.UsersPage })));
+const AuditPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.AuditPage })));
+const MailSettingsPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.MailSettingsPage })));
+const AccountPage = lazy(() => import("@/pages/mail/OpsPage").then((m) => ({ default: m.AccountPage })));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 const ForbiddenPage = lazy(() => import("@/pages/ForbiddenPage"));
 const ServerErrorPage = lazy(() => import("@/pages/ServerErrorPage"));
 
-/**
- * THE UNIFIED NAVIGATION & ROUTE CONFIGURATION ARRAY
- *
- * To add a new page to the app:
- * 1. Create your page component in `src/pages/`
- * 2. Add an entry to the array below!
- *
- * The router, desktop sidebar, and mobile drawer all derive their paths,
- * labels, icons, permissions, and layout from this single array.
- */
+const staff = ["owner", "admin"] as const;
+const owners = ["owner"] as const;
+
 export const routesConfig: RouteConfigItem[] = [
-  // --- Public Marketing & Auth ---
-  {
-    path: "/",
-    title: "Home",
-    element: <LandingPage />,
-    layout: "blank",
-    inNav: false,
-  },
-  {
-    path: "/login",
-    title: "Sign In",
-    element: <LoginPage />,
-    layout: "auth",
-    inNav: false,
-  },
-  {
-    path: "/register",
-    title: "Sign Up",
-    element: <RegisterPage />,
-    layout: "auth",
-    inNav: false,
-  },
-  {
-    path: "/forgot-password",
-    title: "Forgot Password",
-    element: <ForgotPasswordPage />,
-    layout: "auth",
-    inNav: false,
-  },
-  {
-    path: "/reset-password",
-    title: "Reset Password",
-    element: <ResetPasswordPage />,
-    layout: "auth",
-    inNav: false,
-  },
+  { path: "/", title: "Home", element: <HomePage />, layout: "blank", inNav: false },
+  { path: "/login", title: "Sign In", element: <LoginPage />, layout: "auth", inNav: false },
+  { path: "/register", title: "Sign Up", element: <NoSignupPage />, layout: "auth", inNav: false },
+  { path: "/forgot-password", title: "Forgot Password", element: <NoSignupPage />, layout: "auth", inNav: false },
+  { path: "/reset-password", title: "Reset Password", element: <NoSignupPage />, layout: "auth", inNav: false },
 
-  // --- Main Dashboard Navigation Section ---
-  {
-    path: "/dashboard",
-    title: "Dashboard",
-    icon: LayoutDashboard,
-    element: <DashboardPage />,
-    layout: "dashboard",
-    inNav: true,
-    navSection: "main",
-  },
-  {
-    path: "/messages",
-    title: "Messages",
-    icon: Mail,
-    element: <ListPage />,
-    layout: "dashboard",
-    inNav: true,
-    navSection: "main",
-  },
-  {
-    path: "/messages/:id",
-    title: "Message",
-    element: <DetailPage />,
-    layout: "dashboard",
-    inNav: false,
-  },
-  {
-    path: "/projects",
-    title: "Projects",
-    icon: FolderKanban,
-    element: <ProjectsPage />,
-    layout: "dashboard",
-    inNav: true,
-    navSection: "main",
-  },
-  {
-    path: "/reports",
-    title: "Reports & Analytics",
-    icon: BarChart3,
-    element: <ReportsPage />,
-    layout: "dashboard",
-    inNav: true,
-    navSection: "main",
-  },
+  { path: "/dashboard", title: "Overview", icon: LayoutDashboard, element: <OverviewPage />, layout: "dashboard", inNav: true, navSection: "main" },
+  { path: "/messages", title: "Messages", icon: Mail, element: <MessagesPage />, layout: "dashboard", inNav: true, navSection: "main" },
+  { path: "/messages/:id", title: "Message", element: <MessagePage />, layout: "dashboard", inNav: false },
+  { path: "/unknown", title: "Unknown", icon: HelpCircle, element: <UnknownPage />, layout: "dashboard", inNav: true, navSection: "main" },
+  { path: "/bounces", title: "Bounces", icon: AlertTriangle, element: <BouncesPage />, layout: "dashboard", inNav: true, navSection: "main" },
+  { path: "/inbound", title: "Inbound", icon: Inbox, element: <InboundPage />, layout: "dashboard", inNav: true, navSection: "main" },
+  { path: "/inbound/:id", title: "Inbound message", element: <InboundDetailPage />, layout: "dashboard", inNav: false },
+  { path: "/addresses", title: "Addresses", icon: AtSign, element: <AddressesPage />, layout: "dashboard", inNav: true, navSection: "main" },
 
-  // --- Management & Settings Section ---
-  {
-    path: "/profile",
-    title: "Profile",
-    icon: User,
-    element: <ProfilePage />,
-    layout: "dashboard",
-    inNav: true,
-    navSection: "management",
-  },
-  {
-    path: "/settings",
-    title: "Settings",
-    icon: Settings,
-    element: <SettingsPage />,
-    layout: "dashboard",
-    inNav: true,
-    navSection: "management",
-  },
+  { path: "/projects", title: "Projects", icon: FolderKanban, element: <ProjectsPage />, layout: "dashboard", inNav: true, navSection: "management" },
+  { path: "/keys", title: "API keys", icon: KeyRound, element: <KeysPage />, layout: "dashboard", inNav: true, navSection: "management" },
+  { path: "/senders", title: "Senders and DNS", icon: Mail, element: <SendersPage />, layout: "dashboard", inNav: true, navSection: "management" },
+  { path: "/templates", title: "Templates", icon: FileText, element: <TemplatesPage />, layout: "dashboard", inNav: true, navSection: "management" },
+  { path: "/templates/:id", title: "Template", element: <TemplatePage />, layout: "dashboard", inNav: false },
+  { path: "/webhooks", title: "Webhooks", icon: Webhook, element: <WebhooksPage />, layout: "dashboard", inNav: true, navSection: "management" },
+  { path: "/suppressions", title: "Suppressions", icon: ShieldBan, element: <SuppressionsPage />, layout: "dashboard", inNav: true, navSection: "management" },
+  { path: "/sandbox", title: "Sandbox", icon: FlaskConical, element: <SandboxPage />, layout: "dashboard", inNav: true, navSection: "management", roles: [...staff] },
+  { path: "/sandbox/:id", title: "Sandbox capture", element: <SandboxDetailPage />, layout: "dashboard", inNav: false, roles: [...staff] },
 
-  // --- System & Developer Section ---
-  {
-    path: "/example",
-    title: "How to Add a Page",
-    icon: HelpCircle,
-    element: <ExamplePage />,
-    layout: "dashboard",
-    inNav: true,
-    navSection: "system",
-  },
+  { path: "/users", title: "Users", icon: Users, element: <UsersPage />, layout: "dashboard", inNav: true, navSection: "system", roles: [...owners] },
+  { path: "/audit", title: "Audit log", icon: ScrollText, element: <AuditPage />, layout: "dashboard", inNav: true, navSection: "system", roles: [...staff] },
+  { path: "/settings", title: "Settings", icon: Settings, element: <MailSettingsPage />, layout: "dashboard", inNav: true, navSection: "system" },
+  { path: "/profile", title: "Account", icon: User, element: <AccountPage />, layout: "dashboard", inNav: true, navSection: "system" },
 
-  // --- Error Pages ---
-  {
-    path: "/403",
-    title: "Access Forbidden",
-    element: <ForbiddenPage />,
-    layout: "blank",
-    inNav: false,
-  },
-  {
-    path: "/500",
-    title: "Server Error",
-    element: <ServerErrorPage />,
-    layout: "blank",
-    inNav: false,
-  },
-  {
-    path: "*",
-    title: "Not Found",
-    element: <NotFoundPage />,
-    layout: "blank",
-    inNav: false,
-  },
+  { path: "/403", title: "Access Forbidden", element: <ForbiddenPage />, layout: "blank", inNav: false },
+  { path: "/500", title: "Server Error", element: <ServerErrorPage />, layout: "blank", inNav: false },
+  { path: "*", title: "Not Found", element: <NotFoundPage />, layout: "blank", inNav: false },
 ];
 
-/**
- * Returns grouped navigation items for sidebar rendering
- */
-export function getNavSections(): {
+export function getNavSections(role?: string): {
   id: "main" | "management" | "system";
   title: string;
   items: RouteConfigItem[];
 }[] {
-  const navItems = routesConfig.filter((route) => route.inNav);
-
+  const navItems = routesConfig.filter((route) => route.inNav && roleAllowed(role, route.roles));
   return [
-    {
-      id: "main",
-      title: "Overview",
-      items: navItems.filter((i) => i.navSection === "main"),
-    },
-    {
-      id: "management",
-      title: "Preferences",
-      items: navItems.filter((i) => i.navSection === "management"),
-    },
-    {
-      id: "system",
-      title: "Developer Help",
-      items: navItems.filter((i) => i.navSection === "system"),
-    },
-  ];
+    { id: "main", title: "Mail", items: navItems.filter((item) => item.navSection === "main") },
+    { id: "management", title: "Configuration", items: navItems.filter((item) => item.navSection === "management") },
+    { id: "system", title: "Access", items: navItems.filter((item) => item.navSection === "system") },
+  ].filter((section) => section.items.length > 0);
 }

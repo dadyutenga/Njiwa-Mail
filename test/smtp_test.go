@@ -126,27 +126,37 @@ func TestMIMEBuildSafe(t *testing.T) {
 }
 
 func TestTemplateRenderEscapes(t *testing.T) {
-	tp := tmpl.Lookup("account-notice", 1)
-	_, text, html, err := tp.Render(map[string]string{"name": `<script>alert(1)</script>`, "title": `T<b>`, "message": `<img src=http://evil/x onerror=1>`})
+	var notice tmpl.Seed
+	seeds := map[string]bool{}
+	for _, sd := range tmpl.Seeds() {
+		seeds[sd.Slug] = true
+		if sd.Slug == "account-notice" {
+			notice = sd
+		}
+		for _, l := range tmpl.Locales { // every seed compiles in every locale
+			if err := tmpl.Compile(sd.Content[l], sd.Schema); err != nil {
+				t.Fatalf("seed %s/%s: %v", sd.Slug, l, err)
+			}
+		}
+	}
+	for _, n := range []string{"otp", "password-reset", "account-notice"} {
+		if !seeds[n] {
+			t.Fatalf("missing template %s", n)
+		}
+	}
+	subject, text, html, err := tmpl.Render(notice.Content["en"], notice.Schema,
+		map[string]string{"name": `<script>alert(1)</script>`, "title": "T<b>{{.name}}", "message": `<img src=http://evil/x onerror=1>{{printf "%s" .title}}`})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(html, "<script>") || strings.Contains(html, "<img") || strings.Contains(html, "<b>") {
 		t.Fatalf("html not escaped: %s", html)
 	}
-	if strings.Contains(html, "src=\"http") || strings.Contains(html, "http://evil") && strings.Contains(html, "<img") {
-		t.Fatal("remote asset reference")
-	}
 	if !strings.Contains(text, "<script>") { // plain text carries literal characters, harmless
 		t.Fatal("plain text should be literal")
 	}
-	// pinned versions only
-	if tmpl.Lookup("otp", 2) != nil || tmpl.Lookup("otp", 1) == nil {
-		t.Fatal("version pinning")
-	}
-	for _, n := range []string{"otp", "password-reset", "account-notice"} {
-		if tmpl.Lookup(n, 1) == nil {
-			t.Fatalf("missing template %s", n)
-		}
+	// Template syntax inside a variable is data: it is never evaluated.
+	if !strings.Contains(text, "{{.name}}") || !strings.Contains(text, `{{printf "%s" .title}}`) || subject != "T<b>{{.name}}" {
+		t.Fatalf("variable content was evaluated as a template: subject=%q text=%q", subject, text)
 	}
 }

@@ -1,6 +1,11 @@
-# Ditronics Mail: standalone stack (own PostgreSQL, API, worker).
+# Ditronics Mail: standalone stack (own PostgreSQL, API, worker, scheduler, inbound).
 # Independent of any client application and of Mailcow's Compose project.
 # Usage: cp .env.example .env && edit .env && docker compose up -d --build
+#
+# The inbound SMTP listener is in the "inbound" profile because it joins
+# Mailcow's Docker network, which must already exist:
+#   docker compose --profile inbound up -d --build
+# See docs/MAILCOW_SETUP.md before enabling it.
 name: ditronics-mail
 
 x-app: &app
@@ -8,9 +13,10 @@ x-app: &app
   image: ditronics-mail:local
   restart: unless-stopped
   env_file: .env
-  environment:
+  environment: &app-env
     DATABASE_URL: postgres://mail:${POSTGRES_PASSWORD}@postgres:5432/mail?sslmode=disable
     LISTEN_ADDR: 0.0.0.0:8080
+    DATA_DIR: /var/lib/ditronics-mail
   networks: [internal]
   read_only: true
   security_opt: ["no-new-privileges:true"]
@@ -44,6 +50,7 @@ services:
     <<: *app
     command: ["serve"]
     ports: ["127.0.0.1:8080:8080"]   # reverse proxy (HTTPS) terminates in front
+    volumes: ["maildata:/var/lib/ditronics-mail"]   # serves inbound attachments
     depends_on:
       migrate: { condition: service_completed_successfully }
     healthcheck:
@@ -51,7 +58,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    deploy: { resources: { limits: { memory: 256m } } }
+    deploy: { resources: { limits: { memory: 384m } } }   # argon2id logins use 64 MiB each
 
   worker:
     <<: *app
@@ -65,8 +72,49 @@ services:
       retries: 3
     deploy: { resources: { limits: { memory: 256m } } }
 
+  scheduler:
+    <<: *app
+    command: ["scheduler"]
+    volumes: ["maildata:/var/lib/ditronics-mail"]   # retention deletes attachments and spool files
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "ditronics-mail", "role-health", "-role", "scheduler", "-max", "60s"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy: { resources: { limits: { memory: 128m } } }
+
+  # Private SMTP listener for mail relayed by Mailcow. NO published ports: it
+  # is reachable only on Mailcow's Docker network, at a fixed address that the
+  # Mailcow transport map points to.
+  inbound:
+    <<: *app
+    profiles: [inbound]
+    command: ["inbound"]
+    environment:
+      <<: *app-env
+      INBOUND_LISTEN_ADDR: 0.0.0.0:2525
+    volumes: ["maildata:/var/lib/ditronics-mail"]
+    networks:
+      internal: {}
+      mailcow:
+        ipv4_address: ${INBOUND_IPV4:-172.22.1.200}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "ditronics-mail", "role-health", "-role", "inbound", "-max", "60s"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy: { resources: { limits: { memory: 256m } } }
+
 networks:
   internal: {}
+  mailcow:
+    external: true
+    name: ${MAILCOW_NETWORK:-mailcowdockerized_mailcow-network}
 
 volumes:
   pgdata: {}
+  maildata: {}

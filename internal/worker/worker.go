@@ -3,6 +3,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -12,7 +13,7 @@ import (
 
 	"github.com/ditronics-tz/mail/internal/mailer"
 	"github.com/ditronics-tz/mail/internal/service"
-	"github.com/ditronics-tz/mail/internal/tmpl"
+	"github.com/jackc/pgx/v5"
 )
 
 type Worker struct {
@@ -26,6 +27,8 @@ type Worker struct {
 	SendTimeout       time.Duration
 	RetentionInterval time.Duration
 	Backoff           []time.Duration
+	// BounceAddress, when set, is used as the SMTP envelope sender (MAIL FROM).
+	BounceAddress string
 
 	once sync.Once
 }
@@ -172,20 +175,20 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 		w.log(c, "expired", "ttl_elapsed_before_submit")
 		return
 	}
-	t := tmpl.Lookup(pl.Template, pl.Version)
-	if t == nil {
-		fail("template_missing")
-		return
-	}
-	subject, text, html, err := t.Render(pl.Vars)
+	// Rendered from the template version pinned at accept time.
+	subject, text, html, err := w.Svc.RenderPayload(ctx, pl)
 	if err != nil {
-		fail("render_failed")
+		if errors.Is(err, pgx.ErrNoRows) {
+			fail("template_missing")
+		} else {
+			fail("render_failed")
+		}
 		return
 	}
 	domain := pl.From[strings.LastIndexByte(pl.From, '@')+1:]
 	msgID := c.ID + "@" + domain
 	raw, err := mailer.Build(mailer.Message{FromName: pl.FromName, FromEmail: pl.From, To: pl.To, Subject: subject,
-		Text: text, HTML: html, MessageID: msgID, Date: time.Now()})
+		Text: text, HTML: html, MessageID: msgID, DMMessageID: c.ID, Date: time.Now()})
 	if err != nil {
 		fail("build_failed")
 		return
@@ -200,7 +203,13 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	}
 
 	sctx, cancel := context.WithTimeout(ctx, w.SendTimeout)
-	res := w.SMTP.Send(sctx, mailer.Envelope{From: pl.From, To: pl.To, Raw: raw})
+	// The envelope sender is the bounce address so DSNs come back to the
+	// inbound listener; the header From stays the approved sender.
+	envFrom := pl.From
+	if w.BounceAddress != "" {
+		envFrom = w.BounceAddress
+	}
+	res := w.SMTP.Send(sctx, mailer.Envelope{From: envFrom, To: pl.To, Raw: raw})
 	cancel()
 
 	switch res.Outcome {

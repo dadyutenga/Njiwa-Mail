@@ -502,7 +502,7 @@ func TestValidationAndInjection(t *testing.T) {
 		{"wrong-type", mut(func(b map[string]any) { vars(b)["expires_in_minutes"] = "15" }), 422, "invalid_variable_type"},
 		{"unknown-template", mut(func(b map[string]any) { b["template"] = "marketing" }), 422, "unknown_template"},
 		{"unknown-version", mut(func(b map[string]any) { b["template_version"] = 2 }), 422, "unknown_template"},
-		{"no-version", mut(func(b map[string]any) { delete(b, "template_version") }), 422, "template_version_required"},
+		{"bad-locale", mut(func(b map[string]any) { b["locale"] = "fr" }), 422, "invalid_locale"},
 		{"two-recipients", mut(func(b map[string]any) { b["to"] = []string{"a@example.org", "b@example.org"} }), 422, "invalid_request"},
 		{"cc-field", mut(func(b map[string]any) { b["cc"] = "a@example.org" }), 422, "invalid_request"},
 		{"attachments", mut(func(b map[string]any) { b["attachments"] = []string{"x"} }), 422, "invalid_request"},

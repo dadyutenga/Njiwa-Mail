@@ -1,17 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  LayoutDashboard,
-  FileSpreadsheet,
-  BarChart3,
-  Settings,
-  User,
-  Moon,
-  Sun,
-  Laptop,
-  HelpCircle,
-  LogOut,
-} from "lucide-react";
+import { Moon, Sun, Laptop, LogOut } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -23,6 +12,7 @@ import {
 } from "@/components/ui/command";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { getNavSections } from "@/app/routes.config";
 
 export interface CommandPaletteProps {
   open?: boolean;
@@ -33,7 +23,8 @@ export function CommandPalette({ open: externalOpen, onOpenChange }: CommandPale
   const [internalOpen, setInternalOpen] = React.useState(false);
   const navigate = useNavigate();
   const { setTheme } = useTheme();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const navItems = getNavSections(user?.role).flatMap((section) => section.items);
 
   const isOpen = externalOpen !== undefined ? externalOpen : internalOpen;
   const setOpen = onOpenChange || setInternalOpen;
@@ -62,60 +53,19 @@ export function CommandPalette({ open: externalOpen, onOpenChange }: CommandPale
         <CommandEmpty>No results found.</CommandEmpty>
 
         <CommandGroup heading="Navigation">
-          <CommandItem
-            onSelect={() => handleSelect(() => navigate("/dashboard"))}
-            className="gap-2"
-          >
-            <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-            <span>Dashboard</span>
-          </CommandItem>
-          <CommandItem
-            onSelect={() => handleSelect(() => navigate("/messages"))}
-            className="gap-2"
-          >
-            <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
-            <span>Messages</span>
-          </CommandItem>
-          <CommandItem
-            onSelect={() => handleSelect(() => navigate("/projects"))}
-            className="gap-2"
-          >
-            <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
-            <span>Projects</span>
-          </CommandItem>
-          <CommandItem
-            onSelect={() => handleSelect(() => navigate("/reports"))}
-            className="gap-2"
-          >
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            <span>Reports & Analytics</span>
-          </CommandItem>
-          <CommandItem
-            onSelect={() => handleSelect(() => navigate("/example"))}
-            className="gap-2"
-          >
-            <HelpCircle className="h-4 w-4 text-muted-foreground" />
-            <span>How to Add a Page</span>
-          </CommandItem>
-        </CommandGroup>
-
-        <CommandSeparator />
-
-        <CommandGroup heading="User & Settings">
-          <CommandItem
-            onSelect={() => handleSelect(() => navigate("/profile"))}
-            className="gap-2"
-          >
-            <User className="h-4 w-4 text-muted-foreground" />
-            <span>Profile</span>
-          </CommandItem>
-          <CommandItem
-            onSelect={() => handleSelect(() => navigate("/settings"))}
-            className="gap-2"
-          >
-            <Settings className="h-4 w-4 text-muted-foreground" />
-            <span>Settings</span>
-          </CommandItem>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <CommandItem
+                key={item.path}
+                onSelect={() => handleSelect(() => navigate(item.path))}
+                className="gap-2"
+              >
+                {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
+                <span>{item.title}</span>
+              </CommandItem>
+            );
+          })}
         </CommandGroup>
 
         <CommandSeparator />

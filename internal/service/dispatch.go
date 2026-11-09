@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -97,7 +98,7 @@ UPDATE messages SET state=$3::text,
   completed_at = CASE WHEN $5::bool THEN now() ELSE completed_at END,
   submitted_at = CASE WHEN $3::text = 'submitted' THEN now() ELSE submitted_at END,
   smtp_reply = COALESCE($6::text, smtp_reply),
-  message_id_header = COALESCE($7::text, message_id_header),
+  smtp_message_id = COALESCE($7::text, smtp_message_id),
   lease_expires_at = CASE WHEN $3::text = 'submitting' THEN lease_expires_at ELSE NULL END,
   next_attempt_at = CASE WHEN $8::float8 IS NULL THEN next_attempt_at ELSE now() + make_interval(secs => $8::float8) END,
   updated_at = now()
@@ -117,10 +118,42 @@ WHERE id=$1 AND lease_token=$2::uuid AND state = ANY($9)`,
 			return false, err
 		}
 	}
+	// Webhook outbox: written in the same transaction as the state change.
+	if webhookStates[o.to] {
+		if err := emitMessageEvent(ctx, tx, id, "email."+o.to, o.reason); err != nil {
+			return false, err
+		}
+	}
 	return true, tx.Commit(ctx)
 }
 
 var submittingOnly = []string{"submitting"}
+
+// Message states that produce a webhook event. Payloads carry ids, states and
+// safe reason codes only.
+var webhookStates = map[string]bool{"submitted": true, "failed": true, "unknown": true, "expired": true}
+
+const messageEventData = `jsonb_build_object('message_id', m.id, 'state', m.state, 'reason', %s::text,
+  'template', m.template, 'request_id', m.metadata->>'request_id')`
+
+func emitMessageEvent(ctx context.Context, tx pgx.Tx, id, eventType, reason string) error {
+	_, err := tx.Exec(ctx, `SELECT dm_emit(m.environment_id, $2, `+fmt.Sprintf(messageEventData, "$3")+`) FROM messages m WHERE m.id=$1`,
+		id, eventType, reason)
+	return err
+}
+
+// sweep runs a bulk transition that records an event and a webhook per row,
+// and returns how many messages moved.
+func (s *Service) sweep(ctx context.Context, where, state, reason string) (int, error) {
+	var n int
+	err := s.Pool.QueryRow(ctx, `
+WITH u AS (UPDATE messages SET state=$1, payload_enc=NULL, completed_at=now(), updated_at=now()
+           WHERE `+where+` RETURNING id, environment_id, state, template, metadata),
+ev AS (INSERT INTO message_events(message_id, event_type, reason_code) SELECT id, $1, $2 FROM u)
+SELECT count(*), COALESCE(sum(dm_emit(m.environment_id, 'email.' || $1, `+fmt.Sprintf(messageEventData, "$2")+`)), 0) FROM u m`,
+		state, reason).Scan(&n, new(int))
+	return n, err
+}
 
 // MarkSubmitted records positive SMTP acknowledgement. It may also upgrade a
 // row that a reaper already marked unknown after the lease expired, since a
@@ -179,47 +212,46 @@ func (s *Service) ScheduleRetry(ctx context.Context, c Claimed, reason string, d
 // died after starting SMTP may have had the message accepted, so we never
 // retry automatically.
 func (s *Service) ReapLeases(ctx context.Context) (int, error) {
-	tag, err := s.Pool.Exec(ctx, `
-WITH u AS (UPDATE messages SET state='unknown', payload_enc=NULL, completed_at=now(), updated_at=now()
-           WHERE state='submitting' AND lease_expires_at < now() RETURNING id)
-INSERT INTO message_events(message_id, event_type, reason_code) SELECT id, 'unknown', 'lease_expired' FROM u`)
-	if err != nil {
-		return 0, err
-	}
-	return int(tag.RowsAffected()), nil
+	return s.sweep(ctx, `state='submitting' AND lease_expires_at < now()`, "unknown", "lease_expired")
 }
 
 // ExpireDue expires queued/retry_wait messages whose deadline passed.
 func (s *Service) ExpireDue(ctx context.Context) (int, error) {
-	tag, err := s.Pool.Exec(ctx, `
-WITH u AS (UPDATE messages SET state='expired', payload_enc=NULL, completed_at=now(), updated_at=now()
-           WHERE state IN ('queued','retry_wait') AND expires_at <= now() RETURNING id)
-INSERT INTO message_events(message_id, event_type, reason_code) SELECT id, 'expired', 'ttl_elapsed' FROM u`)
-	if err != nil {
-		return 0, err
-	}
-	return int(tag.RowsAffected()), nil
+	return s.sweep(ctx, `state IN ('queued','retry_wait') AND expires_at <= now()`, "expired", "ttl_elapsed")
 }
 
+// Heartbeat records liveness of the default dispatch worker role.
 func (s *Service) Heartbeat(ctx context.Context, workerID string) error {
-	_, err := s.Pool.Exec(ctx, `INSERT INTO worker_heartbeats(worker_id, last_seen) VALUES ($1, now())
-ON CONFLICT (worker_id) DO UPDATE SET last_seen = now()`, workerID)
+	return s.HeartbeatRole(ctx, "worker", workerID)
+}
+
+func (s *Service) HeartbeatRole(ctx context.Context, role, instanceID string) error {
+	_, err := s.Pool.Exec(ctx, `INSERT INTO worker_heartbeats(worker_id, role, last_seen) VALUES ($1, $2, now())
+ON CONFLICT (worker_id) DO UPDATE SET last_seen = now(), role = EXCLUDED.role`, role+":"+instanceID, role)
 	return err
 }
 
-// WorkerHealthy reports whether any worker has checked in within maxAge.
+// WorkerHealthy reports whether any dispatch worker has checked in within maxAge.
 func (s *Service) WorkerHealthy(ctx context.Context, maxAge time.Duration) (bool, error) {
+	return s.RoleHealthy(ctx, "worker", maxAge)
+}
+
+func (s *Service) RoleHealthy(ctx context.Context, role string, maxAge time.Duration) (bool, error) {
 	var ok bool
-	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM worker_heartbeats WHERE last_seen > now() - make_interval(secs => $1::float8))`, maxAge.Seconds()).Scan(&ok)
+	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM worker_heartbeats WHERE role=$2 AND last_seen > now() - make_interval(secs => $1::float8))`,
+		maxAge.Seconds(), role).Scan(&ok)
 	return ok, err
 }
 
 type RetentionResult struct {
 	Captures, Buckets, Messages, Payloads, Heartbeats int64
+	Sessions, Deliveries, DNSChecks, Inbound, Spool   int64
 }
 
 // RunRetention deletes expired captures, stale rate buckets, old terminal
-// message metadata, and any payload left on a non-active row past the purge window.
+// message metadata, any payload left on a non-active row past the purge
+// window, expired sessions, finished webhook deliveries, old DNS results and
+// inbound mail past its retention period.
 func (s *Service) RunRetention(ctx context.Context) (RetentionResult, error) {
 	var r RetentionResult
 	run := func(dst *int64, q string, args ...any) error {
@@ -230,6 +262,7 @@ func (s *Service) RunRetention(ctx context.Context) (RetentionResult, error) {
 		*dst = tag.RowsAffected()
 		return nil
 	}
+	meta := s.Opts.MetadataRetention.Seconds()
 	if err := run(&r.Captures, `DELETE FROM sandbox_captures WHERE expires_at < now()`); err != nil {
 		return r, err
 	}
@@ -241,10 +274,27 @@ func (s *Service) RunRetention(ctx context.Context) (RetentionResult, error) {
 		return r, err
 	}
 	if err := run(&r.Messages, `DELETE FROM messages WHERE state NOT IN ('queued','retry_wait','submitting')
-        AND created_at < now() - make_interval(secs => $1::float8)`, s.Opts.MetadataRetention.Seconds()); err != nil {
+        AND created_at < now() - make_interval(secs => $1::float8)`, meta); err != nil {
 		return r, err
 	}
 	if err := run(&r.Heartbeats, `DELETE FROM worker_heartbeats WHERE last_seen < now() - interval '1 day'`); err != nil {
+		return r, err
+	}
+	if err := run(&r.Sessions, `DELETE FROM sessions WHERE expires_at < now()`); err != nil {
+		return r, err
+	}
+	if err := run(&r.Deliveries, `DELETE FROM webhook_deliveries WHERE state IN ('succeeded','dead')
+        AND created_at < now() - make_interval(secs => $1::float8)`, meta); err != nil {
+		return r, err
+	}
+	if err := run(&r.DNSChecks, `DELETE FROM dns_checks WHERE checked_at < now() - interval '30 days'`); err != nil {
+		return r, err
+	}
+	if err := run(new(int64), `DELETE FROM bounces WHERE received_at < now() - make_interval(secs => $1::float8)`, meta); err != nil {
+		return r, err
+	}
+	var err error
+	if r.Inbound, r.Spool, err = s.inboundRetention(ctx); err != nil {
 		return r, err
 	}
 	return r, nil

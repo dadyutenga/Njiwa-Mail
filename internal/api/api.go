@@ -20,6 +20,12 @@ type Server struct {
 	ConsolePassword string
 	SessionTTL      time.Duration
 	SMTPConfigured  bool
+
+	// Admin API (/admin/v1).
+	TrustProxy      bool             // take the client IP from X-Forwarded-For (set by our own reverse proxy)
+	InsecureCookies bool             // local HTTP development only: drop the Secure cookie attribute
+	MetricsToken    string           // bearer token for /metrics; empty disables the endpoint
+	Resolver        service.Resolver // DNS resolver override for tests; nil = system resolver
 }
 
 func (s *Server) Handler() http.Handler {
@@ -36,6 +42,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /console/messages/{id}", s.consoleMessage)
 	mux.HandleFunc("GET /console/projects", s.consoleProjects)
 	mux.HandleFunc("GET /console/keys", s.consoleKeys)
+	s.appRoutes(mux)
+	s.adminRoutes(mux)
 	return s.wrap(mux)
 }
 
@@ -88,7 +96,11 @@ func writeErr(w http.ResponseWriter, err error) {
 	if e.Status == 401 {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="ditronics-mail"`)
 	}
-	writeJSON(w, e.Status, map[string]any{"error": map[string]string{"code": e.Code}})
+	body := map[string]string{"code": e.Code}
+	if e.Message != "" {
+		body["message"] = e.Message
+	}
+	writeJSON(w, e.Status, map[string]any{"error": body})
 }
 
 func (s *Server) postEmail(w http.ResponseWriter, r *http.Request) {
