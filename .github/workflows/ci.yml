@@ -1,0 +1,42 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+permissions: { contents: read }
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env: { POSTGRES_USER: mail, POSTGRES_PASSWORD: test, POSTGRES_DB: mail_test }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mail -d mail_test" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # Throwaway database: the suite resets its public schema.
+      TEST_DATABASE_URL: postgres://mail:test@localhost:5432/mail_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./... -race -count=1 -timeout 280s
+
+  image:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (verifies the Dockerfile)
+        run: docker build -t ditronics-mail:ci .
+      - name: Binary runs and refuses to start without required config
+        run: |
+          if docker run --rm ditronics-mail:ci migrate; then echo "expected config error"; exit 1; fi
+      - name: Compose file is valid
+        run: |
+          printf 'POSTGRES_PASSWORD=x\nENCRYPTION_KEY=x\nHMAC_KEY=x\n' > .env
+          docker compose config -q
