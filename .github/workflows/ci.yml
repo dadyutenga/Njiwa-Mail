@@ -36,6 +36,8 @@ jobs:
         working-directory: frontend
       - run: npm run typecheck
         working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
       - run: npm test
         working-directory: frontend
       - run: npm run build
@@ -51,7 +53,45 @@ jobs:
       - name: Binary runs and refuses to start without required config
         run: |
           if docker run --rm njiwa-mail:ci migrate; then echo "expected config error"; exit 1; fi
-      - name: Compose file is valid
+      - name: Compose files are valid, and core mode has no Mailcow network
         run: |
           printf 'POSTGRES_PASSWORD=x\nENCRYPTION_KEY=x\nHMAC_KEY=x\n' > .env
           docker compose config -q
+          docker compose -f compose.yaml -f compose.mailcow.yaml --profile inbound config -q
+          if docker compose --profile inbound config | grep -qi mailcow; then echo "core compose references Mailcow"; exit 1; fi
+
+  # Known-vulnerability scan of the Go dependencies and standard library.
+  # Non-blocking until its first run on main is clean; then remove
+  # continue-on-error so findings block merges.
+  govulncheck:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  # Managed mode against real Postfix and OpenDKIM: installer plan/apply, then
+  # no open relay, mutual-TLS-only submission, sender restrictions and DKIM
+  # signing end to end. Non-blocking until it has run green on a hosted runner.
+  managed-mta:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: Install Postfix and OpenDKIM (no Postfix configuration)
+        run: |
+          echo "postfix postfix/main_mailer_type select No configuration" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postfix opendkim
+      - name: Installer plan and apply
+        run: |
+          go build -o njiwa-mail .
+          F="-hostname mailout.example.test -domains notify.example.test -bounce-domain bounce.example.test -selector njiwa"
+          ./njiwa-mail installer plan $F
+          D=$(./njiwa-mail installer plan $F -json | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')
+          sudo ./njiwa-mail installer apply $F -approve "$D"
+      - name: End-to-end checks
+        run: sudo env "PATH=$PATH" go test -tags managed_e2e ./internal/installer/managed -run E2E -count=1 -v

@@ -800,6 +800,23 @@ export function UnknownQueue() {
 
 // ---------------------------------------------------------------- message detail
 
+const evidenceLabel: Record<string, string> = {
+  submitted: "Accepted by your mail server",
+  deferred: "Deferred by the recipient's server (retrying)",
+  remote_accepted: "Accepted by the recipient's mail server",
+  bounced: "Bounced",
+  complaint: "Reported as spam",
+  expired_in_queue: "Mail server gave up retrying",
+  operator_resolved: "Outcome recorded by an operator",
+};
+
+const evidenceSource: Record<string, string> = {
+  smtp: "from the SMTP reply",
+  mta_log: "from the mail server log",
+  dsn: "from a bounce report",
+  operator: "recorded by an operator",
+};
+
 export function MessageDetail() {
   const phrase = usePhrase();
   const { id = "" } = useParams();
@@ -1027,6 +1044,46 @@ export function MessageDetail() {
                 </ol>
               </Section>
             </div>
+            <Section className="mt-4" title={phrase("Delivery evidence")}>
+              <p className="mb-2 text-sm" data-testid="delivery-summary">
+                {phrase(s(m.delivery_summary) || "No delivery evidence yet.")}
+              </p>
+              {((m.delivery_evidence as Row[]) ?? []).length > 0 && (
+                <ol className="space-y-2 text-sm">
+                  {((m.delivery_evidence as Row[]) ?? []).map((ev, i) => (
+                    <li key={i} className="border-l-2 border-primary/40 pl-3">
+                      <span className="font-medium">
+                        {phrase(evidenceLabel[s(ev.event)] ?? s(ev.event))}
+                      </span>
+                      {ev.smtp_status ? (
+                        <span className="text-muted-foreground"> · {s(ev.smtp_status)}</span>
+                      ) : null}
+                      {ev.remote_host ? (
+                        <span className="text-muted-foreground"> · {s(ev.remote_host)}</span>
+                      ) : null}
+                      {ev.mta_queue_id ? (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {phrase("queue ID")} <code>{s(ev.mta_queue_id)}</code>
+                        </span>
+                      ) : null}
+                      {ev.reason ? (
+                        <span className="block text-xs text-muted-foreground">{s(ev.reason)}</span>
+                      ) : null}
+                      <span className="block text-xs text-muted-foreground">
+                        {phrase(evidenceSource[s(ev.source)] ?? s(ev.source))} ·{" "}
+                        <Time value={ev.observed_at} />
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                {phrase(
+                  "Evidence shows what servers reported. No server can confirm that a message reached the inbox.",
+                )}
+              </p>
+            </Section>
             {state === "unknown" && (
               <Section className="mt-4" title={phrase("Record the real outcome")}>
                 <p className="mb-3 text-sm text-muted-foreground">

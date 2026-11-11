@@ -1,0 +1,19 @@
+# Optional override for operators who connect Njiwa Mail to Mailcow and want
+# Mailcow to relay received mail and bounces to the inbound listener over
+# Mailcow's Docker network. Not needed for sending through Mailcow SMTP, and
+# not used in managed mode.
+#
+#   docker compose -f compose.yaml -f compose.mailcow.yaml --profile inbound up -d --build
+#
+# See docs/MAILCOW_SETUP.md.
+services:
+  inbound:
+    networks:
+      internal: {}
+      mailcow:
+        ipv4_address: ${INBOUND_IPV4:-172.22.1.200}
+
+networks:
+  mailcow:
+    external: true
+    name: ${MAILCOW_NETWORK:-mailcowdockerized_mailcow-network}

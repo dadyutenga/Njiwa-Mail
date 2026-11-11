@@ -290,8 +290,15 @@ func (s *Service) ProfileSMTP(ctx context.Context, id string) (cfg mailer.SMTPCo
 		Scan(&mode, &rev, &cj, &pwEnc, &updated); err != nil {
 		return cfg, "", 0, notFound(err)
 	}
-	if mode != "existing_smtp" {
-		return cfg, "", 0, newErr(409, "profile_not_smtp")
+	if mode == "managed_mta" {
+		cfg, ok, err := s.openManagedProfile(cj, pwEnc)
+		if err != nil {
+			return cfg, "", 0, unavailable("open_profile", err)
+		}
+		if !ok {
+			return cfg, "", 0, &Error{Status: 409, Code: "managed_not_installed", Message: "run the host installer first: njiwa-mail installer apply"}
+		}
+		return cfg, "", rev, nil
 	}
 	cfg, sender, _, ok, err := s.openSMTPProfile(cj, pwEnc, updated)
 	if err != nil {

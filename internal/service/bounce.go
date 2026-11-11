@@ -151,6 +151,13 @@ VALUES ($1,$2,$3,$4,'spam complaint','complaint',$5) ON CONFLICT (environment_id
 				return err
 			}
 		}
+		ev := "bounced"
+		if typ == "complaint" {
+			ev = "complaint"
+		}
+		if err := addEvidence(ctx, tx, *msgID, "dsn", ev, clean(r.Status, 20), "", typ+" "+clean(r.Diagnostic, 160), "", dedupe("dsn", bounceID)); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO message_events(message_id, event_type, reason_code) VALUES ($1,'bounced',$2)`,
 			*msgID, typ+":"+clean(r.Status, 20)); err != nil {
 			return err

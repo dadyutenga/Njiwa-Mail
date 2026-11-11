@@ -61,6 +61,12 @@ type SMTPConfig struct {
 	// RootCAs lets tests trust a private CA. Verification is always on; there
 	// is deliberately no option to skip it.
 	RootCAs *x509.CertPool
+	// ServerName is the name the server certificate must carry, when it
+	// differs from Host (a managed MTA reached on a private address).
+	ServerName string
+	// ClientCert authenticates this client with mutual TLS (managed MTA
+	// submission). With a client certificate and no Username, no AUTH is sent.
+	ClientCert *tls.Certificate
 }
 
 type SMTP struct {
@@ -79,7 +85,15 @@ func NewSMTP(cfg SMTPConfig) *SMTP {
 }
 
 func (s *SMTP) tlsConfig() *tls.Config {
-	return &tls.Config{ServerName: s.cfg.Host, MinVersion: tls.VersionTLS12, RootCAs: s.cfg.RootCAs}
+	name := s.cfg.Host
+	if s.cfg.ServerName != "" {
+		name = s.cfg.ServerName
+	}
+	c := &tls.Config{ServerName: name, MinVersion: tls.VersionTLS12, RootCAs: s.cfg.RootCAs}
+	if s.cfg.ClientCert != nil {
+		c.Certificates = []tls.Certificate{*s.cfg.ClientCert}
+	}
+	return c
 }
 
 func isTimeout(err error) bool {
