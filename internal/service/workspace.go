@@ -73,9 +73,11 @@ FROM projects p JOIN environments e ON e.project_id=p.id WHERE e.id=$1`, sc.EnvI
 }
 
 // senderVerifiedSQL: a sender is verified when its domain has been added to
-// the project and passes ownership, SPF, DKIM and DMARC. Uses alias si.
+// the project, holds the installation-wide claim, and passes ownership, SPF,
+// DKIM and DMARC. Uses alias si.
 const senderVerifiedSQL = `EXISTS (SELECT 1 FROM domains d WHERE d.project_id=si.project_id AND d.name=split_part(si.email,'@',2)
-  AND d.purpose IN ('sending','both') AND d.verified_at IS NOT NULL AND d.spf_ok AND d.dkim_ok AND d.dmarc_ok)`
+  AND d.purpose IN ('sending','both') AND d.verified_at IS NOT NULL AND d.spf_ok AND d.dkim_ok AND d.dmarc_ok
+  AND EXISTS (SELECT 1 FROM domain_claims c WHERE c.name=d.name AND c.project_id=d.project_id AND c.state='active'))`
 
 // ---------------------------------------------------------------- checklist
 
