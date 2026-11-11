@@ -42,6 +42,11 @@ type Readiness interface {
 	Ready(ctx context.Context) bool
 }
 
+// PinnedSender is a transport that reports which profile revision it used.
+type PinnedSender interface {
+	SendPinned(ctx context.Context, e mailer.Envelope) (mailer.Result, service.TransportPin)
+}
+
 func (w *Worker) liveReady(ctx context.Context) bool {
 	if r, ok := w.SMTP.(Readiness); ok {
 		return r.Ready(ctx)
@@ -241,7 +246,13 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	if w.BounceAddress != "" {
 		envFrom = w.BounceAddress
 	}
-	res := w.SMTP.Send(sctx, mailer.Envelope{From: envFrom, To: pl.To, Recipients: rcpts, Raw: raw})
+	envl := mailer.Envelope{From: envFrom, To: pl.To, Recipients: rcpts, Raw: raw}
+	var res mailer.Result
+	if ps, ok := w.SMTP.(PinnedSender); ok {
+		res, c.Pin = ps.SendPinned(sctx, envl)
+	} else {
+		res = w.SMTP.Send(sctx, envl)
+	}
 	cancel()
 
 	switch res.Outcome {

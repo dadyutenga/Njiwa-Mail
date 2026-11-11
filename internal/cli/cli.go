@@ -115,6 +115,13 @@ func Run(args []string) {
 		if err := svc.SeedTemplates(ctx); err != nil {
 			die(err)
 		}
+		if e := envSMTP(cfg); e != nil {
+			// Make an environment-provided SMTP setting visible in the profile
+			// registry. It never overwrites a profile and never changes precedence.
+			if err := svc.AdoptEnvSMTP(ctx, *e, ""); err != nil {
+				die(err)
+			}
+		}
 		fmt.Println("migrations applied")
 	case "serve":
 		serve(ctx, cfg, svc)
