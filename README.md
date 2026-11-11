@@ -1,21 +1,26 @@
 # Njiwa Mail
 
-Standalone transactional email service for Njiwa software, built on the existing Mailcow instance.
+Self-hosted transactional email service: one API, one dashboard and one domain experience, with two delivery modes —
+**Send from my VPS** (Njiwa installs and manages Postfix + OpenDKIM on your host) or **Connect an existing mail server**
+(any authenticated SMTP server: Postfix, Exim, Mailcow or a provider). Mailcow is supported, never required.
 It is **independent of any client application**: it has its own repository layout, database, Compose stack,
 configuration and release cycle. Every app is an API client with its own key. The contract is [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
-- **Outbound:** authenticated `POST /v1/emails` → durable PostgreSQL queue → worker → verified-TLS SMTP submission to Mailcow.
+- **Outbound:** authenticated `POST /v1/emails` → durable PostgreSQL queue → worker → verified-TLS SMTP submission to the active delivery profile (managed Postfix over mutual TLS, or your SMTP server).
+- **Setup:** the Delivery infrastructure page guides the choice of mode and shows each check's real state, with the fix for every problem. Live mail needs a sending domain the project has verified and holds the installation-wide claim for; SPF, DKIM and DMARC are evaluated, not just looked up.
 - **Templates** in the database, versioned and immutable once published, in English and Kiswahili (`locale`: `en` or `sw`). Seeded: `otp`, `password-reset`, `account-notice`.
-- **Inbound:** Mailcow relays `in.<domain>` to a private SMTP listener; mail is parsed to JSON (text, HTML, headers, attachments).
+- **Inbound:** your mail server (or managed Postfix, for bounces) relays to a private SMTP listener; mail is parsed to JSON (text, HTML, headers, attachments).
 - **Bounces:** DSNs are parsed; hard bounces suppress the recipient automatically; policy bounces raise an alert and never suppress.
 - **Webhooks:** signed (HMAC-SHA256), retried for about 24 hours, replayable, with SSRF controls.
 - **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, one role (`admin`), audit log, DNS health check, metrics.
 - The operator workspace opens in Live at `/p/{project}/…`. Live/Sandbox is selected locally for sending, template tests, and API keys; Sandbox captures have their own page. Only the last project is remembered.
 - Per-project, per-environment (sandbox/live) API keys, approved senders, approved link origins, recipient allowlist, rate limits.
-- Honest status: `submitted` = Mailcow acknowledged acceptance. Never "delivered".
+- Honest status: `submitted` = your mail server acknowledged acceptance. Later evidence (deferred, accepted by the recipient's server, bounced) is shown with its source. Never "delivered".
 - Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. The HTTP API is Fiber. Persistence is GORM on PostgreSQL.
 
-> Release status: see [docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md). Real Mailcow delivery and HTTPS deployment have **not** been verified yet.
+> Release status: see [STATUS.md](STATUS.md) and [docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md). The managed installer has been verified against real
+> Postfix and OpenDKIM (no open relay, mutual-TLS submission, DKIM signing), but real delivery to external providers and an HTTPS
+> deployment have **not** been verified yet.
 
 ## Quick start (local, sandbox)
 
@@ -33,7 +38,8 @@ docker compose run --rm -T api user create -email you@example.com -role admin <<
 
 Without Docker: `go build -o njiwa-mail ./cmd/njiwa-mail`, set the env vars from `.env.example`,
 run `njiwa-mail migrate`, then `serve`, `worker` and `scheduler` (systemd units in `deploy/`).
-The `inbound` role needs Mailcow routing first: see [docs/MAILCOW_SETUP.md](docs/MAILCOW_SETUP.md).
+The `inbound` role needs a relay from your mail server first. For managed mode see [docs/OPERATIONS.md](docs/OPERATIONS.md)
+(`njiwa-mail preflight`, `njiwa-mail installer`); for Mailcow see [docs/MAILCOW_SETUP.md](docs/MAILCOW_SETUP.md).
 
 To start the HTTP API directly from the project root, set the same environment variables and run `go run .`.
 You can also run CLI commands from the root, for example `go run . migrate`.
