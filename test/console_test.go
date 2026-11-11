@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ditronics-tz/mail/internal/api"
 	"github.com/gofiber/fiber/v2"
+	"github.com/njiwa-tz/mail/internal/api"
 )
 
 func consoleHandler(e *env, password string) *fiber.App {

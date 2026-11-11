@@ -1,4 +1,4 @@
-// Typed client for the Ditronics Mail /v1 API.
+// Typed client for the Njiwa Mail /v1 API.
 
 export interface EmailRequest {
   from: string;
@@ -22,7 +22,7 @@ export interface Accepted {
   status: string;
 }
 
-export class DitronicsMail {
+export class NjiwaMail {
   constructor(private readonly baseURL: string, private readonly apiKey: string) {}
 
   async send(idempotencyKey: string, email: EmailRequest): Promise<Accepted> {
@@ -50,7 +50,7 @@ export class DitronicsMail {
       throw new Error(`retryable ${response.status}`);
     }
     if (!response.ok) {
-      throw new Error(`ditronics-mail ${response.status}`);
+      throw new Error(`njiwa-mail ${response.status}`);
     }
     return response.json() as Promise<Accepted>;
   }

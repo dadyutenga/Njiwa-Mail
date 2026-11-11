@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/ditronics-tz/mail/internal/tmpl"
+	"github.com/njiwa-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/tmpl"
 )
 
 // Templates live in the database. A version is a draft until published, and

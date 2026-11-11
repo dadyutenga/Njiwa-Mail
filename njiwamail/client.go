@@ -1,7 +1,7 @@
-// Package ditronicsmail is the Go client for the /v1 API.
-package ditronicsmail
+// Package njiwamail is the Go client for the /v1 API.
+package njiwamail
 
-import "github.com/ditronics-tz/mail/client"
+import "github.com/njiwa-tz/mail/client"
 
 type Client = client.Client
 type Email = client.Email

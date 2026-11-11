@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Menu, PanelLeftClose } from "lucide-react";
 import { routes } from "@/app/routes";
+import { useAuth } from "@/features/auth/auth";
 import {
   NotificationBell,
   SearchPalette,
@@ -11,6 +12,7 @@ import {
 import { LanguageSwitcher } from "@/features/i18n/LanguageSwitcher";
 import { useI18n } from "@/features/i18n/i18n";
 import { Button } from "@/components/ui/button";
+import { BrandIcon } from "@/components/shared/BrandIcon";
 import {
   Sheet,
   SheetContent,
@@ -34,10 +36,11 @@ function Navigation({
   compact?: boolean;
   onNavigate?: () => void;
 }) {
+  const { user } = useAuth();
   return (
     <nav aria-label="Main navigation" className="space-y-1">
       {routes
-        .filter((route) => route.navigation)
+        .filter((route) => route.navigation && (!route.role || user?.role === route.role))
         .map(({ path, label, icon: Icon }) => (
           <NavLink
             end={path === "/"}
@@ -74,15 +77,13 @@ export default function DashboardLayout() {
     <div className="min-h-screen bg-background text-foreground">
       {/* Desktop Collapsible Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-20 hidden border-r bg-card p-4 transition-all md:block ${
+        className={`fixed inset-y-0 left-0 z-20 hidden overflow-y-auto border-r bg-card p-4 transition-all md:block ${
           compact ? "w-20" : "w-64"
         }`}
       >
         <Link to="/dashboard" className="mb-8 flex h-10 items-center gap-3 px-2 font-bold">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-sm font-black text-primary-foreground">
-            A
-          </span>
-          {!compact && <span className="text-base tracking-tight">Your App</span>}
+          <BrandIcon size={36} />
+          {!compact && <span className="text-base tracking-tight">Njiwa-Mail</span>}
         </Link>
         <Navigation compact={compact} />
       </aside>
@@ -103,11 +104,23 @@ export default function DashboardLayout() {
               </Button>
             </SheetTrigger>
             <SheetContent side="left">
-              <SheetTitle className="mb-6">Your App</SheetTitle>
+              <SheetTitle className="mb-6 flex items-center gap-2.5">
+                <BrandIcon size={36} />
+                Njiwa-Mail
+              </SheetTitle>
               <SheetDescription className="sr-only">Choose a page to navigate to.</SheetDescription>
               <Navigation onNavigate={() => setOpen(false)} />
             </SheetContent>
           </Sheet>
+
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-2 font-bold md:hidden"
+            aria-label="Njiwa-Mail dashboard"
+          >
+            <BrandIcon size={32} />
+            <span className="hidden min-[420px]:inline">Njiwa-Mail</span>
+          </Link>
 
           {/* Sidebar Collapse Toggle */}
           <Button
@@ -153,7 +166,7 @@ export default function DashboardLayout() {
         </main>
 
         <footer className="border-t px-8 py-6 text-xs text-muted-foreground">
-          Your App · Reusable Frontend Template
+          Njiwa-Mail · Built in Tanzania
         </footer>
       </div>
     </div>

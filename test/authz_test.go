@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/ditronics-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 // TestAuthorizationBoundaries checks the cases the UI cannot enforce:
@@ -17,8 +17,8 @@ func TestAuthorizationBoundaries(t *testing.T) {
 	ctx := context.Background()
 	alpha := e.provision("alpha")
 	beta := e.provision("beta")
-	owner := e.user("owner@ditronics.co.tz", "owner")
-	admin := e.user("admin@ditronics.co.tz", "admin")
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	admin := e.user("admin@njiwa.co.tz", "admin")
 
 	t.Run("unauthenticated", func(t *testing.T) {
 		for _, p := range []string{"/admin/v1/overview", "/admin/v1/users", "/admin/v1/messages", "/admin/v1/sandbox", "/admin/v1/auth/sessions"} {
@@ -26,7 +26,7 @@ func TestAuthorizationBoundaries(t *testing.T) {
 				t.Errorf("GET %s without a session: %d", p, r.Code)
 			}
 		}
-		if r := e.raw("POST", "/admin/v1/users", nil, map[string]any{"email": "x@ditronics.co.tz", "password": adminPass, "role": "owner"}); r.Code != 401 {
+		if r := e.raw("POST", "/admin/v1/users", nil, map[string]any{"email": "x@njiwa.co.tz", "password": adminPass, "role": "owner"}); r.Code != 401 {
 			t.Errorf("anonymous user create: %d", r.Code)
 		}
 		if r := e.get("", "00000000-0000-4000-8000-000000000001"); r.Code != 401 {
@@ -55,15 +55,21 @@ func TestAuthorizationBoundaries(t *testing.T) {
 	})
 
 	t.Run("client cannot choose a role", func(t *testing.T) {
-		r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "admin@ditronics.co.tz", "password": adminPass, "role": "owner"})
+		r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "admin@njiwa.co.tz", "password": adminPass, "role": "owner"})
 		if r.Code != 200 || str(r.JSON, "role") != "admin" {
 			t.Fatalf("login role: %d %s", r.Code, r.Raw)
 		}
 		if r := e.adm(admin, "GET", "/admin/v1/users", nil); r.Code != 403 {
 			t.Fatalf("admin listed users: %d", r.Code)
 		}
+		if r := e.adm(admin, "GET", "/admin/v1/overview", nil); r.Code != 200 {
+			t.Fatalf("admin cannot view overview: %d %s", r.Code, r.Raw)
+		}
+		if r := e.adm(admin, "POST", "/admin/v1/projects", map[string]any{"name": "admin-owned"}); r.Code != 200 {
+			t.Fatalf("admin cannot create project: %d %s", r.Code, r.Raw)
+		}
 		var ownerID string
-		e.must(e.pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email='owner@ditronics.co.tz'`).Scan(&ownerID))
+		e.must(e.pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email='owner@njiwa.co.tz'`).Scan(&ownerID))
 		if r := e.adm(admin, "PATCH", "/admin/v1/users/"+ownerID, map[string]any{"role": "admin", "password": "not-the-owner-password"}); r.Code != 403 {
 			t.Fatalf("admin updated the owner: %d %s", r.Code, r.Raw)
 		}
@@ -72,9 +78,19 @@ func TestAuthorizationBoundaries(t *testing.T) {
 		}
 	})
 
+	t.Run("admin login does not require MFA", func(t *testing.T) {
+		sess := e.login("admin@njiwa.co.tz")
+		if r := e.adm(sess, "POST", "/admin/v1/projects", map[string]any{"name": "legacy-admin"}); r.Code != 200 {
+			t.Fatalf("admin write: %d %s", r.Code, r.Raw)
+		}
+		if r := e.adm(sess, "POST", "/admin/v1/auth/totp", nil); r.Code != 404 {
+			t.Fatalf("removed MFA route: %d %s", r.Code, r.Raw)
+		}
+	})
+
 	t.Run("session ids do not cross users", func(t *testing.T) {
 		var ownerSession string
-		e.must(e.pool.QueryRow(ctx, `SELECT encode(s.token_hash,'hex') FROM sessions s JOIN users u ON u.id=s.user_id WHERE u.email='owner@ditronics.co.tz' ORDER BY s.created_at DESC LIMIT 1`).Scan(&ownerSession))
+		e.must(e.pool.QueryRow(ctx, `SELECT encode(s.token_hash,'hex') FROM sessions s JOIN users u ON u.id=s.user_id WHERE u.email='owner@njiwa.co.tz' ORDER BY s.created_at DESC LIMIT 1`).Scan(&ownerSession))
 		listed := e.admOK(admin, "GET", "/admin/v1/auth/sessions", nil)
 		if strings.Contains(listed.Raw, ownerSession) {
 			t.Fatal("admin session list included the owner's session")
@@ -93,7 +109,7 @@ func TestAuthorizationBoundaries(t *testing.T) {
 		if _, err := e.pool.Exec(ctx, `DELETE FROM sender_identities si USING environments env WHERE si.environment_id=env.id AND env.mode='live' AND env.project_id=(SELECT id FROM projects WHERE name='beta')`); err != nil {
 			t.Fatal(err)
 		}
-		e.must(e.svc.RequestPasswordReset(ctx, "owner@ditronics.co.tz"))
+		e.must(e.svc.RequestPasswordReset(ctx, "owner@njiwa.co.tz"))
 		var id string
 		var enc []byte
 		e.must(e.pool.QueryRow(ctx, `SELECT id::text, payload_enc FROM messages WHERE idempotency_key LIKE 'reset-%' ORDER BY created_at DESC LIMIT 1`).Scan(&id, &enc))
@@ -134,7 +150,7 @@ func TestAuthorizationBoundaries(t *testing.T) {
 		if _, err := e.pool.Exec(ctx, `DELETE FROM sender_identities si USING environments env WHERE si.environment_id=env.id AND env.mode='live'`); err != nil {
 			t.Fatal(err)
 		}
-		e.must(e.svc.RequestPasswordReset(ctx, "admin@ditronics.co.tz"))
+		e.must(e.svc.RequestPasswordReset(ctx, "admin@njiwa.co.tz"))
 		if e.count(`SELECT count(*) FROM messages WHERE idempotency_key LIKE 'reset-%'`) != before+1 {
 			t.Fatal("reset without a live sender was still queued")
 		}
@@ -146,10 +162,10 @@ func TestAuthorizationBoundaries(t *testing.T) {
 		if r := e.raw("POST", "/admin/v1/auth/reset", nil, map[string]any{"token": token, "password": newPass}); r.Code == 200 {
 			t.Fatal("reset token reused")
 		}
-		if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "owner@ditronics.co.tz", "password": newPass}); r.Code != 200 || str(r.JSON, "role") != "owner" {
+		if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "owner@njiwa.co.tz", "password": newPass}); r.Code != 200 || str(r.JSON, "role") != "owner" {
 			t.Fatalf("owner login after reset: %d %s", r.Code, r.Raw)
 		}
-		if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "admin@ditronics.co.tz", "password": newPass}); r.Code == 200 {
+		if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "admin@njiwa.co.tz", "password": newPass}); r.Code == 200 {
 			t.Fatal("owner reset token changed the admin password")
 		}
 		if r := e.adm(owner, "GET", "/admin/v1/overview", nil); r.Code != 401 {
@@ -165,13 +181,13 @@ func TestAuthorizationBoundaries(t *testing.T) {
 		e.must(e.pool.QueryRow(ctx, `SELECT p.id::text, e.id::text FROM projects p JOIN environments e ON e.project_id=p.id WHERE p.name='alpha' AND e.mode='sandbox'`).Scan(&pid, &eid))
 		secret := "sandbox-reset-secret-token-0123456789"
 		mid := secure.NewUUID()
-		body := []byte(`{"from":"security@notify.example.com","to":"owner@ditronics.co.tz","template":"raw","raw":true,"confidential":true,"subject":"Password reset","text":"token=` + secret + `"}`)
+		body := []byte(`{"from":"security@notify.example.com","to":"owner@njiwa.co.tz","template":"raw","raw":true,"confidential":true,"subject":"Password reset","text":"token=` + secret + `"}`)
 		sealed, err := e.box.Seal(body, []byte(mid))
 		e.must(err)
 		_, err = e.pool.Exec(ctx, `INSERT INTO messages (id, project_id, environment_id, template, template_version, state, payload_enc,
 recipient_hash, request_hmac, idempotency_key, expires_at)
 VALUES ($1,$2,$3,'raw',0,'queued',$4,$5,$6,$7, now() + interval '1 hour')`,
-			mid, pid, eid, sealed, e.box.MAC("recipient", []byte("owner@ditronics.co.tz")), e.box.MAC("request", body), "reset-forced-"+mid)
+			mid, pid, eid, sealed, e.box.MAC("recipient", []byte("owner@njiwa.co.tz")), e.box.MAC("request", body), "reset-forced-"+mid)
 		e.must(err)
 		e.runWorker()
 		if e.state(mid) == "captured" || e.count(`SELECT count(*) FROM sandbox_captures WHERE message_id=$1`, mid) != 0 {

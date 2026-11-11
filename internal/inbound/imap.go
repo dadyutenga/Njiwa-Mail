@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/ditronics-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 // IMAPConfig is the catch-all mailbox used when Mailcow cannot relay into the SMTP listener.

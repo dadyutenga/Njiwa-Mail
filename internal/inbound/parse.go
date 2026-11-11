@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ditronics-tz/mail/internal/service"
 	"github.com/jhillyerd/enmime/v2"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 const (

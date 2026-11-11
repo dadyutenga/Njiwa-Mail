@@ -14,18 +14,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/api"
-	"github.com/ditronics-tz/mail/internal/config"
-	"github.com/ditronics-tz/mail/internal/db"
-	"github.com/ditronics-tz/mail/internal/inbound"
-	"github.com/ditronics-tz/mail/internal/mailer"
-	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/ditronics-tz/mail/internal/service"
-	"github.com/ditronics-tz/mail/internal/webhook"
-	"github.com/ditronics-tz/mail/internal/worker"
+	"github.com/njiwa-tz/mail/internal/api"
+	"github.com/njiwa-tz/mail/internal/config"
+	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/inbound"
+	"github.com/njiwa-tz/mail/internal/mailer"
+	"github.com/njiwa-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/webhook"
+	"github.com/njiwa-tz/mail/internal/worker"
 )
 
-const usage = `ditronics-mail <command>
+const usage = `njiwa-mail <command>
 
 Runtime:
   serve                       run the HTTP API (application API + admin API)
@@ -104,7 +104,7 @@ func Run(args []string) {
 		UnknownPurge: cfg.UnknownPurge, MaxAttempts: cfg.MaxAttempts,
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
-		RequireTOTP: cfg.RequireTOTP, PublicURL: cfg.PublicURL})
+		PublicURL: cfg.PublicURL})
 
 	cmd, args := args[0], args[1:]
 	switch cmd {

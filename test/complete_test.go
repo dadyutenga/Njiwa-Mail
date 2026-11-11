@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/ditronics-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 func TestRawSendScheduleCancelAndBatch(t *testing.T) {
@@ -83,17 +83,9 @@ func TestDomainGateAndSearch(t *testing.T) {
 	}
 }
 
-func TestTOTPAndPrivacy(t *testing.T) {
+func TestPrivacy(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
-	e.svc.Opts.RequireTOTP = true
-	if _, err := e.svc.CreateUser(ctx, "owner@example.com", adminPass, "owner"); err != nil {
-		t.Fatal(err)
-	}
-	sess := e.login("owner@example.com")
-	if r := e.adm(sess, "POST", "/admin/v1/projects", map[string]any{"name": "blocked"}); r.Code != 403 || errCode(r) != "totp_required" {
-		t.Fatalf("owner without totp: %d %s", r.Code, r.Raw)
-	}
 	_ = e.provision("priv")
 	k, _, err := e.svc.CreateKey(ctx, "priv", "sandbox", []string{"emails:send"}, "p", 0)
 	e.must(err)

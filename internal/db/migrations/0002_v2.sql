@@ -1,4 +1,4 @@
--- Ditronics Mail v2: admin users, DB templates, inbound, bounces, webhooks, DNS checks.
+-- Njiwa Mail v2: admin users, DB templates, inbound, bounces, webhooks, DNS checks.
 
 -- ---------------------------------------------------------------- admin
 CREATE TABLE users (

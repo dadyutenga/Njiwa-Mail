@@ -1,49 +1,95 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { tokenStorage } from "@/lib/token-storage";
-type User = { name: string; role: "member" | "admin" };
-type Auth = { user: User | null; login: (name: string) => void; logout: () => void };
+import { useQueryClient } from "@tanstack/react-query";
+import { admin, setCsrf, type AdminUser } from "@/lib/admin-api";
+type Auth = {
+  user: AdminUser | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  refresh: () => Promise<void>;
+};
 const Context = createContext<Auth | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      const value = localStorage.getItem("template-user");
-      if (!value) return null;
-      const parsed: unknown = JSON.parse(value);
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        !("name" in parsed) ||
-        !("role" in parsed)
-      )
-        return null;
-      if (typeof parsed.name !== "string" || (parsed.role !== "member" && parsed.role !== "admin"))
-        return null;
-      return { name: parsed.name, role: parsed.role };
-    } catch {
-      return null;
-    }
-  });
-  const login = (name: string) => {
-    const next: User = { name, role: "member" };
-    localStorage.setItem("template-user", JSON.stringify(next));
+  const queries = useQueryClient();
+  const [user, setUser] = useState<AdminUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    const expired = () => {
+      setCsrf("");
+      setUser(null);
+      queries.clear();
+    };
+    window.addEventListener("admin-session-expired", expired);
+    admin
+      .me()
+      .then((u) => {
+        if (active) {
+          setCsrf(u.csrf_token);
+          setUser(u);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setCsrf("");
+          setUser(null);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+      window.removeEventListener("admin-session-expired", expired);
+    };
+  }, [queries]);
+  const login = async (email: string, password: string) => {
+    const next = await admin.login(email, password);
+    queries.clear();
+    setCsrf(next.csrf_token);
     setUser(next);
   };
-  const logout = () => {
-    localStorage.removeItem("template-user");
-    tokenStorage.clear();
-    setUser(null);
+  const logout = async () => {
+    try {
+      await admin.logout();
+    } finally {
+      queries.clear();
+      setCsrf("");
+      setUser(null);
+    }
   };
-  return <Context.Provider value={{ user, login, logout }}>{children}</Context.Provider>;
+  const refresh = async () => {
+    const next = await admin.me();
+    setCsrf(next.csrf_token);
+    setUser(next);
+  };
+  return (
+    <Context.Provider value={{ user, loading, login, logout, refresh }}>
+      {children}
+    </Context.Provider>
+  );
 }
 export function useAuth() {
   const value = useContext(Context);
   if (!value) throw new Error("AuthProvider is missing");
   return value;
 }
-export function ProtectedRoute({ children, role }: { children: ReactNode; role?: User["role"] }) {
-  const { user } = useAuth();
+export function ProtectedRoute({
+  children,
+  role,
+}: {
+  children: ReactNode;
+  role?: AdminUser["role"];
+}) {
+  const { user, loading } = useAuth();
   const location = useLocation();
+  if (loading)
+    return (
+      <div role="status" className="p-8">
+        Checking session…
+      </div>
+    );
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   if (role && user.role !== role) return <Navigate to="/403" replace />;
   return children;

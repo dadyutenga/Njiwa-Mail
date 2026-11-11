@@ -155,16 +155,13 @@ type WorkerHeartbeat struct {
 func (WorkerHeartbeat) TableName() string { return "worker_heartbeats" }
 
 type User struct {
-	ID             string `gorm:"type:uuid;primaryKey"`
-	Email          string `gorm:"uniqueIndex"`
-	PasswordHash   string
-	Role           string
-	Disabled       bool
-	LastLoginAt    *time.Time
-	CreatedAt      time.Time
-	TOTPSecretEnc  []byte
-	TOTPEnabled    bool
-	RecoveryHashes string `gorm:"type:text[]"`
+	ID           string `gorm:"type:uuid;primaryKey"`
+	Email        string `gorm:"uniqueIndex"`
+	PasswordHash string
+	Role         string
+	Disabled     bool
+	LastLoginAt  *time.Time
+	CreatedAt    time.Time
 }
 
 func (User) TableName() string { return "users" }

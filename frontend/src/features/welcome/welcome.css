@@ -104,8 +104,8 @@
   font-size: 1.25rem;
   white-space: nowrap;
 }
-.welcome-brand svg {
-  color: var(--accent);
+.welcome-brand img {
+  flex: none;
 }
 .nav-links {
   display: flex;
@@ -665,7 +665,7 @@
   .welcome-brand {
     font-size: 1.06rem;
   }
-  .welcome-brand svg {
+  .welcome-brand img {
     width: 30px;
   }
   .hero-actions {

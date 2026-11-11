@@ -19,17 +19,19 @@ export const router = createBrowserRouter([
     ),
     errorElement: <ErrorBoundary />,
     children: [
-      ...routes.map(({ path, component: Component }) => ({
+      ...routes.map(({ path, component: Component, role }) => ({
         path: path.slice(1),
         element: (
-          <Suspense fallback={<PageLoader />}>
-            <Component />
-          </Suspense>
+          <ProtectedRoute role={role}>
+            <Suspense fallback={<PageLoader />}>
+              <Component />
+            </Suspense>
+          </ProtectedRoute>
         ),
       })),
     ],
   },
-  ...["login", "register", "forgot-password", "reset-password"].map((path) => ({
+  ...["login", "forgot-password", "reset-password"].map((path) => ({
     path,
     element: <AuthPage mode={path} />,
   })),

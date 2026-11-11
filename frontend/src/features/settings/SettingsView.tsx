@@ -46,7 +46,7 @@ export function SettingsView() {
           <div className="grid gap-2 text-sm sm:grid-cols-2">
             <div>
               <span className="text-muted-foreground">User Name:</span>{" "}
-              <strong className="text-foreground">{user?.name}</strong>
+              <strong className="text-foreground">{user?.email}</strong>
             </div>
             <div>
               <span className="text-muted-foreground">Assigned Role:</span>{" "}

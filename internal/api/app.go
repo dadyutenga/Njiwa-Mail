@@ -3,8 +3,8 @@ package api
 import (
 	"crypto/subtle"
 
-	"github.com/ditronics-tz/mail/internal/service"
 	"github.com/gofiber/fiber/v2"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 // Application API on /v1: inbound mail and suppressions. Every

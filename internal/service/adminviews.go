@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"errors"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"strings"
 	"time"
 )

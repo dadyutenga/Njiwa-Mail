@@ -3,8 +3,8 @@ package api
 import (
 	"encoding/json"
 
-	"github.com/ditronics-tz/mail/internal/service"
 	"github.com/gofiber/fiber/v2"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 func (s *Server) productRoutes(app *fiber.App) {
@@ -36,7 +36,7 @@ func (s *Server) productRoutes(app *fiber.App) {
 			return nil, err
 		}
 		s.audit(c, u, "domain.create", "domain", id, map[string]any{"name": in.Name, "purpose": in.Purpose})
-		return map[string]string{"id": id, "txt": "ditronics-mail-verify=" + token}, nil
+		return map[string]string{"id": id, "txt": "njiwa-mail-verify=" + token}, nil
 	})
 	h(fiber.MethodPost, "/admin/v1/domains/:id/verify", A, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		if err := svc.VerifyDomain(reqCtx(c), c.Params("id"), s.Resolver); err != nil {
@@ -44,27 +44,6 @@ func (s *Server) productRoutes(app *fiber.App) {
 		}
 		s.audit(c, u, "domain.verify", "domain", c.Params("id"), nil)
 		return nil, nil
-	})
-	h(fiber.MethodPost, "/admin/v1/auth/totp", V, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
-		url, err := svc.BeginTOTP(reqCtx(c), u.ID, u.Email)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]string{"otpauth_url": url}, nil
-	})
-	h(fiber.MethodPost, "/admin/v1/auth/totp/confirm", V, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
-		var in struct {
-			Code string `json:"code"`
-		}
-		if err := decode(c, &in); err != nil {
-			return nil, err
-		}
-		codes, err := svc.ConfirmTOTP(reqCtx(c), u.ID, in.Code)
-		if err != nil {
-			return nil, err
-		}
-		s.audit(c, u, "auth.totp_enable", "user", u.ID, nil)
-		return map[string]any{"recovery_codes": codes}, nil
 	})
 	h(fiber.MethodGet, "/admin/v1/auth/sessions", V, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, err := svc.ListSessions(reqCtx(c), u.ID)

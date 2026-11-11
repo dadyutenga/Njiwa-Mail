@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Ditronics Mail API
+  title: Njiwa Mail API
   version: 1.0.0
   description: |
     Implemented contract only. `submitted` means the SMTP server (Mailcow)

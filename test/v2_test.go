@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ditronics-tz/mail/client"
-	"github.com/ditronics-tz/mail/internal/inbound"
-	"github.com/ditronics-tz/mail/internal/service"
-	"github.com/ditronics-tz/mail/internal/tmpl"
-	"github.com/ditronics-tz/mail/internal/webhook"
+	"github.com/njiwa-tz/mail/client"
+	"github.com/njiwa-tz/mail/internal/inbound"
+	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/tmpl"
+	"github.com/njiwa-tz/mail/internal/webhook"
 )
 
 const adminPass = "correct-horse-battery-staple"
@@ -134,7 +134,7 @@ func TestTemplateImmutabilityAndPinning(t *testing.T) {
 	e := setup(t)
 	k := e.provision("sacas")
 	ctx := context.Background()
-	admin := e.user("admin@ditronics.co.tz", "admin")
+	admin := e.user("admin@njiwa.co.tz", "admin")
 	schema := []map[string]any{{"name": "name", "type": "string", "max_len": 50}}
 	draft := func(marker string) map[string]any {
 		return map[string]any{"variable_schema": schema, "content": map[string]any{
@@ -244,7 +244,7 @@ func TestTemplateInjectionAndTestSend(t *testing.T) {
 	}
 
 	// Test-send: sandbox works for a draft; live needs a published version and an approved address.
-	admin := e.user("admin@ditronics.co.tz", "admin")
+	admin := e.user("admin@njiwa.co.tz", "admin")
 	var otpID string
 	for _, it := range items(e.admOK(admin, "GET", "/admin/v1/templates", nil)) {
 		if it["slug"] == "otp" {
@@ -289,7 +289,7 @@ func TestOutboundHeadersEnvelopeAndWebhookOutbox(t *testing.T) {
 		t.Fatalf("envelope sender should be the bounce address, got %q", e.tr.last.From)
 	}
 	raw := string(e.tr.last.Raw)
-	for _, want := range []string{"X-DM-Message-ID: " + id, "Message-ID: <" + id + "@notify.example.com>", "Auto-Submitted: auto-generated", "From: \"Ditronics Security\" <" + liveFrom + ">"} {
+	for _, want := range []string{"X-DM-Message-ID: " + id, "Message-ID: <" + id + "@notify.example.com>", "Auto-Submitted: auto-generated", "From: \"Njiwa Security\" <" + liveFrom + ">"} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("missing header %q in:\n%s", want, raw[:400])
 		}
@@ -435,7 +435,7 @@ func TestWebhookSignatureRetryReplay(t *testing.T) {
 	e.must(e.pool.QueryRow(ctx, `SELECT id::text FROM webhook_deliveries WHERE state='dead' AND last_response_code=500`).Scan(&deadID))
 
 	// Replay from the admin UI delivers the same event id again.
-	admin := e.user("admin@ditronics.co.tz", "admin")
+	admin := e.user("admin@njiwa.co.tz", "admin")
 	rc.set(200)
 	before := rc.n()
 	e.admOK(admin, "POST", "/admin/v1/webhook-deliveries/"+deadID+"/replay", nil)
@@ -597,7 +597,7 @@ func TestInboundHappyPathLimitsAndXSS(t *testing.T) {
 	e.provision("sacas")
 	e.provision("other")
 	ctx := context.Background()
-	admin := e.user("admin@ditronics.co.tz", "admin")
+	admin := e.user("admin@njiwa.co.tz", "admin")
 	rc := newReceiver(t)
 	epID, _ := e.endpoint(rc, "live", []string{"inbound.received"})
 	e.admOK(admin, "POST", "/admin/v1/inbound-addresses", map[string]any{"project": "sacas", "mode": "live", "local_part": "support", "webhook_endpoint_id": epID})
@@ -811,7 +811,7 @@ Content-Description: Undelivered Message Headers
 Content-Type: text/rfc822-headers
 
 Return-Path: <` + bounceAddr + `>
-From: "Ditronics Security" <` + liveFrom + `>
+From: "Njiwa Security" <` + liveFrom + `>
 To: <` + rcpt + `>
 Subject: Your verification code
 Message-ID: <rewritten-by-relay@mail.example.com>
@@ -954,7 +954,7 @@ func TestClassifyBounce(t *testing.T) {
 func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	e := setup(t)
 	e.provision("sacas")
-	owner, admin := e.user("owner@ditronics.co.tz", "owner"), e.user("admin@ditronics.co.tz", "admin")
+	owner, admin := e.user("owner@njiwa.co.tz", "owner"), e.user("admin@njiwa.co.tz", "admin")
 
 	// No session, a made-up session and the API-key world are all rejected.
 	if r := e.raw("GET", "/admin/v1/overview", nil, nil); r.Code != 401 {
@@ -1010,11 +1010,11 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	}
 
 	// Owner manages users; the last owner cannot be removed.
-	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "old.role@ditronics.co.tz", "password": adminPass, "role": "viewer"}); r.Code != 400 {
+	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "old.role@njiwa.co.tz", "password": adminPass, "role": "viewer"}); r.Code != 400 {
 		t.Fatalf("viewer role accepted: %d %s", r.Code, r.Raw)
 	}
-	nu := e.admOK(owner, "POST", "/admin/v1/users", map[string]any{"email": "New.Person@ditronics.co.tz", "password": adminPass, "role": "admin"})
-	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "weak@ditronics.co.tz", "password": "short", "role": "admin"}); r.Code != 400 {
+	nu := e.admOK(owner, "POST", "/admin/v1/users", map[string]any{"email": "New.Person@njiwa.co.tz", "password": adminPass, "role": "admin"})
+	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "weak@njiwa.co.tz", "password": "short", "role": "admin"}); r.Code != 400 {
 		t.Fatalf("weak password accepted: %d", r.Code)
 	}
 	me := e.admOK(owner, "GET", "/admin/v1/auth/me", nil)
@@ -1025,13 +1025,13 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 		t.Fatalf("last owner was disabled: %d", r.Code)
 	}
 	// Disabling a user ends their session at once.
-	np := e.login("new.person@ditronics.co.tz")
+	np := e.login("new.person@njiwa.co.tz")
 	e.admOK(np, "GET", "/admin/v1/overview", nil)
 	e.admOK(owner, "PATCH", "/admin/v1/users/"+str(nu.JSON, "id"), map[string]any{"disabled": true})
 	if r := e.adm(np, "GET", "/admin/v1/overview", nil); r.Code != 401 {
 		t.Fatalf("disabled user still has access: %d", r.Code)
 	}
-	if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "new.person@ditronics.co.tz", "password": adminPass}); r.Code != 401 || errCode(r) != "invalid_credentials" {
+	if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "new.person@njiwa.co.tz", "password": adminPass}); r.Code != 401 || errCode(r) != "invalid_credentials" {
 		t.Fatalf("disabled user could log in: %d %s", r.Code, r.Raw)
 	}
 
@@ -1040,7 +1040,7 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	if r := e.adm(admin, "GET", "/admin/v1/overview", nil); r.Code != 401 {
 		t.Fatalf("session survived logout: %d", r.Code)
 	}
-	admin = e.login("admin@ditronics.co.tz")
+	admin = e.login("admin@njiwa.co.tz")
 
 	// Every write above is in the audit log, with no secrets.
 	au := e.admOK(admin, "GET", "/admin/v1/audit?limit=100", nil)
@@ -1062,21 +1062,21 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 func TestLoginThrottlingAndGenericErrors(t *testing.T) {
 	e := setup(t)
 	avoidWindowEdge()
-	e.user("owner@ditronics.co.tz", "owner")
+	e.user("owner@njiwa.co.tz", "owner")
 	e.must(e.svc.UpdateSettings(context.Background(), map[string]int{"login_attempts_per_account": 5}))
 	try := func(email, pw string) resp {
 		return e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": email, "password": pw})
 	}
 	// Unknown account and wrong password are indistinguishable.
-	a, b := try("nobody@ditronics.co.tz", "wrong-password-123"), try("owner@ditronics.co.tz", "wrong-password-123")
+	a, b := try("nobody@njiwa.co.tz", "wrong-password-123"), try("owner@njiwa.co.tz", "wrong-password-123")
 	if a.Code != 401 || b.Code != 401 || a.Raw != b.Raw {
 		t.Fatalf("login errors must be generic: %d %s / %d %s", a.Code, a.Raw, b.Code, b.Raw)
 	}
 	for i := 0; i < 4; i++ {
-		try("owner@ditronics.co.tz", "wrong-password-123")
+		try("owner@njiwa.co.tz", "wrong-password-123")
 	}
 	// The account is now throttled: even the correct password is refused, with Retry-After.
-	r := try("owner@ditronics.co.tz", adminPass)
+	r := try("owner@njiwa.co.tz", adminPass)
 	if r.Code != 429 || errCode(r) != "too_many_attempts" || r.Hdr.Get("Retry-After") == "" {
 		t.Fatalf("repeated bad passwords were not rate-limited: %d %s", r.Code, r.Raw)
 	}
@@ -1147,7 +1147,7 @@ func (f fakeDNS) LookupAddr(_ context.Context, a string) ([]string, error) { ret
 func TestDNSHealthCheck(t *testing.T) {
 	e := setup(t)
 	e.provision("sacas")
-	admin := e.user("admin@ditronics.co.tz", "admin")
+	admin := e.user("admin@njiwa.co.tz", "admin")
 	good := fakeDNS{
 		txt: map[string][]string{
 			"notify.example.com":                 {"google-site-verification=abc", "v=spf1 ip4:203.0.113.10 -all"},
@@ -1195,7 +1195,7 @@ func TestDNSHealthCheck(t *testing.T) {
 func TestMetricsOverviewAndHealth(t *testing.T) {
 	e := setup(t)
 	k := e.provision("sacas")
-	admin := e.user("admin@ditronics.co.tz", "admin")
+	admin := e.user("admin@njiwa.co.tz", "admin")
 	e.post(k.live, idem("m1"), otpBody(testRcpt))
 	e.runWorker()
 	e.post(k.live, idem("m2"), otpBody("q@example.org"))
@@ -1209,8 +1209,8 @@ func TestMetricsOverviewAndHealth(t *testing.T) {
 		t.Fatalf("metrics with wrong token: %d", r.Code)
 	}
 	m := e.raw("GET", "/metrics", map[string]string{"Authorization": "Bearer metrics-token-0123456789"}, nil)
-	for _, want := range []string{`ditronics_mail_messages{state="submitted"} 1`, `ditronics_mail_messages{state="queued"} 1`, "ditronics_mail_queue_depth 1",
-		"ditronics_mail_oldest_queued_age_seconds", `ditronics_mail_bounces{type="hard"} 0`, "ditronics_mail_webhook_backlog 0", `ditronics_mail_role_up{role="scheduler"`} {
+	for _, want := range []string{`njiwa_mail_messages{state="submitted"} 1`, `njiwa_mail_messages{state="queued"} 1`, "njiwa_mail_queue_depth 1",
+		"njiwa_mail_oldest_queued_age_seconds", `njiwa_mail_bounces{type="hard"} 0`, "njiwa_mail_webhook_backlog 0", `njiwa_mail_role_up{role="scheduler"`} {
 		if !strings.Contains(m.Raw, want) {
 			t.Errorf("metrics missing %q", want)
 		}

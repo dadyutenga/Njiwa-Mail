@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/secure"
 )
 
 // Inbound mail arrives from Mailcow at the private SMTP listener. The raw

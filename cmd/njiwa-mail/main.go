@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/ditronics-tz/mail/internal/cli"
+	"github.com/njiwa-tz/mail/internal/cli"
 )
 
 func main() {

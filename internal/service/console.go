@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"time"
 )
 

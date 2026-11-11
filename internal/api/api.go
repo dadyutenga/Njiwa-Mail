@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/service"
 	"github.com/gofiber/fiber/v2"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 type Server struct {
@@ -146,7 +146,7 @@ func writeErr(c *fiber.Ctx, err error) error {
 		c.Set(fiber.HeaderRetryAfter, strconv.Itoa(secs))
 	}
 	if e.Status == 401 {
-		c.Set(fiber.HeaderWWWAuthenticate, `Bearer realm="ditronics-mail"`)
+		c.Set(fiber.HeaderWWWAuthenticate, `Bearer realm="njiwa-mail"`)
 	}
 	body := map[string]string{"code": e.Code}
 	if e.Message != "" {
@@ -249,10 +249,6 @@ func (s *Server) adm(minRole string, h adminFn) fiber.Handler {
 		}
 		if !u.Can(minRole) {
 			return writeErr(c, forbidden())
-		}
-		if s.Svc.Opts.RequireTOTP && (u.Role == service.RoleOwner || u.Role == service.RoleAdmin) && !u.TOTPEnabled &&
-			c.Method() != http.MethodGet && c.Method() != http.MethodHead && !strings.Contains(c.Path(), "/auth/totp") {
-			return writeErr(c, &service.Error{Status: 403, Code: "totp_required"})
 		}
 		out, err := h(c, u)
 		if err != nil {

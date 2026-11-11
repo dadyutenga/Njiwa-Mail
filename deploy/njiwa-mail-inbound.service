@@ -1,13 +1,13 @@
-# Alternative to compose: supervised native scheduler (adjust paths / env file).
+# Alternative to compose: supervised native inbound (adjust paths / env file).
 [Unit]
-Description=Ditronics Mail scheduler
+Description=Njiwa Mail inbound
 After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
-User=ditronics-mail
-EnvironmentFile=/etc/ditronics-mail/env
-ExecStart=/usr/local/bin/ditronics-mail scheduler
+User=njiwa-mail
+EnvironmentFile=/etc/njiwa-mail/env
+ExecStart=/usr/local/bin/njiwa-mail inbound
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
@@ -15,7 +15,7 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 # DATA_DIR (spool and attachments) must be writable and shared with the API unit.
-ReadWritePaths=/var/lib/ditronics-mail
+ReadWritePaths=/var/lib/njiwa-mail
 
 [Install]
 WantedBy=multi-user.target

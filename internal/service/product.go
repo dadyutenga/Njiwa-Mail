@@ -2,23 +2,18 @@ package service
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/base32"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"net"
 	"strings"
-	"time"
 
-	"github.com/ditronics-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/secure"
 )
 
 // Cancel stops a queued or scheduled message before submission starts.
@@ -109,7 +104,7 @@ ON CONFLICT (project_id, name, purpose) DO UPDATE SET name=EXCLUDED.name RETURNI
 
 func (s *Service) ListDomains(ctx context.Context, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT d.id::text AS id, p.name AS project, d.name, d.purpose, d.verified_at, d.spf_ok, d.dkim_ok, d.dmarc_ok, d.created_at,
-  'ditronics-mail-verify=' || d.verify_token AS txt_challenge
+  'njiwa-mail-verify=' || d.verify_token AS txt_challenge
 FROM domains d JOIN projects p ON p.id=d.project_id ORDER BY d.name`)
 }
 
@@ -129,7 +124,7 @@ func (s *Service) VerifyDomain(ctx context.Context, id string, r Resolver) error
 	txt, _ := r.LookupTXT(ctx, name)
 	verified := false
 	for _, rec := range txt {
-		if strings.TrimSpace(rec) == "ditronics-mail-verify="+token {
+		if strings.TrimSpace(rec) == "njiwa-mail-verify="+token {
 			verified = true
 		}
 	}
@@ -224,99 +219,6 @@ func (s *Service) RevokeSession(ctx context.Context, userID, id string) error {
 	return nil
 }
 
-func totpNow(secret []byte, at time.Time) string {
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], uint64(at.Unix()/30))
-	mac := hmac.New(sha1.New, secret)
-	mac.Write(buf[:])
-	sum := mac.Sum(nil)
-	off := sum[len(sum)-1] & 0x0f
-	code := binary.BigEndian.Uint32(sum[off:off+4]) & 0x7fffffff
-	return fmt.Sprintf("%06d", code%1000000)
-}
-
-func totpOK(secret []byte, code string, at time.Time) bool {
-	code = strings.TrimSpace(code)
-	if len(code) != 6 {
-		return false
-	}
-	for _, delta := range []time.Duration{0, -30 * time.Second, 30 * time.Second} {
-		if hmac.Equal([]byte(totpNow(secret, at.Add(delta))), []byte(code)) {
-			return true
-		}
-	}
-	return false
-}
-
-// BeginTOTP stores a new secret and returns the otpauth URL. It is not active until ConfirmTOTP.
-func (s *Service) BeginTOTP(ctx context.Context, userID, email string) (string, error) {
-	raw := make([]byte, 20)
-	if _, err := rand.Read(raw); err != nil {
-		return "", unavailable("totp", err)
-	}
-	enc, err := s.Box.Seal(raw, []byte("totp:"+userID))
-	if err != nil {
-		return "", unavailable("totp_seal", err)
-	}
-	if _, err := s.Pool.Exec(ctx, `UPDATE users SET totp_secret_enc=$2, totp_enabled=false WHERE id=$1`, userID, enc); err != nil {
-		return "", unavailable("totp_store", err)
-	}
-	secret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw)
-	return "otpauth://totp/DitronicsMail:" + email + "?secret=" + secret + "&issuer=DitronicsMail", nil
-}
-
-// ConfirmTOTP enables the factor and returns one-time recovery codes.
-func (s *Service) ConfirmTOTP(ctx context.Context, userID, code string) ([]string, error) {
-	var enc []byte
-	if err := s.Pool.QueryRow(ctx, `SELECT totp_secret_enc FROM users WHERE id=$1`, userID).Scan(&enc); err != nil || enc == nil {
-		return nil, newErr(409, "totp_not_started")
-	}
-	raw, err := s.Box.Open(enc, []byte("totp:"+userID))
-	if err != nil || !totpOK(raw, code, time.Now()) {
-		return nil, newErr(401, "invalid_credentials")
-	}
-	codes := make([]string, 8)
-	hashes := make([]string, 8)
-	for i := range codes {
-		buf := make([]byte, 8)
-		_, _ = rand.Read(buf)
-		codes[i] = hex.EncodeToString(buf)
-		sum := sha256.Sum256([]byte(codes[i]))
-		hashes[i] = hex.EncodeToString(sum[:])
-	}
-	if _, err := s.Pool.Exec(ctx, `UPDATE users SET totp_enabled=true, recovery_hashes=$2 WHERE id=$1`, userID, hashes); err != nil {
-		return nil, unavailable("totp_confirm", err)
-	}
-	return codes, nil
-}
-
-func (s *Service) userTOTP(ctx context.Context, userID, code string) (bool, error) {
-	var enc []byte
-	var hashes []string
-	var enabled bool
-	err := s.Pool.QueryRow(ctx, `SELECT totp_enabled, totp_secret_enc, recovery_hashes FROM users WHERE id=$1`, userID).Scan(&enabled, &enc, &hashes)
-	if err != nil || !enabled {
-		return false, err
-	}
-	raw, err := s.Box.Open(enc, []byte("totp:"+userID))
-	if err != nil {
-		return false, err
-	}
-	if totpOK(raw, code, time.Now()) {
-		return true, nil
-	}
-	sum := sha256.Sum256([]byte(strings.TrimSpace(code)))
-	want := hex.EncodeToString(sum[:])
-	for i, h := range hashes {
-		if hmac.Equal([]byte(h), []byte(want)) {
-			hashes = append(hashes[:i], hashes[i+1:]...)
-			_, _ = s.Pool.Exec(ctx, `UPDATE users SET recovery_hashes=$2 WHERE id=$1`, userID, hashes)
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func (s *Service) RequestPasswordReset(ctx context.Context, email string) error {
 	e, ok := NormalizeEmail(email)
 	if !ok {
@@ -355,7 +257,7 @@ LIMIT 1`).Scan(&from, &name, &pid, &eid)
 		return nil
 	}
 	mid := secure.NewUUID()
-	body, _ := json.Marshal(Payload{From: from, FromName: name, To: e, Template: "raw", Raw: true, Confidential: true, Subject: "Password reset", Text: "Reset your Ditronics Mail password: " + link})
+	body, _ := json.Marshal(Payload{From: from, FromName: name, To: e, Template: "raw", Raw: true, Confidential: true, Subject: "Password reset", Text: "Reset your Njiwa Mail password: " + link})
 	sealed, err := s.Box.Seal(body, []byte(mid))
 	if err != nil {
 		return nil
@@ -414,7 +316,7 @@ func (s *Service) DailySummary(ctx context.Context) (string, []string, error) {
 	if err != nil {
 		return "", nil, unavailable("summary", err)
 	}
-	body := fmt.Sprintf("Ditronics Mail daily summary\nsubmitted: %d\nfailed: %d\nunknown: %d\ninbound: %d\n", submitted, failed, unknown, inbound)
+	body := fmt.Sprintf("Njiwa Mail daily summary\nsubmitted: %d\nfailed: %d\nunknown: %d\ninbound: %d\n", submitted, failed, unknown, inbound)
 	rows, err := s.Pool.Query(ctx, `SELECT email FROM users WHERE role='owner' AND NOT disabled`)
 	if err != nil {
 		return "", nil, unavailable("owners", err)

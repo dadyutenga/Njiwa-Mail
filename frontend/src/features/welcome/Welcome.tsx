@@ -2,6 +2,7 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { ArrowRight, Check, ChevronDown, Copy, Menu, Moon, Sun, X } from "lucide-react";
 import { useAuth } from "@/features/auth/auth";
+import { BrandIcon } from "@/components/shared/BrandIcon";
 import { content as c } from "./content";
 import { welcomeLinks } from "./config";
 import "./welcome.css";
@@ -59,7 +60,7 @@ function Navigation() {
     <header className="welcome-nav">
       <div className="welcome-container nav-inner">
         <a className="welcome-brand" href="/" aria-label={c.brand}>
-          <Dove />
+          <BrandIcon size={38} />
           <span>{c.brand}</span>
         </a>
         <nav className="nav-links" aria-label="Primary">
@@ -382,7 +383,7 @@ function Footer() {
       <div className="welcome-container footer-grid">
         <div>
           <div className="welcome-brand">
-            <Dove size={32} />
+            <BrandIcon size={32} />
             <span>{c.brand}</span>
           </div>
           <p>{c.footer.description}</p>
@@ -398,10 +399,16 @@ function Footer() {
   );
 }
 export default function Welcome() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   useEffect(() => {
     document.title = `${c.brand} — ${c.hero.title}`;
   }, []);
+  if (loading)
+    return (
+      <div role="status" className="p-8">
+        Checking session…
+      </div>
+    );
   if (user) return <Navigate to="/dashboard" replace />;
   return (
     <div className="welcome-page">

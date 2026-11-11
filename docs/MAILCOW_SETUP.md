@@ -1,6 +1,6 @@
 # Mailcow setup for inbound mail and bounces (operator task)
 
-Ditronics Mail never changes Mailcow or DNS itself. These are the steps for the operator.
+Njiwa Mail never changes Mailcow or DNS itself. These are the steps for the operator.
 
 > **Not yet verified against your Mailcow.** These steps were written from Mailcow's documented behaviour, not run on the production server. Menu names and container addresses differ between Mailcow releases. Check each step against the installed version before changing anything, and do it first with a test address.
 
@@ -32,7 +32,7 @@ The listener has no TLS and no authentication. It must be reachable **only** fro
    INBOUND_ALLOWED_SOURCES=<Postfix address from step 1>
    ```
 4. Start it: `docker compose --profile inbound up -d --build`
-5. Check: `docker compose exec inbound ditronics-mail role-health -role inbound`
+5. Check: `docker compose exec inbound njiwa-mail role-health -role inbound`
 
 The `inbound` service publishes no host port. Do not add one.
 

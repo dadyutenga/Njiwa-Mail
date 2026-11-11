@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { BrandIcon } from "@/components/shared/BrandIcon";
 
 export default function Status({
   code,
@@ -19,6 +20,14 @@ export default function Status({
   return (
     <main className="grid min-h-[70vh] place-items-center p-6 text-center">
       <div className="max-w-md">
+        <Link
+          to="/"
+          className="mb-6 inline-flex items-center gap-2 font-bold"
+          aria-label="Njiwa-Mail home"
+        >
+          <BrandIcon size={40} />
+          <span>Njiwa-Mail</span>
+        </Link>
         <p className="text-7xl font-extrabold tracking-tight text-primary">{code}</p>
         <h1 className="mt-4 text-2xl font-bold tracking-tight">{title}</h1>
         <p className="mt-2 text-sm text-muted-foreground">

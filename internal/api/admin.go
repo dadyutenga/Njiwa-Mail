@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/service"
-	"github.com/ditronics-tz/mail/internal/tmpl"
 	"github.com/gofiber/fiber/v2"
 	"github.com/jhillyerd/enmime/v2"
+	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/tmpl"
 )
 
 func (s *Server) adminRoutes(app *fiber.App) {
@@ -647,12 +647,11 @@ func (s *Server) adminLogin(c *fiber.Ctx) error {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
-		TOTP     string `json:"totp"`
 	}
 	if len(c.Body()) > 4096 || json.Unmarshal(c.Body(), &in) != nil || in.Email == "" || in.Password == "" {
 		return writeErr(c, &service.Error{Status: 401, Code: "invalid_credentials"})
 	}
-	tok, u, err := s.Svc.Login(reqCtx(c), in.Email, in.Password, s.clientIP(c), c.Get("User-Agent"), in.TOTP)
+	tok, u, err := s.Svc.Login(reqCtx(c), in.Email, in.Password, s.clientIP(c), c.Get("User-Agent"))
 	if err != nil {
 		return writeErr(c, err)
 	}

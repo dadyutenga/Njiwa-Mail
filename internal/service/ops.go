@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"log/slog"
 	"sort"
 	"strings"
@@ -264,33 +264,33 @@ func (s *Service) Metrics(ctx context.Context) (string, error) {
 		sort.Strings(ks)
 		return ks
 	}
-	gauge("ditronics_mail_messages", "Messages by state (within metadata retention).")
+	gauge("njiwa_mail_messages", "Messages by state (within metadata retention).")
 	for _, k := range keys(st.Counts) {
-		fmt.Fprintf(&b, "ditronics_mail_messages{state=%q} %d\n", k, st.Counts[k])
+		fmt.Fprintf(&b, "njiwa_mail_messages{state=%q} %d\n", k, st.Counts[k])
 	}
-	gauge("ditronics_mail_queue_depth", "Messages waiting for a worker (queued + retry_wait).")
-	fmt.Fprintf(&b, "ditronics_mail_queue_depth %d\n", st.QueueDepth)
-	gauge("ditronics_mail_oldest_queued_age_seconds", "Age of the oldest waiting message.")
-	fmt.Fprintf(&b, "ditronics_mail_oldest_queued_age_seconds %.0f\n", st.OldestQueuedAgeSec)
-	gauge("ditronics_mail_bounces", "Bounces by type (within metadata retention).")
+	gauge("njiwa_mail_queue_depth", "Messages waiting for a worker (queued + retry_wait).")
+	fmt.Fprintf(&b, "njiwa_mail_queue_depth %d\n", st.QueueDepth)
+	gauge("njiwa_mail_oldest_queued_age_seconds", "Age of the oldest waiting message.")
+	fmt.Fprintf(&b, "njiwa_mail_oldest_queued_age_seconds %.0f\n", st.OldestQueuedAgeSec)
+	gauge("njiwa_mail_bounces", "Bounces by type (within metadata retention).")
 	for _, k := range keys(st.BounceTotals) {
-		fmt.Fprintf(&b, "ditronics_mail_bounces{type=%q} %d\n", k, st.BounceTotals[k])
+		fmt.Fprintf(&b, "njiwa_mail_bounces{type=%q} %d\n", k, st.BounceTotals[k])
 	}
-	gauge("ditronics_mail_webhook_backlog", "Webhook deliveries pending or in flight.")
-	fmt.Fprintf(&b, "ditronics_mail_webhook_backlog %d\n", st.WebhookBacklog)
-	gauge("ditronics_mail_webhook_dead", "Webhook deliveries that exhausted their retries.")
-	fmt.Fprintf(&b, "ditronics_mail_webhook_dead %d\n", st.WebhookDead)
-	gauge("ditronics_mail_inbound_spool", "Inbound messages accepted but not yet parsed, by state.")
-	fmt.Fprintf(&b, "ditronics_mail_inbound_spool{state=\"pending\"} %d\nditronics_mail_inbound_spool{state=\"failed\"} %d\n", st.InboundSpool, st.InboundFailed)
-	gauge("ditronics_mail_open_alerts", "Unacknowledged operator alerts.")
-	fmt.Fprintf(&b, "ditronics_mail_open_alerts %d\n", st.OpenAlerts)
-	gauge("ditronics_mail_role_up", "1 when a role instance has sent a heartbeat within the last minute.")
+	gauge("njiwa_mail_webhook_backlog", "Webhook deliveries pending or in flight.")
+	fmt.Fprintf(&b, "njiwa_mail_webhook_backlog %d\n", st.WebhookBacklog)
+	gauge("njiwa_mail_webhook_dead", "Webhook deliveries that exhausted their retries.")
+	fmt.Fprintf(&b, "njiwa_mail_webhook_dead %d\n", st.WebhookDead)
+	gauge("njiwa_mail_inbound_spool", "Inbound messages accepted but not yet parsed, by state.")
+	fmt.Fprintf(&b, "njiwa_mail_inbound_spool{state=\"pending\"} %d\nnjiwa_mail_inbound_spool{state=\"failed\"} %d\n", st.InboundSpool, st.InboundFailed)
+	gauge("njiwa_mail_open_alerts", "Unacknowledged operator alerts.")
+	fmt.Fprintf(&b, "njiwa_mail_open_alerts %d\n", st.OpenAlerts)
+	gauge("njiwa_mail_role_up", "1 when a role instance has sent a heartbeat within the last minute.")
 	for _, w := range st.Workers {
 		up := 0
 		if w.Healthy {
 			up = 1
 		}
-		fmt.Fprintf(&b, "ditronics_mail_role_up{role=%q,instance=%q} %d\n", w.Role, w.Instance, up)
+		fmt.Fprintf(&b, "njiwa_mail_role_up{role=%q,instance=%q} %d\n", w.Role, w.Instance, up)
 	}
 	return b.String(), nil
 }

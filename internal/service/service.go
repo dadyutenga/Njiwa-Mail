@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/net/idna"
 
-	"github.com/ditronics-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/secure"
 )
 
 type Options struct {
@@ -37,10 +37,7 @@ type Options struct {
 
 	SessionTTL time.Duration
 
-	// RequireTOTP forces owner and admin accounts to enroll a second factor
-	// before they can change anything. Tests leave it off.
-	RequireTOTP bool
-	PublicURL   string // origin used in admin password-reset links
+	PublicURL string // origin used in admin password-reset links
 }
 
 type Service struct {

@@ -1,4 +1,4 @@
-# Release report — Ditronics Mail v1 (2026-11-09)
+# Release report — Njiwa Mail v1 (2026-11-09)
 
 ## Decision: **Working staging build — NOT released for production traffic**
 
@@ -55,7 +55,7 @@ the SMTP client code path (against the fake server), encryption, rate limiting, 
 
 ## Blockers / not done
 
-1. **Mailcow**: no SMTP host/credentials/approved sender/test inbox → real delivery, headers, SPF/DKIM/DMARC, reverse DNS and queue audit are unverified. Run `ditronics-mail smtp-check`, then the OPERATIONS preflight.
+1. **Mailcow**: no SMTP host/credentials/approved sender/test inbox → real delivery, headers, SPF/DKIM/DMARC, reverse DNS and queue audit are unverified. Run `njiwa-mail smtp-check`, then the OPERATIONS preflight.
 2. **Deployment**: `Dockerfile`, `compose.yaml`, `deploy/nginx.conf` and systemd units are written; **compose stack and HTTPS routing were not deployed or exercised** (see Image build below). Hostname/TLS certificate not provided.
 3. **Backups/restore**: not configured; no restore test.
 4. **Client integration**: this service is deliberately independent. No client application was modified. `client/` (Go) and `docs/INTEGRATION.md` are ready; SACAS observations are in the integration guide (notably: SACAS emails a generated password rather than a reset link).
@@ -74,16 +74,16 @@ See `docs/OPERATIONS.md#rollback`. Nothing is deployed, so there is currently no
 
 ## v1 API additions (2026-11-10)
 
-The HTTP API remains `/v1` and `/admin/v1`. New behaviour covered by `go test ./test/ -run 'TestRawSend|TestDomainGate|TestTOTP|TestReencrypt'` against local PostgreSQL:
+The HTTP API remains `/v1` and `/admin/v1`. New behaviour covered by `go test ./test/ -run 'TestRawSend|TestDomainGate|TestPrivacy|TestReencrypt'` against local PostgreSQL:
 
 - Raw send with scope `emails:send_raw`, cc/bcc/reply-to, attachments, priority, schedule, cancel, and batch.
 - A sending domain that has been added cannot be used for live mail until its TXT challenge, SPF, DKIM and DMARC pass.
-- Owner and admin accounts must enroll TOTP when `TOTP_REQUIRED=true`.
+- Owner and admin accounts use password-based sessions; MFA has been removed from the admin API.
 - Recipient export and deletion, and re-encryption onto a new key.
 
 Not verified here: real Mailcow delivery and a restore drill. Apps integrate through `docs/INTEGRATION.md` and an API key; there is no per-app adapter. The daily summary is computed by the scheduler and written to the log. `scripts/backup.sh` and `scripts/restore.sh` are the operator commands; they were not run against a production database.
 
 ## Remaining full-product backlog (not implemented)
 
-Postfix log collector/bounce processor; automated suppression; signed webhooks; operational dashboard; admin auth/roles/MFA; domain onboarding;
+Postfix log collector/bounce processor; automated suppression; signed webhooks; operational dashboard; admin auth/roles; domain onboarding;
 template editor/publishing; analytics/complaint feedback; scale/availability (HA, restore drills, isolated reputation); external customers/billing.

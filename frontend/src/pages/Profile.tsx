@@ -17,10 +17,10 @@ export default function Profile() {
       <div className="rounded-2xl border bg-card p-6">
         <div className="flex items-center gap-4">
           <Avatar className="h-16 w-16 text-2xl font-bold">
-            <AvatarFallback>{user?.name?.[0]?.toUpperCase() ?? "U"}</AvatarFallback>
+            <AvatarFallback>{user?.email?.[0]?.toUpperCase() ?? "U"}</AvatarFallback>
           </Avatar>
           <div>
-            <h2 className="text-xl font-semibold">{user?.name}</h2>
+            <h2 className="text-xl font-semibold">{user?.email}</h2>
             <div className="mt-1 flex items-center gap-2">
               <Badge variant="secondary">{user?.role ?? "member"}</Badge>
               <span className="text-xs text-muted-foreground">Local Session</span>
@@ -31,7 +31,7 @@ export default function Profile() {
         <div className="mt-8 grid gap-4 border-t pt-6 text-sm sm:grid-cols-2">
           <div>
             <p className="font-medium text-muted-foreground">Full Name</p>
-            <p className="mt-1 font-semibold">{user?.name}</p>
+            <p className="mt-1 font-semibold">{user?.email}</p>
           </div>
           <div>
             <p className="font-medium text-muted-foreground">Session Status</p>

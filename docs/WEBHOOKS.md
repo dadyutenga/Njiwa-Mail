@@ -1,6 +1,6 @@
 # Webhooks
 
-Ditronics Mail posts a signed JSON event to your endpoint when something happens to a message you sent, or when mail arrives for one of your inbound addresses.
+Njiwa Mail posts a signed JSON event to your endpoint when something happens to a message you sent, or when mail arrives for one of your inbound addresses.
 
 ## Events
 

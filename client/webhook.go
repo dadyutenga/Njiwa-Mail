@@ -23,7 +23,7 @@ type WebhookEvent struct {
 	Data      json.RawMessage `json:"data"`
 }
 
-var ErrWebhookSignature = errors.New("ditronics-mail: invalid webhook signature")
+var ErrWebhookSignature = errors.New("njiwa-mail: invalid webhook signature")
 
 // VerifyWebhook checks the X-DM-Signature header ("t=<unix>,v1=<hex>") against
 // the RAW request body, exactly as received, and rejects timestamps further

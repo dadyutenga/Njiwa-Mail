@@ -1,16 +1,16 @@
-# Ditronics Mail — Master Build Prompt (finish the whole product)
+# Njiwa Mail — Master Build Prompt (finish the whole product)
 
-Give this file to the coding agent together with `DITRONICS_MAIL_V2_IMPLEMENTATION_PLAN.md`. Put both in the repository root.
+Give this file to the coding agent together with `NJIWA_MAIL_V2_IMPLEMENTATION_PLAN.md`. Put both in the repository root.
 
 ---
 
 ## Prompt
 
-You are completing **Ditronics Mail**, our internal email platform: a Go backend and an admin UI running on top of our existing Mailcow server. The backend is about half built and the frontend template is already in the repository. Your job is to finish the **entire product**, backend and UI, to a working, tested, deployable state. Partial work is not acceptable.
+You are completing **Njiwa Mail**, our internal email platform: a Go backend and an admin UI running on top of our existing Mailcow server. The backend is about half built and the frontend template is already in the repository. Your job is to finish the **entire product**, backend and UI, to a working, tested, deployable state. Partial work is not acceptable.
 
 ### Sources of truth
 
-1. `DITRONICS_MAIL_V2_IMPLEMENTATION_PLAN.md` is the specification. Implement every section of it.
+1. `NJIWA_MAIL_V2_IMPLEMENTATION_PLAN.md` is the specification. Implement every section of it.
 2. The "Additional scope" section below adds features the plan left for later. They are now required.
 3. Where the existing code disagrees with the plan, keep the code if it is correct and safe, and record the difference in `docs/AUDIT.md`. Do not rewrite working code for style.
 
@@ -40,7 +40,7 @@ You are completing **Ditronics Mail**, our internal email platform: a Go backend
 
 **Security**
 
-- TOTP two-factor authentication for admin users, with recovery codes. Required for `owner` and `admin` roles.
+- Password-based admin authentication, role checks, and session management.
 - Password reset for admin users, delivered through the service itself.
 - Session list with remote sign-out; forced sign-out on password change.
 - API key options: IP allowlist, per-key rate limit, last-used timestamp.
@@ -54,7 +54,7 @@ You are completing **Ditronics Mail**, our internal email platform: a Go backend
 
 **Developer experience**
 
-- Go client package `ditronicsmail` with typed requests, retries using the same idempotency key, and webhook signature verification.
+- Go client package `njiwamail` with typed requests, retries using the same idempotency key, and webhook signature verification.
 - TypeScript client with the same features.
 - API documentation page in the UI, generated from `docs/openapi.yaml`.
 - CLI `dmctl` for every admin operation: create owner, projects, keys, domains, suppressions, replaying webhooks, reconciling `unknown` messages.

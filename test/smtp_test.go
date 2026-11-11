@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/mailer"
-	"github.com/ditronics-tz/mail/internal/tmpl"
+	"github.com/njiwa-tz/mail/internal/mailer"
+	"github.com/njiwa-tz/mail/internal/tmpl"
 )
 
 func smtpClient(port int, pool *x509.CertPool) *mailer.SMTP {
@@ -18,7 +18,7 @@ func smtpClient(port int, pool *x509.CertPool) *mailer.SMTP {
 }
 
 func env1() mailer.Envelope {
-	raw, _ := mailer.Build(mailer.Message{FromName: "Ditronics", FromEmail: liveFrom, To: testRcpt, Subject: "Hi", Text: "hello", HTML: "<p>hello</p>", MessageID: "x@y.z", Date: time.Now()})
+	raw, _ := mailer.Build(mailer.Message{FromName: "Njiwa", FromEmail: liveFrom, To: testRcpt, Subject: "Hi", Text: "hello", HTML: "<p>hello</p>", MessageID: "x@y.z", Date: time.Now()})
 	return mailer.Envelope{From: liveFrom, To: testRcpt, Raw: raw}
 }
 
@@ -126,7 +126,7 @@ func TestMIMEBuildSafe(t *testing.T) {
 	if _, err := mailer.Build(mailer.Message{FromName: "x\nBcc: y", FromEmail: liveFrom, To: testRcpt, Subject: "s", MessageID: "a@b.c", Date: time.Now()}); err == nil {
 		t.Fatal("display-name injection accepted")
 	}
-	raw, err := mailer.Build(mailer.Message{FromName: "Ditronics Séc", FromEmail: liveFrom, To: testRcpt, Subject: "Séance", Text: "héllo\nline2", HTML: "<p>héllo</p>", MessageID: "id1@notify.example.com", Date: time.Now()})
+	raw, err := mailer.Build(mailer.Message{FromName: "Njiwa Séc", FromEmail: liveFrom, To: testRcpt, Subject: "Séance", Text: "héllo\nline2", HTML: "<p>héllo</p>", MessageID: "id1@notify.example.com", Date: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}

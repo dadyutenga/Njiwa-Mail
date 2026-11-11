@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"strings"
 	"time"
 
@@ -77,7 +77,7 @@ func verifyPassword(encoded, pw string) bool {
 }
 
 // dummyHash keeps login timing similar when the account does not exist.
-var dummyHash = hashPassword("ditronics-mail-timing-equaliser")
+var dummyHash = hashPassword("njiwa-mail-timing-equaliser")
 
 func checkPassword(pw string) error {
 	if len(pw) < MinPasswordLen || len(pw) > 256 {
@@ -182,9 +182,8 @@ type AdminUser struct {
 	Email string `json:"email"`
 	Role  string `json:"role"`
 	// CSRF must be echoed in X-CSRF-Token on every state-changing request.
-	CSRF        string    `json:"csrf_token"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	TOTPEnabled bool      `json:"totp_enabled"`
+	CSRF      string    `json:"csrf_token"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 func (u *AdminUser) Can(minRole string) bool { return RoleLevel(u.Role) >= RoleLevel(minRole) }
@@ -198,7 +197,7 @@ var errBadLogin = newErr(401, "invalid_credentials")
 // Login verifies credentials and opens a session. Attempts are throttled per
 // account and per IP before the password is checked; the error is the same
 // for an unknown account, a wrong password and a disabled account.
-func (s *Service) Login(ctx context.Context, email, password, ip, userAgent, totpCode string) (token string, u *AdminUser, err error) {
+func (s *Service) Login(ctx context.Context, email, password, ip, userAgent string) (token string, u *AdminUser, err error) {
 	e, _ := NormalizeEmail(strings.TrimSpace(email))
 	acct := hex.EncodeToString(s.Box.MAC("login-account", []byte(strings.ToLower(strings.TrimSpace(email)))))
 	for _, b := range []struct {
@@ -214,8 +213,8 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent, tot
 		}
 	}
 	var id, hash, role string
-	var disabled, totpEnabled bool
-	err = s.Pool.QueryRow(ctx, `SELECT id::text, password_hash, role, disabled, totp_enabled FROM users WHERE email=$1`, e).Scan(&id, &hash, &role, &disabled, &totpEnabled)
+	var disabled bool
+	err = s.Pool.QueryRow(ctx, `SELECT id::text, password_hash, role, disabled FROM users WHERE email=$1`, e).Scan(&id, &hash, &role, &disabled)
 	if errors.Is(err, db.ErrNoRows) {
 		verifyPassword(dummyHash, password)
 		return "", nil, errBadLogin
@@ -225,12 +224,6 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent, tot
 	}
 	if !verifyPassword(hash, password) || disabled {
 		return "", nil, errBadLogin
-	}
-	if totpEnabled {
-		ok, err := s.userTOTP(ctx, id, totpCode)
-		if err != nil || !ok {
-			return "", nil, errBadLogin
-		}
 	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -253,7 +246,7 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent, tot
 	if _, err = tx.Exec(ctx, `UPDATE users SET last_login_at=now() WHERE id=$1`, id); err != nil {
 		return "", nil, unavailable("last_login", err)
 	}
-	u = &AdminUser{ID: id, Email: e, Role: role, CSRF: s.csrfFor(th[:]), ExpiresAt: exp, TOTPEnabled: totpEnabled}
+	u = &AdminUser{ID: id, Email: e, Role: role, CSRF: s.csrfFor(th[:]), ExpiresAt: exp}
 	if err = audit(ctx, tx, Actor{UserID: id, Name: e}, "auth.login", "user", id, map[string]any{"ip": ip}); err != nil {
 		return "", nil, unavailable("audit", err)
 	}
@@ -270,8 +263,8 @@ func (s *Service) Session(ctx context.Context, token string) (*AdminUser, error)
 	}
 	th := sha256.Sum256([]byte(token))
 	var u AdminUser
-	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, u.totp_enabled, s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
-WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.TOTPEnabled, &u.ExpiresAt)
+	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
+WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.ExpiresAt)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(401, "unauthenticated")
 	}

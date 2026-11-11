@@ -1,13 +1,13 @@
 # Alternative to compose: supervised native worker (adjust paths / env file).
 [Unit]
-Description=Ditronics Mail worker
+Description=Njiwa Mail worker
 After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
-User=ditronics-mail
-EnvironmentFile=/etc/ditronics-mail/env
-ExecStart=/usr/local/bin/ditronics-mail worker
+User=njiwa-mail
+EnvironmentFile=/etc/njiwa-mail/env
+ExecStart=/usr/local/bin/njiwa-mail worker
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

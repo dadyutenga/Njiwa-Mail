@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"strings"
 )
 

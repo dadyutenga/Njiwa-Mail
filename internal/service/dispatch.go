@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/mailer"
+	"github.com/njiwa-tz/mail/internal/mailer"
 )
 
 // Claimed is a message leased to a worker. Payload is still encrypted.

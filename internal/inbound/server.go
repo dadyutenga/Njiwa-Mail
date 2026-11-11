@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/ditronics-tz/mail/internal/service"
 	"github.com/emersion/go-smtp"
+	"github.com/njiwa-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 const (
@@ -117,7 +117,7 @@ func (s *Server) smtpServer() *smtp.Server {
 	}))
 	srv.Domain = s.Hostname
 	if srv.Domain == "" {
-		srv.Domain = "ditronics-mail-inbound"
+		srv.Domain = "njiwa-mail-inbound"
 	}
 	srv.MaxMessageBytes = s.MaxBytes
 	srv.MaxRecipients = s.MaxRecipients

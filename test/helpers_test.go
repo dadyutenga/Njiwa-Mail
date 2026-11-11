@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/api"
-	"github.com/ditronics-tz/mail/internal/db"
-	"github.com/ditronics-tz/mail/internal/mailer"
-	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/ditronics-tz/mail/internal/service"
-	"github.com/ditronics-tz/mail/internal/worker"
 	"github.com/gofiber/fiber/v2"
+	"github.com/njiwa-tz/mail/internal/api"
+	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/mailer"
+	"github.com/njiwa-tz/mail/internal/secure"
+	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/worker"
 )
 
 const (
@@ -32,7 +32,7 @@ const (
 	testRcpt   = "user@example.org"
 	resetURL   = origin + "/reset?token=RESET-TOKEN-SECRET-123"
 	otpCode    = "493817"
-	pgDefault  = "postgres://dadi@/ditronics_mail_test?host=/var/run/postgresql"
+	pgDefault  = "postgres://dadi@/njiwa_mail_test?host=/var/run/postgresql"
 	passSecret = "smtp-password-secret"
 	inDomain   = "in.example.com"
 	bounceAddr = "bounces@notify.example.com"
@@ -135,7 +135,7 @@ func (e *env) provision(name string) keys {
 	e.must(s.SetQuotas(ctx, name, 1000, 10000, 1000, 1000))
 	for _, m := range []string{"sandbox", "live"} {
 		e.must(s.SetOrigins(ctx, name, m, []string{origin}))
-		e.must(s.AddSender(ctx, name, m, liveFrom, "Ditronics Security"))
+		e.must(s.AddSender(ctx, name, m, liveFrom, "Njiwa Security"))
 	}
 	e.must(s.AllowRecipient(ctx, name, "live", "@example.org", false))
 	var k keys

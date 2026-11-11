@@ -5,15 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"log/slog"
 	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/mailer"
-	"github.com/ditronics-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/mailer"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 type Worker struct {

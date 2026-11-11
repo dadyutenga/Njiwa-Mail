@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ditronics-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/db"
 	"strings"
 	"time"
 	"unicode"
 
-	"github.com/ditronics-tz/mail/internal/tmpl"
+	"github.com/njiwa-tz/mail/internal/tmpl"
 )
 
 // Admin operations are CLI-only. There are deliberately no public

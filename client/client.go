@@ -1,4 +1,4 @@
-// Package client is a small, dependency-free Go client for the Ditronics Mail
+// Package client is a small, dependency-free Go client for the Njiwa Mail
 // API. Any backend can use it (or copy it): it only needs net/http.
 //
 // Retry rules follow the service contract: network errors, timeouts, 429 and
@@ -22,7 +22,7 @@ import (
 )
 
 type Client struct {
-	BaseURL    string        // e.g. https://mail.ditronics.co.tz
+	BaseURL    string        // e.g. https://mail.njiwa.co.tz
 	APIKey     string        // project+environment key; keep server-side only
 	HTTP       *http.Client  // optional; defaults to a 10s-timeout client
 	MaxRetries int           // retries after the first attempt (default 2)
@@ -70,7 +70,7 @@ type APIError struct {
 	RetryAfter time.Duration
 }
 
-func (e *APIError) Error() string { return fmt.Sprintf("ditronics-mail: %d %s", e.Status, e.Code) }
+func (e *APIError) Error() string { return fmt.Sprintf("njiwa-mail: %d %s", e.Status, e.Code) }
 
 // Retryable reports whether the same request may be safely re-sent with the
 // same idempotency key.

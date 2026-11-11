@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ditronics-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 const (
@@ -160,7 +160,7 @@ func (d *Deliverer) attempt(ctx context.Context, del service.Delivery) (ok bool,
 		return false, 0, "invalid_url"
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "ditronics-mail-webhook/1")
+	req.Header.Set("User-Agent", "njiwa-mail-webhook/1")
 	req.Header.Set("X-DM-Event-ID", del.ID)
 	req.Header.Set("X-DM-Event-Type", del.EventType)
 	req.Header.Set(SignatureHeader, Sign(del.Secret, time.Now(), body))

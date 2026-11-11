@@ -3,6 +3,7 @@
 package config
 
 import (
+	"bufio"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -53,7 +54,6 @@ type Config struct {
 	AdminSessionTTL time.Duration
 	TrustProxy      bool
 	InsecureCookies bool
-	RequireTOTP     bool
 	PublicURL       string
 	IngressAddr     string
 
@@ -150,8 +150,48 @@ func key(name string, minLen int, exact bool) ([]byte, error) {
 	return b, nil
 }
 
+// loadDotEnv copies KEY=VALUE lines from .env into the process environment.
+// Variables already set are left alone, so the shell and the container win.
+func loadDotEnv() error {
+	f, err := os.Open(".env")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf(".env: %w", err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" || os.Getenv(key) != "" {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		if len(val) >= 2 && (val[0] == '"' || val[0] == '\'') && val[len(val)-1] == val[0] {
+			val = val[1 : len(val)-1]
+		}
+		if err := os.Setenv(key, val); err != nil {
+			return fmt.Errorf(".env %s: %w", key, err)
+		}
+	}
+	return sc.Err()
+}
+
 // Load reads and validates configuration. Errors never include secret values.
 func Load() (*Config, error) {
+	if err := loadDotEnv(); err != nil {
+		return nil, err
+	}
 	var c Config
 	var err error
 	if c.DatabaseURL, err = secret("DATABASE_URL"); err != nil {
@@ -255,13 +295,6 @@ func Load() (*Config, error) {
 	if c.InsecureCookies, err = boolVar("ADMIN_INSECURE_COOKIES"); err != nil {
 		return nil, err
 	}
-	switch strings.ToLower(get("TOTP_REQUIRED", "true")) {
-	case "true", "1", "yes":
-		c.RequireTOTP = true
-	case "false", "0", "no":
-	default:
-		return nil, fmt.Errorf("TOTP_REQUIRED must be true or false")
-	}
 	c.PublicURL = get("PUBLIC_URL", "")
 	c.IngressAddr = get("INGRESS_ADDR", "")
 	if c.MetricsToken, err = secret("METRICS_TOKEN"); err != nil {
@@ -292,7 +325,7 @@ func Load() (*Config, error) {
 	if c.InboundMaxBytes, err = intVar("INBOUND_MAX_BYTES", 10<<20); err != nil {
 		return nil, err
 	}
-	c.DataDir = get("DATA_DIR", "/var/lib/ditronics-mail")
+	c.DataDir = get("DATA_DIR", "/var/lib/njiwa-mail")
 	c.MailHostname = strings.ToLower(get("MAIL_HOSTNAME", ""))
 	c.OutboundIP = get("OUTBOUND_IP", "")
 	c.DKIMSelector = get("DKIM_SELECTOR", "dkim")

@@ -47,10 +47,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build image (verifies the Dockerfile)
-        run: docker build -t ditronics-mail:ci .
+        run: docker build -t njiwa-mail:ci .
       - name: Binary runs and refuses to start without required config
         run: |
-          if docker run --rm ditronics-mail:ci migrate; then echo "expected config error"; exit 1; fi
+          if docker run --rm njiwa-mail:ci migrate; then echo "expected config error"; exit 1; fi
       - name: Compose file is valid
         run: |
           printf 'POSTGRES_PASSWORD=x\nENCRYPTION_KEY=x\nHMAC_KEY=x\n' > .env

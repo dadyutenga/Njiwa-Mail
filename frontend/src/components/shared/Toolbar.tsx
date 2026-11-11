@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Bell, Search, SunMoon, UserRound } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { admin, type Page } from "@/lib/admin-api";
 import { routes } from "@/app/routes";
 import { useAuth } from "@/features/auth/auth";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 export function SearchPalette() {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
@@ -54,7 +57,7 @@ export function SearchPalette() {
         />
         <ul className="max-h-64 overflow-auto">
           {routes
-            .filter((route) => route.navigation)
+            .filter((route) => route.navigation && (!route.role || user?.role === route.role))
             .filter((route) => route.label.toLowerCase().includes(query.toLowerCase()))
             .map((route) => (
               <li key={route.path}>
@@ -76,6 +79,10 @@ export function SearchPalette() {
   );
 }
 export function NotificationBell() {
+  const q = useQuery({
+    queryKey: ["alerts", "open"],
+    queryFn: () => admin.get<Page<Record<string, unknown>>>("/alerts?open=true&limit=5"),
+  });
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -85,7 +92,15 @@ export function NotificationBell() {
       </PopoverTrigger>
       <PopoverContent align="end">
         <h2 className="font-semibold">Notifications</h2>
-        <p className="mt-2 text-sm text-muted-foreground">No notifications yet. This is a demo.</p>
+        {q.isPending ? (
+          <p className="mt-2 text-sm">Loading…</p>
+        ) : q.error ? (
+          <p role="alert" className="mt-2 text-sm">
+            {q.error.message}
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">{q.data.items.length} open alerts</p>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -121,7 +136,7 @@ export function UserMenu() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" aria-label="Open user menu">
           <UserRound size={19} />
-          <span className="hidden sm:inline">{user?.name}</span>
+          <span className="hidden sm:inline">{user?.email}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

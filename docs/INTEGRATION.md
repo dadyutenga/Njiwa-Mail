@@ -1,6 +1,6 @@
 # App integration
 
-Every Ditronics app uses this contract. There is no per-app adapter and no app-specific mail package in this repository. An app is a project with its own API keys.
+Every Njiwa app uses this contract. There is no per-app adapter and no app-specific mail package in this repository. An app is a project with its own API keys.
 
 The application API is `/v1`. The operator API (`/admin/v1`) is not for apps.
 
@@ -9,13 +9,13 @@ The application API is `/v1`. The operator API (`/admin/v1`) is not for apps.
 One project, two environments, two keys. The secret is shown once.
 
 ```bash
-ditronics-mail project create -name billing
-ditronics-mail env origins -project billing -mode sandbox -origin https://billing.example.com
-ditronics-mail env origins -project billing -mode live    -origin https://billing.example.com
-ditronics-mail sender add -project billing -mode sandbox -email noreply@notify.example.com -display "Billing"
-ditronics-mail sender add -project billing -mode live    -email noreply@notify.example.com -display "Billing"
-ditronics-mail key create -project billing -mode sandbox -scopes emails:send,emails:read -label billing-sandbox
-ditronics-mail key create -project billing -mode live    -scopes emails:send,emails:read -label billing-live
+njiwa-mail project create -name billing
+njiwa-mail env origins -project billing -mode sandbox -origin https://billing.example.com
+njiwa-mail env origins -project billing -mode live    -origin https://billing.example.com
+njiwa-mail sender add -project billing -mode sandbox -email noreply@notify.example.com -display "Billing"
+njiwa-mail sender add -project billing -mode live    -email noreply@notify.example.com -display "Billing"
+njiwa-mail key create -project billing -mode sandbox -scopes emails:send,emails:read -label billing-sandbox
+njiwa-mail key create -project billing -mode live    -scopes emails:send,emails:read -label billing-live
 ```
 
 Add `emails:send_raw` only for an app that sends its own subject and body. Add `inbound:read` or `suppressions:manage` only when that app needs them.
@@ -24,9 +24,9 @@ Put the key in the app's server configuration:
 
 | Variable | Value |
 |---|---|
-| `DITRONICS_MAIL_URL` | `https://mail-api.example.com` |
-| `DITRONICS_MAIL_API_KEY` | the key (`dmk_sbx_…` or `dmk_liv_…`) |
-| `DITRONICS_MAIL_FROM` | an approved sender for that key's environment |
+| `NJIWA_MAIL_URL` | `https://mail-api.example.com` |
+| `NJIWA_MAIL_API_KEY` | the key (`dmk_sbx_…` or `dmk_liv_…`) |
+| `NJIWA_MAIL_FROM` | an approved sender for that key's environment |
 
 Never put the key in a browser, a mobile app, or a frontend build.
 
@@ -108,20 +108,20 @@ States an app may see: `queued`, `scheduled`, `submitting`, `submitted`, `retry_
 Go:
 
 ```go
-import mail "github.com/ditronics-tz/mail/ditronicsmail"
+import mail "github.com/njiwa-tz/mail/njiwamail"
 
-c := mail.New(os.Getenv("DITRONICS_MAIL_URL"), os.Getenv("DITRONICS_MAIL_API_KEY"))
+c := mail.New(os.Getenv("NJIWA_MAIL_URL"), os.Getenv("NJIWA_MAIL_API_KEY"))
 key := mail.NewIdempotencyKey("otp")
 _, err := c.Send(ctx, key, mail.Email{
-    From: os.Getenv("DITRONICS_MAIL_FROM"), To: user.Email,
+    From: os.Getenv("NJIWA_MAIL_FROM"), To: user.Email,
     Template: "otp", Locale: "sw",
     Variables: map[string]any{"name": user.Name, "code": code, "expires_in_minutes": 5},
 })
 ```
 
-`github.com/ditronics-tz/mail/client` is the same client. It retries with the same idempotency key.
+`github.com/njiwa-tz/mail/client` is the same client. It retries with the same idempotency key.
 
-TypeScript: `clients/typescript/index.ts` (`DitronicsMail.send`).
+TypeScript: `clients/typescript/index.ts` (`NjiwaMail.send`).
 
 Any other language implements this document. The machine-readable contract is [openapi.yaml](openapi.yaml). Webhook verification is [WEBHOOKS.md](WEBHOOKS.md).
 

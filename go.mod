@@ -1,4 +1,4 @@
-module github.com/ditronics-tz/mail
+module github.com/njiwa-tz/mail
 
 go 1.26.0
 
