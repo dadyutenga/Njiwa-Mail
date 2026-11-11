@@ -41,6 +41,11 @@ type Options struct {
 
 	// AllowUnregisteredLiveDomains: see config. Temporary upgrade escape hatch.
 	AllowUnregisteredLiveDomains bool
+
+	// Installation-wide abuse limits on accepted Live messages, on top of the
+	// per-project quotas (backlog F04). 0 disables a limit.
+	LiveGlobalPerMinute, LiveGlobalPerHour int
+	LiveDomainPerMinute, LiveDomainPerHour int
 }
 
 type Service struct {

@@ -82,6 +82,10 @@ type Config struct {
 	// mail and Live senders may use a domain no project has registered or
 	// claimed. Off by default. It never allows a domain another project claims.
 	AllowUnregisteredLiveDomains bool
+
+	// Installation-wide Live sending limits (0 disables one).
+	LiveGlobalPerMinute, LiveGlobalPerHour int
+	LiveDomainPerMinute, LiveDomainPerHour int
 }
 
 func boolVar(name string) (bool, error) {
@@ -336,6 +340,21 @@ func Load() (*Config, error) {
 	c.DKIMSelector = get("DKIM_SELECTOR", "dkim")
 	if c.AllowUnregisteredLiveDomains, err = boolVar("ALLOW_UNREGISTERED_LIVE_DOMAINS"); err != nil {
 		return nil, err
+	}
+	for _, l := range []struct {
+		name string
+		def  int
+		dst  *int
+	}{
+		{"LIVE_GLOBAL_PER_MINUTE", 600, &c.LiveGlobalPerMinute}, {"LIVE_GLOBAL_PER_HOUR", 20000, &c.LiveGlobalPerHour},
+		{"LIVE_DOMAIN_PER_MINUTE", 300, &c.LiveDomainPerMinute}, {"LIVE_DOMAIN_PER_HOUR", 10000, &c.LiveDomainPerHour},
+	} {
+		if *l.dst, err = intVar(l.name, l.def); err != nil {
+			return nil, err
+		}
+		if *l.dst < 0 {
+			return nil, fmt.Errorf("%s must be 0 (off) or more", l.name)
+		}
 	}
 	return &c, nil
 }
