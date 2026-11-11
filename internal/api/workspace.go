@@ -799,6 +799,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	})
 
 	s.mailServerRoutes(app)
+	s.installationRoutes(app)
 
 	// ---- public one-click unsubscribe (RFC 8058). Bulk mail only.
 	app.Get("/v1/unsubscribe/:token", func(c *fiber.Ctx) error {
@@ -885,22 +886,32 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 			"mailcow_api": in.MailcowAPIURL != ""})
 		return svc.GetMailServer(reqCtx(c))
 	})
-	cfgFor := func(c *fiber.Ctx) (mailer.SMTPConfig, string, error) {
-		cfg, sender, _, ok, err := svc.StoredSMTP(reqCtx(c))
+	// cfgFor returns the settings a test will exercise and the profile revision
+	// they belong to. The environment wins, as it does for the worker; its
+	// result is attributed to the saved profile only when both are identical,
+	// so a pass on environment SMTP never vouches for different saved settings.
+	cfgFor := func(c *fiber.Ctx) (mailer.SMTPConfig, string, service.TransportPin, error) {
+		a, err := svc.LoadActiveSMTP(reqCtx(c))
 		if err != nil {
-			return cfg, "", &service.Error{Status: 503, Code: "service_unavailable"}
+			return a.Cfg, "", service.TransportPin{}, &service.Error{Status: 503, Code: "service_unavailable"}
 		}
-		if s.EnvSMTP != nil {
-			cfg = *s.EnvSMTP // the environment wins, as it does for the worker
-			ok = true
+		cfg, ok, pin := a.Cfg, a.OK, a.Pin()
+		if !a.OK {
+			pin = service.TransportPin{}
+		}
+		if e := s.EnvSMTP; e != nil {
+			if !(a.OK && e.Host == cfg.Host && e.Port == cfg.Port && e.Username == cfg.Username && e.Password == cfg.Password && e.Implicit == cfg.Implicit) {
+				pin = service.TransportPin{}
+			}
+			cfg, ok = *e, true
 		}
 		if !ok {
-			return cfg, "", &service.Error{Status: 409, Code: "mail_server_not_configured", Message: "save the SMTP host, port, username and password first"}
+			return cfg, "", pin, &service.Error{Status: 409, Code: "mail_server_not_configured", Message: "save the SMTP host, port, username and password first"}
 		}
-		return cfg, sender, nil
+		return cfg, a.Sender, pin, nil
 	}
 	h("POST", "/mail-server/test", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
-		cfg, sender, err := cfgFor(c)
+		cfg, sender, pin, err := cfgFor(c)
 		if err != nil {
 			return nil, err
 		}
@@ -911,7 +922,7 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 		for _, st := range steps {
 			ok = ok && (st.OK || (st.Skipped && st.Key == "sender" && sender == ""))
 		}
-		_ = svc.RecordMailTest(reqCtx(c), "connection", ok, steps)
+		_ = svc.RecordMailTest(reqCtx(c), pin, "connection", ok, steps)
 		out := map[string]any{"ok": ok, "steps": steps}
 		if mc := svc.MailcowConfigured(reqCtx(c)); mc {
 			perr := svc.MailcowPing(tctx)
@@ -927,11 +938,11 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		cfg, sender, err := cfgFor(c)
+		cfg, sender, pin, err := cfgFor(c)
 		if err != nil {
 			return nil, err
 		}
-		out, err := svc.TestSendDirect(reqCtx(c), cfg, sender, in.To)
+		out, err := svc.TestSendDirect(reqCtx(c), cfg, pin, sender, in.To)
 		if err != nil {
 			return nil, err
 		}

@@ -21,6 +21,9 @@ type Claimed struct {
 	Template  string
 	Version   int
 	Mode      string
+	// Pin is set by the worker to the profile revision that performed the
+	// submission attempt; it is recorded on submitted and unknown outcomes.
+	Pin TransportPin
 }
 
 // Claim atomically leases due messages (FOR UPDATE SKIP LOCKED) in a single
@@ -116,6 +119,7 @@ type finishOpts struct {
 	messageID  *string
 	retryAfter *float64
 	extra      func(ctx context.Context, tx *db.Tx) error
+	pin        TransportPin
 }
 
 // finish applies a lease-token-guarded transition. It reports false when the
@@ -126,18 +130,25 @@ func (s *Service) finish(ctx context.Context, id, token string, o finishOpts) (b
 		return false, err
 	}
 	defer tx.Rollback(ctx)
+	var pinID *string
+	var pinRev *int64
+	if o.pin.ProfileID != "" {
+		pinID, pinRev = &o.pin.ProfileID, &o.pin.Revision
+	}
 	tag, err := tx.Exec(ctx, `
 UPDATE messages SET state=$3::text,
   payload_enc = CASE WHEN $4::bool THEN NULL ELSE payload_enc END,
   completed_at = CASE WHEN $5::bool THEN now() ELSE completed_at END,
   submitted_at = CASE WHEN $3::text = 'submitted' THEN now() ELSE submitted_at END,
+  transport_profile_id = COALESCE($10::uuid, transport_profile_id),
+  transport_revision = COALESCE($11::bigint, transport_revision),
   smtp_reply = COALESCE($6::text, smtp_reply),
   smtp_message_id = COALESCE($7::text, smtp_message_id),
   lease_expires_at = CASE WHEN $3::text = 'submitting' THEN lease_expires_at ELSE NULL END,
   next_attempt_at = CASE WHEN $8::float8 IS NULL THEN next_attempt_at ELSE now() + make_interval(secs => $8::float8) END,
   updated_at = now()
 WHERE id=$1 AND lease_token=$2::uuid AND state = ANY($9)`,
-		id, token, o.to, o.clear, o.complete, o.reply, o.messageID, o.retryAfter, o.from)
+		id, token, o.to, o.clear, o.complete, o.reply, o.messageID, o.retryAfter, o.from, pinID, pinRev)
 	if err != nil {
 		return false, err
 	}
@@ -199,7 +210,7 @@ SELECT count(*), COALESCE(sum(dm_emit(m.environment_id, 'email.' || $1, `+fmt.Sp
 // late definitive acknowledgement is strictly better evidence.
 func (s *Service) MarkSubmitted(ctx context.Context, c Claimed, reason, reply, messageID string) (bool, error) {
 	return s.finish(ctx, c.ID, c.Token, finishOpts{from: []string{"submitting", "unknown"}, to: "submitted", event: "submitted",
-		reason: reason, clear: true, complete: true, reply: &reply, messageID: &messageID})
+		reason: reason, clear: true, complete: true, reply: &reply, messageID: &messageID, pin: c.Pin})
 }
 
 func (s *Service) MarkFailed(ctx context.Context, c Claimed, reason string) (bool, error) {
@@ -207,7 +218,7 @@ func (s *Service) MarkFailed(ctx context.Context, c Claimed, reason string) (boo
 }
 
 func (s *Service) MarkUnknown(ctx context.Context, c Claimed, reason string) (bool, error) {
-	return s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "unknown", event: "unknown", reason: reason, clear: true, complete: true})
+	return s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "unknown", event: "unknown", reason: reason, clear: true, complete: true, pin: c.Pin})
 }
 
 func (s *Service) MarkExpired(ctx context.Context, c Claimed, reason string) (bool, error) {

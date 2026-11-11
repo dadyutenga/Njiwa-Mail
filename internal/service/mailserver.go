@@ -45,7 +45,9 @@ FROM mail_server WHERE id=1`)
 	return out[0], nil
 }
 
-func (s *Service) SaveMailServer(ctx context.Context, in MailServerInput) error {
+// validateSMTPInput normalises and validates the SMTP fields shared by the
+// Mail server page and transport profiles.
+func validateSMTPInput(in *MailServerInput) error {
 	in.SMTPHost = strings.TrimSpace(in.SMTPHost)
 	if in.SMTPHost != "" && (strings.ContainsAny(in.SMTPHost, " /:@") || len(in.SMTPHost) > 253) {
 		return badRequest("SMTP host must be a host name, without a port or scheme")
@@ -78,20 +80,32 @@ func (s *Service) SaveMailServer(ctx context.Context, in MailServerInput) error 
 	if in.MailcowAPIURL != "" && !strings.HasPrefix(in.MailcowAPIURL, "https://") {
 		return badRequest("Mailcow API URL must start with https://")
 	}
+	return nil
+}
+
+func (s *Service) SaveMailServer(ctx context.Context, in MailServerInput) error {
+	if err := validateSMTPInput(&in); err != nil {
+		return err
+	}
 	var pw, key []byte
 	var err error
 	if in.Password != nil && *in.Password != "" {
-		if pw, err = s.Box.Seal([]byte(*in.Password), []byte("mail_server:smtp_password")); err != nil {
+		if pw, err = s.Box.Seal([]byte(*in.Password), []byte(smtpPasswordAAD)); err != nil {
 			return unavailable("seal", err)
 		}
 	}
 	if in.MailcowAPIKey != nil && *in.MailcowAPIKey != "" {
-		if key, err = s.Box.Seal([]byte(*in.MailcowAPIKey), []byte("mail_server:mailcow_api_key")); err != nil {
+		if key, err = s.Box.Seal([]byte(*in.MailcowAPIKey), []byte(mailcowAPIKeyAAD)); err != nil {
 			return unavailable("seal", err)
 		}
 	}
 	clearKey := in.MailcowAPIURL == ""
-	_, err = s.Pool.Exec(ctx, `INSERT INTO mail_server(id, smtp_host, smtp_port, smtp_tls_mode, smtp_username, smtp_password_enc, test_sender, inbound_listener, mailcow_api_url, mailcow_api_key_enc)
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return unavailable("mail_server_save", err)
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `INSERT INTO mail_server(id, smtp_host, smtp_port, smtp_tls_mode, smtp_username, smtp_password_enc, test_sender, inbound_listener, mailcow_api_url, mailcow_api_key_enc)
 VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9)
 ON CONFLICT (id) DO UPDATE SET smtp_host=EXCLUDED.smtp_host, smtp_port=EXCLUDED.smtp_port, smtp_tls_mode=EXCLUDED.smtp_tls_mode,
   smtp_username=EXCLUDED.smtp_username, smtp_password_enc=COALESCE(EXCLUDED.smtp_password_enc, mail_server.smtp_password_enc),
@@ -102,12 +116,97 @@ ON CONFLICT (id) DO UPDATE SET smtp_host=EXCLUDED.smtp_host, smtp_port=EXCLUDED.
 	if err != nil {
 		return unavailable("mail_server_save", err)
 	}
+	// Keep the profile registry in step with the legacy page (one release of
+	// compatibility: the page keeps working and the worker reads the profile).
+	if err := syncLegacyProfile(ctx, tx, smtpProfileConfig(in), pw, key, clearKey, in.MailcowAPIURL != ""); err != nil {
+		return unavailable("mail_server_save", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return unavailable("mail_server_save", err)
+	}
 	return nil
 }
 
-// StoredSMTP returns the stored SMTP settings with the password decrypted.
-// ok is false when no host is stored.
+// ActiveSMTP is the SMTP configuration the worker should use, with the exact
+// profile revision it came from. ProfileID is empty when it came from the
+// legacy singleton row (no profile exists).
+type ActiveSMTP struct {
+	Cfg       mailer.SMTPConfig
+	Sender    string
+	ProfileID string
+	Revision  int64
+	Updated   time.Time
+	OK        bool // false: no usable host, or the active profile is another mode
+}
+
+// Pin is the profile revision a message was handed to.
+func (a ActiveSMTP) Pin() TransportPin {
+	return TransportPin{ProfileID: a.ProfileID, Revision: a.Revision}
+}
+
+// TransportPin identifies the profile revision that performed a submission.
+// The zero value means "not attributable to a profile" (environment SMTP or
+// the legacy row) and is stored as NULL rather than guessed.
+type TransportPin struct {
+	ProfileID string
+	Revision  int64
+}
+
+// LoadActiveSMTP reads the active existing-SMTP profile with the password
+// decrypted. With no profile at all (an installation that has not run
+// migration 0010's backfill) it falls back to the legacy singleton row.
+func (s *Service) LoadActiveSMTP(ctx context.Context) (ActiveSMTP, error) {
+	var a ActiveSMTP
+	var mode string
+	var cj, pwEnc []byte
+	err := s.Pool.QueryRow(ctx, `SELECT id::text, config_revision, mode, config_json, encrypted_secret, updated_at FROM transport_profiles WHERE is_active`).
+		Scan(&a.ProfileID, &a.Revision, &mode, &cj, &pwEnc, &a.Updated)
+	if errors.Is(err, db.ErrNoRows) {
+		a.Cfg, a.Sender, a.Updated, a.OK, err = s.legacyStoredSMTP(ctx)
+		return a, err
+	}
+	if err != nil {
+		return a, err
+	}
+	if mode != "existing_smtp" {
+		return a, nil
+	}
+	a.Cfg, a.Sender, _, a.OK, err = s.openSMTPProfile(cj, pwEnc, a.Updated)
+	return a, err
+}
+
+// StoredSMTP is LoadActiveSMTP in the older tuple form.
 func (s *Service) StoredSMTP(ctx context.Context) (cfg mailer.SMTPConfig, sender string, updated time.Time, ok bool, err error) {
+	a, err := s.LoadActiveSMTP(ctx)
+	return a.Cfg, a.Sender, a.Updated, a.OK, err
+}
+
+func (s *Service) openSMTPProfile(cj, pwEnc []byte, updated time.Time) (cfg mailer.SMTPConfig, sender string, _ time.Time, ok bool, err error) {
+	var c struct {
+		Host       string `json:"host"`
+		Port       int    `json:"port"`
+		TLSMode    string `json:"tls_mode"`
+		Username   string `json:"username"`
+		TestSender string `json:"test_sender"`
+	}
+	if err = json.Unmarshal(cj, &c); err != nil {
+		return cfg, "", updated, false, err
+	}
+	cfg.Host, cfg.Port, cfg.Username, cfg.Implicit = c.Host, c.Port, c.Username, c.TLSMode == "implicit"
+	if c.Host == "" {
+		return cfg, c.TestSender, updated, false, nil
+	}
+	if pwEnc != nil {
+		pw, err := s.Box.Open(pwEnc, []byte(smtpPasswordAAD))
+		if err != nil {
+			return cfg, "", updated, false, err
+		}
+		cfg.Password = string(pw)
+	}
+	return cfg, c.TestSender, updated, true, nil
+}
+
+func (s *Service) legacyStoredSMTP(ctx context.Context) (cfg mailer.SMTPConfig, sender string, updated time.Time, ok bool, err error) {
 	var tlsMode string
 	var pwEnc []byte
 	err = s.Pool.QueryRow(ctx, `SELECT smtp_host, smtp_port, smtp_tls_mode, smtp_username, smtp_password_enc, test_sender, updated_at FROM mail_server WHERE id=1`).
@@ -123,7 +222,7 @@ func (s *Service) StoredSMTP(ctx context.Context) (cfg mailer.SMTPConfig, sender
 	}
 	cfg.Implicit = tlsMode == "implicit"
 	if pwEnc != nil {
-		pw, err := s.Box.Open(pwEnc, []byte("mail_server:smtp_password"))
+		pw, err := s.Box.Open(pwEnc, []byte(smtpPasswordAAD))
 		if err != nil {
 			return cfg, "", updated, false, err
 		}
@@ -132,17 +231,28 @@ func (s *Service) StoredSMTP(ctx context.Context) (cfg mailer.SMTPConfig, sender
 	return cfg, sender, updated, true, nil
 }
 
-// RecordMailTest stores the outcome of a connection test or test send.
-func (s *Service) RecordMailTest(ctx context.Context, kind string, ok bool, detail any) error {
+// RecordMailTest stores the outcome of a connection test or test send. The
+// legacy last_test column is kept for the old screens. When pin names the
+// profile revision whose settings were actually tested, the result is also
+// stored as an installation check bound to that revision. Callers must pass a
+// zero pin when they tested anything else (for example environment SMTP that
+// differs from the saved profile), so a pass can never attach to settings it
+// did not exercise.
+func (s *Service) RecordMailTest(ctx context.Context, pin TransportPin, kind string, ok bool, detail any) error {
 	b, _ := json.Marshal(map[string]any{"kind": kind, "ok": ok, "detail": detail})
-	_, err := s.Pool.Exec(ctx, `INSERT INTO mail_server(id, last_test, last_test_at) VALUES (1,$1,now())
-ON CONFLICT (id) DO UPDATE SET last_test=EXCLUDED.last_test, last_test_at=now()`, b)
-	return err
+	if _, err := s.Pool.Exec(ctx, `INSERT INTO mail_server(id, last_test, last_test_at) VALUES (1,$1,now())
+ON CONFLICT (id) DO UPDATE SET last_test=EXCLUDED.last_test, last_test_at=now()`, b); err != nil {
+		return err
+	}
+	if pin.ProfileID == "" {
+		return nil
+	}
+	return s.RecordInstallationCheck(ctx, pin.ProfileID, pin.Revision, kind, ok, problemCodeFor(kind, detail), nil, false)
 }
 
 // TestSendDirect sends one message straight to the mail server (not through
 // the queue) and reports the honest outcome.
-func (s *Service) TestSendDirect(ctx context.Context, cfg mailer.SMTPConfig, from, to string) (map[string]any, error) {
+func (s *Service) TestSendDirect(ctx context.Context, cfg mailer.SMTPConfig, pin TransportPin, from, to string) (map[string]any, error) {
 	f, ok := NormalizeEmail(strings.ToLower(strings.TrimSpace(from)))
 	if !ok {
 		return nil, badRequest("set a test sender address first")
@@ -167,7 +277,7 @@ func (s *Service) TestSendDirect(ctx context.Context, cfg mailer.SMTPConfig, fro
 	res := mailer.NewSMTP(cfg).Send(sctx, mailer.Envelope{From: envFrom, To: t, Raw: raw})
 	state := map[mailer.Outcome]string{mailer.Accepted: "submitted", mailer.TempFailure: "failed", mailer.PermFailure: "failed", mailer.Unknown: "unknown"}[res.Outcome]
 	out := map[string]any{"state": state, "reason": res.Reason, "reply": res.Reply, "to": maskEmail(t)}
-	_ = s.RecordMailTest(ctx, "test_send", res.Outcome == mailer.Accepted, out)
+	_ = s.RecordMailTest(ctx, pin, "test_send", res.Outcome == mailer.Accepted, out)
 	return out, nil
 }
 
@@ -207,7 +317,7 @@ func (s *Service) mailcowClient(ctx context.Context) (*mailcow.Client, error) {
 	if err != nil || u == "" || enc == nil {
 		return nil, newErr(409, "mailcow_api_not_configured")
 	}
-	key, err := s.Box.Open(enc, []byte("mail_server:mailcow_api_key"))
+	key, err := s.Box.Open(enc, []byte(mailcowAPIKeyAAD))
 	if err != nil {
 		return nil, unavailable("mailcow_key", err)
 	}
