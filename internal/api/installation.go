@@ -46,6 +46,16 @@ func (s *Server) installationRoutes(app *fiber.App) {
 	h("GET", "/transport-profiles/:id", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		return svc.TransportProfile(reqCtx(c), c.Params("id"))
 	})
+	h("PUT", "/transport-profiles/:id", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in service.TransportProfileInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		return svc.UpdateTransportProfile(reqCtx(c), u.Actor(), c.Params("id"), in)
+	})
+	h("DELETE", "/transport-profiles/:id", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		return nil, svc.RetireTransportProfile(reqCtx(c), u.Actor(), c.Params("id"))
+	})
 	// Connection diagnosis for one profile, recorded against its exact revision.
 	h("POST", "/transport-profiles/:id/test", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		id := c.Params("id")
