@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,6 +72,47 @@ func evalSPF(ctx context.Context, r Resolver, domain string, ip net.IP) (bool, s
 		return false, "The SPF record cannot be evaluated: " + o.Reason + ".", recs
 	}
 	return true, "The record is valid. Njiwa-Mail cannot see the address your mail server sends from, so only a test message shows it is authorised.", recs
+}
+
+// evalDKIM validates the public key published at host. When expected is a
+// known record (from the signing server), the published key must be the same
+// key. Publishing a key proves only that it is published: whether mail is
+// actually signed with it needs a received test message.
+func evalDKIM(txt []string, err error, expected string) (bool, string) {
+	switch {
+	case len(txt) == 0:
+		if err != nil && !isNotFoundErr(err) {
+			return false, "The DNS lookup failed; check again in a moment."
+		}
+		return false, "No DKIM record was found at this host. Publish the public key your signing server gives you."
+	case len(txt) > 1:
+		return false, "More than one TXT record was found at this host. Publish exactly one DKIM record per selector."
+	}
+	k, perr := dnsauth.ParseDKIMKey(txt[0])
+	switch {
+	case perr != nil:
+		return false, "The DKIM record is not valid: " + perr.Error() + "."
+	case k.Revoked:
+		return false, "p= is empty, which means the key is revoked. Publish the current public key."
+	}
+	if expected != "" {
+		if want, err := dnsauth.ParseDKIMKey(expected); err == nil && want.Fingerprint != "" && want.Fingerprint != k.Fingerprint {
+			return false, "The published key is not the key your signing server uses, or the value was cut off when pasted."
+		}
+	}
+	hint := "The key is published and valid. Only a received test message shows mail is actually signed with it."
+	if k.KeyType == "rsa" && k.Bits < 2048 {
+		hint = "The key is valid but only " + strconv.Itoa(k.Bits) + " bits; use 2048. " + hint
+	}
+	if k.TestingMode {
+		hint = "t=y marks the key as testing: receivers may ignore its signatures. Remove t=y when ready. " + hint
+	}
+	return true, hint
+}
+
+func isNotFoundErr(err error) bool {
+	var de *net.DNSError
+	return errors.As(err, &de) && de.IsNotFound
 }
 
 // evalDMARC finds and validates the domain's DMARC policy and checks that at
@@ -228,9 +270,16 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 
 		name := s.Opts.DKIMSelector + "._domainkey." + d
 		txt, err := r.LookupTXT(ctx, name)
-		joined := strings.ReplaceAll(strings.Join(txt, ""), " ", "")
-		pass = strings.Contains(joined, "p=") && !strings.Contains(joined, "p=;") && !strings.HasSuffix(joined, "p=")
-		out = append(out, DNSResult{d, "DKIM", name + " TXT v=DKIM1; k=rsa; p=<public key shown in Mailcow>", observed(txt, err), pass})
+		dk := pick(txt, "v=dkim1")
+		if len(dk) == 0 {
+			dk = txt
+		}
+		pass, why = evalDKIM(dk, err, "")
+		dkexp := name + " TXT v=DKIM1; k=rsa; p=<public key of the server that signs your mail>"
+		if !pass {
+			dkexp += " (" + why + ")"
+		}
+		out = append(out, DNSResult{d, "DKIM", dkexp, observed(txt, err), pass})
 
 		// DMARC: the domain's own record, else the organisational domain's;
 		// validated, not just present.
@@ -252,19 +301,28 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 		mx(in, "inbound mail is relayed by Mailcow")
 	}
 
-	if ip != "" {
+	// Reverse DNS of the sending address, forward-confirmed (FCrDNS): the PTR
+	// name must resolve back to the same address. Only when Njiwa-Mail knows
+	// the sender; for a generic SMTP server its operator owns this check.
+	if sip != nil {
 		names, err := r.LookupAddr(ctx, ip)
 		pass := false
 		var vals []string
 		for _, n := range names {
-			vals = append(vals, fqdn(n))
-			pass = pass || (host != "" && fqdn(n) == host)
+			n = fqdn(n)
+			vals = append(vals, n)
+			if host != "" && n != host {
+				continue
+			}
+			if addrs, aerr := r.LookupIPAddr(ctx, n); aerr == nil {
+				for _, a := range addrs {
+					pass = pass || a.IP.Equal(sip)
+				}
+			}
 		}
-		exp := "PTR for " + ip + " equal to the Mailcow hostname (set MAIL_HOSTNAME to check the exact value)"
+		exp := "PTR for " + ip + " naming the mail host, whose A/AAAA record points back to " + ip + " (set MAIL_HOSTNAME to check the exact name)"
 		if host != "" {
-			exp = "PTR " + host
-		} else {
-			pass = len(names) > 0
+			exp = "PTR " + host + ", and " + host + " resolving back to " + ip
 		}
 		out = append(out, DNSResult{ip, "PTR", exp, observed(vals, err), pass})
 	}

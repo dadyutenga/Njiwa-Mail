@@ -266,15 +266,10 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 		case "dkim":
 			txt, err := r.LookupTXT(ctx, rec.Host)
 			rec.Found = observed(txt, err)
-			joined := strings.ReplaceAll(strings.Join(txt, ""), " ", "")
-			lower := strings.ToLower(joined)
-			rec.Pass = strings.Contains(lower, "v=dkim1") && strings.Contains(joined, "p=") && !strings.Contains(joined, "p=;") && !strings.HasSuffix(joined, "p=")
-			if dkimKnown != "" && rec.Pass {
-				want := strings.ReplaceAll(dkimKnown, " ", "")
-				if i := strings.Index(want, "p="); i >= 0 && !strings.Contains(joined, want[i:]) {
-					rec.Pass = false
-					rec.Hint = "The published key does not match the key in Mailcow, or the value was cut off when pasted."
-				}
+			var hint string
+			rec.Pass, hint = evalDKIM(txt, err, dkimKnown)
+			if hint != "" {
+				rec.Hint = hint
 			}
 			dkimOK = rec.Pass
 		case "dmarc":

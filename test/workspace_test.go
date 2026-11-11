@@ -16,7 +16,7 @@ func (e *env) verifiedDomain(admin session, project, mode, name string, bulk boo
 	id, txt := str(r.JSON, "id"), str(r.JSON, "txt")
 	dns := e.srv.Resolver.(fakeDNS)
 	dns.txt[name] = []string{txt, "v=spf1 mx -all"}
-	dns.txt["dkim._domainkey."+name] = []string{"v=DKIM1; k=rsa; p=MIIBIjANBgkqh"}
+	dns.txt["dkim._domainkey."+name] = []string{dkimRecord(e.t)}
 	dns.txt["_dmarc."+name] = []string{"v=DMARC1; p=none"}
 	dns.mx[name] = []string{"mail.example.com."}
 	r = e.admOK(admin, "POST", "/admin/v1/w/"+project+"/"+mode+"/domains/"+id+"/check", nil)
@@ -121,7 +121,7 @@ func TestWorkspaceDomainsSendersAndChecklist(t *testing.T) {
 		}
 	}
 	dns.txt["notify.example.com"] = []string{str(d.JSON, "txt"), "v=spf1 mx -all"}
-	dns.txt["dkim._domainkey.notify.example.com"] = []string{"v=DKIM1; k=rsa; p=MIIB"}
+	dns.txt["dkim._domainkey.notify.example.com"] = []string{dkimRecord(t)}
 	dns.txt["_dmarc.notify.example.com"] = []string{"v=DMARC1; p=none"}
 	e.admOK(admin, "POST", wsBase+"/domains/"+domainID+"/check", nil)
 
