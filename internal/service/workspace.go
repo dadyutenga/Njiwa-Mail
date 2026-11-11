@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/installation"
 	"github.com/njiwa-tz/mail/internal/secure"
 )
 
@@ -72,9 +73,11 @@ FROM projects p JOIN environments e ON e.project_id=p.id WHERE e.id=$1`, sc.EnvI
 }
 
 // senderVerifiedSQL: a sender is verified when its domain has been added to
-// the project and passes ownership, SPF, DKIM and DMARC. Uses alias si.
+// the project, holds the installation-wide claim, and passes ownership, SPF,
+// DKIM and DMARC. Uses alias si.
 const senderVerifiedSQL = `EXISTS (SELECT 1 FROM domains d WHERE d.project_id=si.project_id AND d.name=split_part(si.email,'@',2)
-  AND d.purpose IN ('sending','both') AND d.verified_at IS NOT NULL AND d.spf_ok AND d.dkim_ok AND d.dmarc_ok)`
+  AND d.purpose IN ('sending','both') AND d.verified_at IS NOT NULL AND d.spf_ok AND d.dkim_ok AND d.dmarc_ok
+  AND EXISTS (SELECT 1 FROM domain_claims c WHERE c.name=d.name AND c.project_id=d.project_id AND c.state='active'))`
 
 // ---------------------------------------------------------------- checklist
 
@@ -82,38 +85,29 @@ type ChecklistStep struct {
 	Key      string `json:"key"`
 	Title    string `json:"title"`
 	Done     bool   `json:"done"`
+	Required bool   `json:"required"`
 	Optional bool   `json:"optional,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 }
 
-// Checklist reports each setup step from real data. Step 7 needs a captured
-// sandbox message and a submitted live message in this project.
-func (s *Service) Checklist(ctx context.Context, sc *Scope, smtpEnv bool) ([]ChecklistStep, bool, error) {
-	var serverOK, projects, domains, dnsOK, senders, keys, captured, submitted, mailboxes bool
-	// Mail server step. Two records exist: a check bound to the ACTIVE profile
-	// at its CURRENT revision, and the legacy last_test (cleared whenever the
-	// active settings change; the only record for environment SMTP that is not
-	// attributable to a profile, and for installs migrated from the singleton
-	// row). The newer of the two decides, so a pass for other settings, another
-	// profile or an older revision never counts.
-	var result string
-	var checkedAt, legacyAt *time.Time
-	var lastTest []byte
-	_ = s.Pool.QueryRow(ctx, `SELECT c.result, c.checked_at FROM installation_checks c JOIN transport_profiles p ON p.id=c.profile_id
-WHERE p.is_active AND c.config_revision=p.config_revision AND c.check_key IN ('connection','test_send')
-ORDER BY c.checked_at DESC LIMIT 1`).Scan(&result, &checkedAt)
-	_ = s.Pool.QueryRow(ctx, `SELECT last_test, last_test_at FROM mail_server WHERE id=1`).Scan(&lastTest, &legacyAt)
-	if checkedAt != nil && (legacyAt == nil || lastTest == nil || !legacyAt.After(*checkedAt)) {
-		serverOK = result == "pass"
-	} else if lastTest != nil {
-		var t struct {
-			OK bool `json:"ok"`
-		}
-		_ = json.Unmarshal(lastTest, &t)
-		serverOK = t.OK
-	}
+// ProjectOnboarding is the per-project getting-started list. It covers only
+// facts that belong to this project: installation readiness (the mail
+// transport) is a separate scope reported next to it, so one project's
+// history can never complete another project's steps, and the installation
+// state is never inferred from a project's progress.
+type ProjectOnboarding struct {
+	Scope    string                `json:"scope"`
+	Steps    []ChecklistStep       `json:"steps"`
+	Complete bool                  `json:"complete"`
+	Progress installation.Progress `json:"progress"`
+}
+
+// Checklist reports each project step from real data in this project. The
+// step count and progress are computed here; clients must not hard-code them.
+// Receiving mailboxes are optional and never block sending setup.
+func (s *Service) Checklist(ctx context.Context, sc *Scope) (ProjectOnboarding, error) {
+	var domains, dnsOK, senders, keys, captured, submitted, mailboxes bool
 	err := s.Pool.QueryRow(ctx, `SELECT
-  EXISTS (SELECT 1 FROM projects WHERE id=$1),
   EXISTS (SELECT 1 FROM domains WHERE project_id=$1),
   EXISTS (SELECT 1 FROM domains WHERE project_id=$1 AND verified_at IS NOT NULL AND spf_ok AND dkim_ok AND dmarc_ok
           AND (purpose='sending' OR mx_ok)),
@@ -122,30 +116,32 @@ ORDER BY c.checked_at DESC LIMIT 1`).Scan(&result, &checkedAt)
   EXISTS (SELECT 1 FROM messages m JOIN environments e ON e.id=m.environment_id WHERE m.project_id=$1 AND e.mode='sandbox' AND m.state='captured'),
   EXISTS (SELECT 1 FROM messages m JOIN environments e ON e.id=m.environment_id WHERE m.project_id=$1 AND e.mode='live' AND m.state='submitted'),
   EXISTS (SELECT 1 FROM inbound_addresses WHERE project_id=$1 AND NOT temporary)`, sc.ProjectID).
-		Scan(&projects, &domains, &dnsOK, &senders, &keys, &captured, &submitted, &mailboxes)
+		Scan(&domains, &dnsOK, &senders, &keys, &captured, &submitted, &mailboxes)
 	if err != nil {
-		return nil, false, unavailable("checklist", err)
+		return ProjectOnboarding{}, unavailable("checklist", err)
 	}
-	detail := ""
-	if !serverOK && smtpEnv {
-		detail = "SMTP is set in the server environment; run the connection test on the Mail server page to confirm it."
-	}
-	steps := []ChecklistStep{
-		{Key: "mail_server", Title: "Connect mail server", Done: serverOK, Detail: detail},
-		{Key: "project", Title: "Create a project", Done: projects},
-		{Key: "domain", Title: "Add a domain", Done: domains},
-		{Key: "dns", Title: "Publish DNS records", Done: dnsOK},
-		{Key: "sender", Title: "Add a sender address", Done: senders},
-		{Key: "api_key", Title: "Create an API key", Done: keys},
-		{Key: "test_email", Title: "Send a test email", Done: captured && submitted,
-			Detail: map[bool]string{true: "", false: "Needs one captured sandbox message and one submitted live message."}[captured && submitted]},
+	o := ProjectOnboarding{Scope: "project", Steps: []ChecklistStep{
+		{Key: "domain", Title: "Add a domain", Done: domains, Required: true},
+		{Key: "dns", Title: "Publish DNS records", Done: dnsOK, Required: true},
+		{Key: "sender", Title: "Add a sender address", Done: senders, Required: true},
+		{Key: "api_key", Title: "Create an API key", Done: keys, Required: true},
+		{Key: "test_email", Title: "Send a test email", Done: captured && submitted, Required: true,
+			Detail: map[bool]string{true: "", false: "Needs one captured sandbox message and one submitted live message in this project."}[captured && submitted]},
 		{Key: "mailbox", Title: "Create a mailbox", Done: mailboxes, Optional: true},
+	}}
+	o.Complete = true
+	for _, st := range o.Steps {
+		if !st.Required {
+			continue
+		}
+		o.Progress.Required++
+		if st.Done {
+			o.Progress.Complete++
+		} else {
+			o.Complete = false
+		}
 	}
-	complete := true
-	for _, st := range steps[:7] {
-		complete = complete && st.Done
-	}
-	return steps, complete, nil
+	return o, nil
 }
 
 // ---------------------------------------------------------------- search

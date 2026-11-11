@@ -29,18 +29,25 @@ type MailServerInput struct {
 	InboundListener string  `json:"inbound_listener"`
 	MailcowAPIURL   string  `json:"mailcow_api_url"`
 	MailcowAPIKey   *string `json:"mailcow_api_key"`
+	// ProviderType is "generic" (default) or "mailcow". Mailcow only unlocks
+	// the optional API helpers; SMTP sending never needs it. Choosing generic
+	// clears any stored Mailcow API settings. nil keeps the current provider
+	// (older clients), or selects mailcow when an API URL is given.
+	ProviderType *string `json:"provider_type"`
 }
 
 func (s *Service) GetMailServer(ctx context.Context) (map[string]any, error) {
 	out, err := s.maps(ctx, `SELECT smtp_host, smtp_port, smtp_tls_mode, smtp_username, smtp_password_enc IS NOT NULL AS smtp_password_set,
-  test_sender, inbound_listener, mailcow_api_url, mailcow_api_key_enc IS NOT NULL AS mailcow_api_key_set, last_test, last_test_at, updated_at
+  test_sender, inbound_listener, mailcow_api_url, mailcow_api_key_enc IS NOT NULL AS mailcow_api_key_set, last_test, last_test_at, updated_at,
+  COALESCE((SELECT provider_type FROM transport_profiles WHERE mode='existing_smtp' AND status <> 'retired' ORDER BY is_active DESC, created_at LIMIT 1),
+           CASE WHEN mailcow_api_url <> '' THEN 'mailcow' ELSE 'generic' END) AS provider_type
 FROM mail_server WHERE id=1`)
 	if err != nil {
 		return nil, err
 	}
 	if len(out) == 0 {
 		return map[string]any{"smtp_host": "", "smtp_port": 587, "smtp_tls_mode": "starttls", "smtp_username": "", "smtp_password_set": false,
-			"test_sender": "", "inbound_listener": "", "mailcow_api_url": "", "mailcow_api_key_set": false}, nil
+			"test_sender": "", "inbound_listener": "", "mailcow_api_url": "", "mailcow_api_key_set": false, "provider_type": "generic"}, nil
 	}
 	return out[0], nil
 }
@@ -74,6 +81,15 @@ func validateSMTPInput(in *MailServerInput) error {
 	if in.InboundListener != "" {
 		if _, _, err := net.SplitHostPort(in.InboundListener); err != nil {
 			return badRequest("inbound listener must be host:port, for example njiwa-inbound:2525")
+		}
+	}
+	if in.ProviderType != nil {
+		switch *in.ProviderType {
+		case "generic":
+			in.MailcowAPIURL, in.MailcowAPIKey = "", nil
+		case "mailcow":
+		default:
+			return badRequest("provider_type must be generic or mailcow")
 		}
 	}
 	in.MailcowAPIURL = strings.TrimRight(strings.TrimSpace(in.MailcowAPIURL), "/")
@@ -118,7 +134,7 @@ ON CONFLICT (id) DO UPDATE SET smtp_host=EXCLUDED.smtp_host, smtp_port=EXCLUDED.
 	}
 	// Keep the profile registry in step with the legacy page (one release of
 	// compatibility: the page keeps working and the worker reads the profile).
-	if err := syncLegacyProfile(ctx, tx, smtpProfileConfig(in), pw, key, clearKey, in.MailcowAPIURL != ""); err != nil {
+	if err := syncLegacyProfile(ctx, tx, smtpProfileConfig(in), pw, key, clearKey, in.ProviderType, in.MailcowAPIURL != ""); err != nil {
 		return unavailable("mail_server_save", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -322,6 +338,17 @@ func (s *Service) mailcowClient(ctx context.Context) (*mailcow.Client, error) {
 		return nil, unavailable("mailcow_key", err)
 	}
 	return mailcow.New(u, string(key)), nil
+}
+
+// activeProvider is the provider label of the active existing-SMTP profile:
+// "mailcow" only when the operator chose it, otherwise "generic". The UI uses
+// it to decide whether any Mailcow-specific help is shown at all.
+func (s *Service) activeProvider(ctx context.Context) string {
+	var p string
+	if err := s.Pool.QueryRow(ctx, `SELECT provider_type FROM transport_profiles WHERE is_active AND mode='existing_smtp'`).Scan(&p); err != nil || p == "" {
+		return "generic"
+	}
+	return p
 }
 
 func (s *Service) MailcowConfigured(ctx context.Context) bool {

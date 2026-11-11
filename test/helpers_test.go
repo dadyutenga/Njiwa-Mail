@@ -126,16 +126,26 @@ func (e *env) must(err error) {
 }
 
 // provision creates a project with generous quotas, approved sender/origin,
-// an allowlist for @example.org on live, and sandbox/live keys.
-func (e *env) provision(name string) keys {
+// an allowlist for @example.org on live, and sandbox/live keys. The sender
+// domain is registered, verified and claimed as a real project must have it;
+// when another project already holds the claim, only the sandbox sender is
+// added, because the Live gate would (correctly) refuse the Live one.
+func (e *env) provision(name string) keys { return e.provisionFrom(name, liveFrom) }
+
+func (e *env) provisionFrom(name, from string) keys {
 	e.t.Helper()
 	ctx := context.Background()
 	s := e.svc
 	e.must(s.CreateProject(ctx, name))
 	e.must(s.SetQuotas(ctx, name, 1000, 10000, 1000, 1000))
+	domain := from[strings.LastIndexByte(from, '@')+1:]
+	e.ownDomain(name, domain)
+	liveOK := e.count(`SELECT count(*) FROM domain_claims c JOIN projects p ON p.id=c.project_id WHERE c.name=$1 AND p.name=$2`, domain, name) == 1
 	for _, m := range []string{"sandbox", "live"} {
 		e.must(s.SetOrigins(ctx, name, m, []string{origin}))
-		e.must(s.AddSender(ctx, name, m, liveFrom, "Njiwa Security"))
+		if m == "sandbox" || liveOK {
+			e.must(s.AddSender(ctx, name, m, from, "Njiwa Security"))
+		}
 	}
 	e.must(s.AllowRecipient(ctx, name, "live", "@example.org", false))
 	var k keys
@@ -147,6 +157,22 @@ func (e *env) provision(name string) keys {
 	k.liveRead, _, err = s.CreateKey(ctx, name, "live", []string{"emails:read"}, "ro", 0)
 	e.must(err)
 	return k
+}
+
+// ownDomain registers name as a verified, DNS-passing sending domain of the
+// project and gives it the installation-wide claim when nobody holds it yet,
+// as a successful DNS check would. A second project asking for a name that is
+// already claimed gets the row but not the claim, exactly like production.
+func (e *env) ownDomain(project, name string) {
+	e.t.Helper()
+	ctx := context.Background()
+	_, err := e.pool.Exec(ctx, `INSERT INTO domains(project_id, name, purpose, verify_token, verified_at, spf_ok, dkim_ok, dmarc_ok)
+SELECT id, $2, 'sending', 'test-token-'||$2, now(), true, true, true FROM projects WHERE name=$1
+ON CONFLICT (project_id, name, purpose) DO UPDATE SET verified_at=now(), spf_ok=true, dkim_ok=true, dmarc_ok=true`, project, name)
+	e.must(err)
+	_, err = e.pool.Exec(ctx, `INSERT INTO domain_claims(name, project_id, state) SELECT $2, id, 'active' FROM projects WHERE name=$1
+ON CONFLICT (name) DO NOTHING`, project, name)
+	e.must(err)
 }
 
 func resetBody(to string) map[string]any {

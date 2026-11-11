@@ -42,8 +42,8 @@ func (s *Service) WSCreateDomain(ctx context.Context, sc *Scope, name, purpose s
 	if purpose != "sending" && purpose != "receiving" && purpose != "both" {
 		return "", "", badRequest("purpose must be sending, receiving or both")
 	}
-	name = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
-	if _, ok := NormalizeEmail("a@" + name); !ok || strings.Contains(name, "@") {
+	name, ok := NormalizeDomain(name)
+	if !ok {
 		return "", "", badRequest("enter a domain name such as notify.example.com")
 	}
 	var exists int
@@ -110,6 +110,7 @@ FROM messages WHERE environment_id=$1 AND split_part(sender,'@',2)=$2 ORDER BY c
 		return nil, err
 	}
 	d["mailcow_api"] = s.MailcowConfigured(ctx)
+	d["provider_type"] = s.activeProvider(ctx)
 	d["dkim_selector"] = s.Opts.DKIMSelector
 	d["mail_host"] = s.Opts.MailHost
 	return d, nil
@@ -172,8 +173,8 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	if !uuidRe.MatchString(id) {
 		return nil, newErr(404, "not_found")
 	}
-	var name, token, purpose string
-	if err := s.Pool.QueryRow(ctx, `SELECT name, verify_token, purpose FROM domains WHERE id=$1`, id).Scan(&name, &token, &purpose); err != nil {
+	var name, token, purpose, projectID string
+	if err := s.Pool.QueryRow(ctx, `SELECT name, verify_token, purpose, project_id::text FROM domains WHERE id=$1`, id).Scan(&name, &token, &purpose, &projectID); err != nil {
 		return nil, notFound(err)
 	}
 	if r == nil {
@@ -247,10 +248,38 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 			}
 		}
 	}
+	// Ownership proof alone is not enough: only one project in the
+	// installation may hold the name (D01).
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return nil, unavailable("domain_check", err)
+	}
+	defer tx.Rollback(ctx)
+	if verified {
+		mine, state, err := claimForVerifiedDomain(ctx, tx, name, projectID)
+		if err != nil {
+			return nil, unavailable("domain_claim", err)
+		}
+		if !mine {
+			verified = false
+			for i := range recs {
+				if recs[i].Key == "ownership" {
+					recs[i].Pass = false
+					recs[i].Hint = "The ownership record is published, but this domain is already used by another project in this installation. An operator must transfer it to this project first."
+					if state == "review_required" {
+						recs[i].Hint = "The ownership record is published, but more than one project claimed this domain. An operator must review it and assign it to one project."
+					}
+				}
+			}
+		}
+	}
 	raw, _ := json.Marshal(recs)
-	_, err := s.Pool.Exec(ctx, `UPDATE domains SET verified_at=CASE WHEN $2 THEN COALESCE(verified_at, now()) ELSE NULL END,
+	_, err = tx.Exec(ctx, `UPDATE domains SET verified_at=CASE WHEN $2 THEN COALESCE(verified_at, now()) ELSE NULL END,
 spf_ok=$3, dkim_ok=$4, dmarc_ok=$5, mx_ok=$6, records=$7, last_checked_at=now() WHERE id=$1`, id, verified, spfOK, dkimOK, dmarcOK, mxOK, raw)
 	if err != nil {
+		return nil, unavailable("domain_check", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, unavailable("domain_check", err)
 	}
 	for _, rec := range recs {
@@ -312,6 +341,9 @@ UNION ALL SELECT local_part || '@' || domain FROM inbound_addresses WHERE projec
 		return &Error{Status: 409, Code: "domain_in_use", Message: "remove these senders and mailboxes first: " + strings.Join(users, ", ")}
 	}
 	if _, err := s.Pool.Exec(ctx, `DELETE FROM domains WHERE id=$1 AND project_id=$2`, id, sc.ProjectID); err != nil {
+		return unavailable("domain_delete", err)
+	}
+	if err := s.releaseClaimIfUnused(ctx, name, sc.ProjectID); err != nil {
 		return unavailable("domain_delete", err)
 	}
 	return nil

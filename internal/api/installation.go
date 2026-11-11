@@ -15,6 +15,24 @@ func (s *Server) installationRoutes(app *fiber.App) {
 	svc := s.Svc
 	h := func(method, path string, fn adminFn) { app.Add(method, "/admin/v1/installation"+path, s.adm(fn)) }
 
+	// Installation-wide domain claims (operator only).
+	app.Add("GET", "/admin/v1/domain-claims", s.adm(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		l, err := svc.DomainClaims(reqCtx(c))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"items": l}, nil
+	}))
+	app.Add("POST", "/admin/v1/domain-claims/transfer", s.adm(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct {
+			Name    string `json:"name"`
+			Project string `json:"project"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		return nil, svc.TransferDomainClaim(reqCtx(c), u.Actor(), in.Name, in.Project)
+	}))
 	h("GET", "", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		st, err := svc.InstallationState(reqCtx(c))
 		if err != nil {
@@ -22,6 +40,21 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		}
 		// When SMTP_HOST is set in the environment it wins at runtime; say so
 		// instead of letting the saved profile look authoritative.
+		st["environment_override"] = s.EnvSMTP != nil
+		return st, nil
+	})
+	// The operator's confirmed delivery-mode choice, persisted server-side.
+	h("PUT", "/wizard", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct {
+			SelectedMode string `json:"selected_mode"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		st, err := svc.ChooseDeliveryMode(reqCtx(c), u.Actor(), in.SelectedMode)
+		if err != nil {
+			return nil, err
+		}
 		st["environment_override"] = s.EnvSMTP != nil
 		return st, nil
 	})

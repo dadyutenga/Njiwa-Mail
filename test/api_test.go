@@ -61,7 +61,9 @@ func TestInvalidAndRevokedKey(t *testing.T) {
 func TestProjectEnvironmentIsolation(t *testing.T) {
 	e := setup(t)
 	a := e.provision("proj-a")
-	b := e.provision("proj-b")
+	// B has its own domain: it may not send as A's verified domain (D01).
+	const bFrom = "security@notify-b.example.com"
+	b := e.provisionFrom("proj-b", bFrom)
 	r := e.post(a.live, idem("1"), resetBody(testRcpt))
 	if r.Code != 202 {
 		t.Fatal(r.Raw)
@@ -78,7 +80,9 @@ func TestProjectEnvironmentIsolation(t *testing.T) {
 		t.Fatalf("own read: want 200 got %d", g.Code)
 	}
 	// idempotency keys are scoped per project+env: same key, independent messages
-	r2 := e.post(b.live, idem("1"), resetBody(testRcpt))
+	bBody := resetBody(testRcpt)
+	bBody["from"] = bFrom
+	r2 := e.post(b.live, idem("1"), bBody)
 	if r2.Code != 202 || str(r2.JSON, "id") == id {
 		t.Fatalf("idem key must be scoped per project: %d %s", r2.Code, r2.Raw)
 	}

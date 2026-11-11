@@ -7,6 +7,11 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { usePhrase } from "@/features/i18n/i18n";
 import { useAuth } from "@/features/auth/auth";
 import { admin } from "@/lib/admin-api";
+import {
+  DeliveryInfrastructure,
+  installationKey,
+  useInstallation,
+} from "@/features/installation/Installation";
 import { useWorkspace, useWsKey, type ProjectRow } from "../context";
 import { NewProjectDialog } from "../Layout";
 import {
@@ -400,6 +405,7 @@ export function MailServer() {
     inbound_listener: "",
     mailcow_api_url: "",
     mailcow_api_key: "",
+    provider_type: "generic",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [test, setTest] = useState<{
@@ -424,6 +430,7 @@ export function MailServer() {
       mailcow_api_url: s(d.mailcow_api_url),
       smtp_password: "",
       mailcow_api_key: "",
+      provider_type: s(d.provider_type) || "generic",
     }));
   }, [cfg.data]);
   const set = (k: keyof typeof f, v: string) => {
@@ -445,6 +452,10 @@ export function MailServer() {
     const body: Record<string, unknown> = { ...f, smtp_port: Number(f.smtp_port) };
     if (!f.smtp_password) delete body.smtp_password;
     if (!f.mailcow_api_key) delete body.mailcow_api_key;
+    if (f.provider_type !== "mailcow") {
+      body.mailcow_api_url = "";
+      delete body.mailcow_api_key;
+    }
     if (
       await run(
         () => admin.send("/mail-server", "PUT", body),
@@ -452,46 +463,45 @@ export function MailServer() {
       )
     ) {
       client.invalidateQueries({ queryKey: ["mail-server"] });
+      client.invalidateQueries({ queryKey: installationKey });
       setTest(null);
     }
   };
+  const runTest = async () => {
+    setTesting(true);
+    const r = await run(
+      () => admin.send<NonNullable<typeof test>>("/mail-server/test", "POST"),
+      "",
+    );
+    setTesting(false);
+    if (r) setTest(r);
+    client.invalidateQueries({ queryKey: ["mail-server"] });
+    client.invalidateQueries({ queryKey: installationKey });
+    client.invalidateQueries({ queryKey: ["ws"] });
+  };
+  const inst = useInstallation();
+  // Managed mode never shows the SMTP form; existing SMTP never shows an installer.
+  const managed = inst.data?.readiness.mode === "managed_mta";
+  const mailcow = f.provider_type === "mailcow";
   const lastTest = status.data?.last_test as { kind: string; ok: boolean } | null | undefined;
   return (
     <>
       <PageHeader
-        title={phrase("Mail server")}
-        description={
-          <>
-            {phrase("Connection to Mailcow for sending, and the inbound listener for receiving.")}{" "}
-            <a
-              className="text-primary"
-              href="https://github.com/njiwa-tz/mail/blob/main/docs/MAILCOW_SETUP.md"
-              target="_blank"
-              rel="noreferrer"
-            >
-              {phrase("Operator steps (docs/MAILCOW_SETUP.md)")}
-            </a>
-          </>
-        }
+        title={phrase("Delivery infrastructure")}
+        description={phrase(
+          "How this installation hands mail to the internet, and whether it is ready. These settings apply to every project.",
+        )}
         action={
-          <Button
-            disabled={testing}
-            onClick={async () => {
-              setTesting(true);
-              const r = await run(
-                () => admin.send<NonNullable<typeof test>>("/mail-server/test", "POST"),
-                "",
-              );
-              setTesting(false);
-              if (r) setTest(r);
-              client.invalidateQueries({ queryKey: ["mail-server"] });
-              client.invalidateQueries({ queryKey: ["ws"] });
-            }}
-          >
-            {testing ? phrase("Testing…") : phrase("Test connection")}
-          </Button>
+          managed ? undefined : (
+            <Button disabled={testing} onClick={runTest}>
+              {testing ? phrase("Testing…") : phrase("Test connection")}
+            </Button>
+          )
         }
       />
+      <div className="mb-4">
+        <DeliveryInfrastructure onRecheck={runTest} rechecking={testing} />
+      </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-4">
           {test && (
@@ -531,90 +541,107 @@ export function MailServer() {
               )}
             </p>
           )}
-          <Section title={phrase("Outbound (SMTP submission)")}>
-            <fieldset className="grid gap-3 sm:grid-cols-2">
-              <Field
-                label={phrase("SMTP host")}
-                hint={phrase("The Mailcow hostname, for example mail.example.com.")}
-              >
-                <input
-                  className={inputClass}
-                  value={f.smtp_host}
-                  onChange={(e) => set("smtp_host", e.target.value.trim())}
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label={phrase("Port")} error={errors.smtp_port}>
-                  <input
-                    className={inputClass}
-                    inputMode="numeric"
-                    value={f.smtp_port}
-                    onChange={(e) => set("smtp_port", e.target.value)}
-                  />
-                </Field>
-                <Field label={phrase("Encryption")}>
+          {!managed && (
+            <Section title={phrase("Outbound (SMTP submission)")}>
+              <fieldset className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label={phrase("Mail server type")}
+                  hint={phrase(
+                    "Generic works with any SMTP server. Mailcow only adds optional helpers; it is never required to send.",
+                  )}
+                >
                   <select
                     className={selectClass}
-                    value={f.smtp_tls_mode}
-                    onChange={(e) => set("smtp_tls_mode", e.target.value)}
+                    value={f.provider_type}
+                    onChange={(e) => set("provider_type", e.target.value)}
                   >
-                    <option value="starttls">STARTTLS (587)</option>
-                    <option value="implicit">TLS (465)</option>
+                    <option value="generic">{phrase("Generic SMTP")}</option>
+                    <option value="mailcow">Mailcow</option>
                   </select>
                 </Field>
-              </div>
-              <Field
-                label={phrase("Username")}
-                hint={phrase(
-                  "A dedicated mailbox, for example njiwa@example.com. Not a personal or admin account.",
-                )}
-              >
-                <input
-                  className={inputClass}
-                  autoComplete="off"
-                  value={f.smtp_username}
-                  onChange={(e) => set("smtp_username", e.target.value)}
-                />
-              </Field>
-              <Field
-                label={phrase("Password")}
-                hint={
-                  cfg.data?.smtp_password_set
-                    ? phrase("A password is stored. Leave empty to keep it.")
-                    : phrase("Stored encrypted; never shown again.")
-                }
-              >
-                <input
-                  className={inputClass}
-                  type="password"
-                  autoComplete="new-password"
-                  value={f.smtp_password}
-                  onChange={(e) => set("smtp_password", e.target.value)}
-                />
-              </Field>
-              <Field
-                label={phrase("Test sender")}
-                error={errors.test_sender}
-                hint={phrase(
-                  "An address the login may send as; used by the sender check and test email.",
-                )}
-              >
-                <input
-                  className={inputClass}
-                  type="email"
-                  value={f.test_sender}
-                  onChange={(e) => set("test_sender", e.target.value)}
-                />
-              </Field>
-            </fieldset>
-          </Section>
+                <Field
+                  label={phrase("SMTP host")}
+                  hint={phrase("Your mail server's host name, for example mail.example.com.")}
+                >
+                  <input
+                    className={inputClass}
+                    value={f.smtp_host}
+                    onChange={(e) => set("smtp_host", e.target.value.trim())}
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label={phrase("Port")} error={errors.smtp_port}>
+                    <input
+                      className={inputClass}
+                      inputMode="numeric"
+                      value={f.smtp_port}
+                      onChange={(e) => set("smtp_port", e.target.value)}
+                    />
+                  </Field>
+                  <Field label={phrase("Encryption")}>
+                    <select
+                      className={selectClass}
+                      value={f.smtp_tls_mode}
+                      onChange={(e) => set("smtp_tls_mode", e.target.value)}
+                    >
+                      <option value="starttls">STARTTLS (587)</option>
+                      <option value="implicit">TLS (465)</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field
+                  label={phrase("Username")}
+                  hint={phrase(
+                    "A dedicated mailbox, for example njiwa@example.com. Not a personal or admin account.",
+                  )}
+                >
+                  <input
+                    className={inputClass}
+                    autoComplete="off"
+                    value={f.smtp_username}
+                    onChange={(e) => set("smtp_username", e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label={phrase("Password")}
+                  hint={
+                    cfg.data?.smtp_password_set
+                      ? phrase("A password is stored. Leave empty to keep it.")
+                      : phrase("Stored encrypted; never shown again.")
+                  }
+                >
+                  <input
+                    className={inputClass}
+                    type="password"
+                    autoComplete="new-password"
+                    value={f.smtp_password}
+                    onChange={(e) => set("smtp_password", e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label={phrase("Test sender")}
+                  error={errors.test_sender}
+                  hint={phrase(
+                    "An address the login may send as; used by the sender check and test email.",
+                  )}
+                >
+                  <input
+                    className={inputClass}
+                    type="email"
+                    value={f.test_sender}
+                    onChange={(e) => set("test_sender", e.target.value)}
+                  />
+                </Field>
+              </fieldset>
+            </Section>
+          )}
           <Section title={phrase("Inbound")}>
             <fieldset>
               <Field
                 label={phrase("Inbound listener address")}
                 error={errors.inbound_listener}
                 hint={phrase(
-                  "Where Mailcow relays received mail, on the shared Docker network. Used for the reachability check and the Mailcow transport.",
+                  "Where your mail server relays received mail and bounces to Njiwa-Mail, as host:port on a private network. Used for the reachability check.",
                 )}
               >
                 <input
@@ -626,39 +653,51 @@ export function MailServer() {
               </Field>
             </fieldset>
           </Section>
-          <Section title={phrase("Mailcow API (optional)")}>
-            <p className="mb-3 text-xs text-muted-foreground">
-              {phrase(
-                "With the API, the Domains page can add domains, create DKIM keys and add the inbound transport for you. Without it, the Domains page shows the manual steps. Njiwa-Mail never changes global Mailcow settings.",
-              )}
-            </p>
-            <fieldset className="grid gap-3 sm:grid-cols-2">
-              <Field label={phrase("API URL")} error={errors.mailcow_api_url}>
-                <input
-                  className={inputClass}
-                  value={f.mailcow_api_url}
-                  onChange={(e) => set("mailcow_api_url", e.target.value.trim())}
-                  placeholder="https://mail.example.com"
-                />
-              </Field>
-              <Field
-                label={phrase("API key")}
-                hint={
-                  cfg.data?.mailcow_api_key_set
-                    ? phrase("A key is stored. Leave empty to keep it.")
-                    : phrase("Read-write key from Mailcow → System → Configuration → Access → API.")
-                }
+          {!managed && mailcow && (
+            <Section title={phrase("Mailcow API (optional)")}>
+              <p className="mb-3 text-xs text-muted-foreground">
+                {phrase(
+                  "With the API, the Domains page can add domains, create DKIM keys and add the inbound transport for you. Without it, the Domains page shows the manual steps. Njiwa-Mail never changes global Mailcow settings.",
+                )}
+              </p>
+              <fieldset className="grid gap-3 sm:grid-cols-2">
+                <Field label={phrase("API URL")} error={errors.mailcow_api_url}>
+                  <input
+                    className={inputClass}
+                    value={f.mailcow_api_url}
+                    onChange={(e) => set("mailcow_api_url", e.target.value.trim())}
+                    placeholder="https://mail.example.com"
+                  />
+                </Field>
+                <Field
+                  label={phrase("API key")}
+                  hint={
+                    cfg.data?.mailcow_api_key_set
+                      ? phrase("A key is stored. Leave empty to keep it.")
+                      : phrase(
+                          "Read-write key from Mailcow → System → Configuration → Access → API.",
+                        )
+                  }
+                >
+                  <input
+                    className={inputClass}
+                    type="password"
+                    autoComplete="new-password"
+                    value={f.mailcow_api_key}
+                    onChange={(e) => set("mailcow_api_key", e.target.value)}
+                  />
+                </Field>
+              </fieldset>
+              <a
+                className="mt-3 inline-block text-xs text-primary"
+                href="https://github.com/njiwa-tz/mail/blob/main/docs/MAILCOW_SETUP.md"
+                target="_blank"
+                rel="noreferrer"
               >
-                <input
-                  className={inputClass}
-                  type="password"
-                  autoComplete="new-password"
-                  value={f.mailcow_api_key}
-                  onChange={(e) => set("mailcow_api_key", e.target.value)}
-                />
-              </Field>
-            </fieldset>
-          </Section>
+                {phrase("Mailcow operator steps (docs/MAILCOW_SETUP.md)")}
+              </a>
+            </Section>
+          )}
           <Button onClick={save} disabled={Object.keys(errors).length > 0}>
             {phrase("Save settings")}
           </Button>
@@ -741,42 +780,45 @@ export function MailServer() {
               )}
             </DataState>
           </Section>
-          <Section title={phrase("Send test email")}>
-            <p className="mb-2 text-xs text-muted-foreground">
-              {phrase(
-                "Sends one message straight to the mail server from the test sender. Check SPF, DKIM and DMARC in the received headers.",
-              )}
-            </p>
-            <div className="flex gap-2">
-              <input
-                aria-label={phrase("Send test to")}
-                className={inputClass}
-                type="email"
-                value={sendTo}
-                onChange={(e) => setSendTo(e.target.value)}
-                placeholder="you@gmail.com"
-              />
-              <Button
-                disabled={!emailOk(sendTo)}
-                onClick={async () => {
-                  const r = await run(
-                    () => admin.send<Row>("/mail-server/test-send", "POST", { to: sendTo }),
-                    "",
-                  );
-                  if (r) setSendResult(r);
-                  client.invalidateQueries({ queryKey: ["mail-server"] });
-                }}
-              >
-                {phrase("Send")}
-              </Button>
-            </div>
-            {sendResult && (
-              <p role="status" className="mt-2 text-sm">
-                <StateBadge state={s(sendResult.state)} /> {s(sendResult.reason)}{" "}
-                {s(sendResult.reply)}
+          {!managed && (
+            <Section title={phrase("Send test email")}>
+              <p className="mb-2 text-xs text-muted-foreground">
+                {phrase(
+                  "Sends one message straight to the mail server from the test sender. Check SPF, DKIM and DMARC in the received headers.",
+                )}
               </p>
-            )}
-          </Section>
+              <div className="flex gap-2">
+                <input
+                  aria-label={phrase("Send test to")}
+                  className={inputClass}
+                  type="email"
+                  value={sendTo}
+                  onChange={(e) => setSendTo(e.target.value)}
+                  placeholder="you@gmail.com"
+                />
+                <Button
+                  disabled={!emailOk(sendTo)}
+                  onClick={async () => {
+                    const r = await run(
+                      () => admin.send<Row>("/mail-server/test-send", "POST", { to: sendTo }),
+                      "",
+                    );
+                    if (r) setSendResult(r);
+                    client.invalidateQueries({ queryKey: ["mail-server"] });
+                    client.invalidateQueries({ queryKey: installationKey });
+                  }}
+                >
+                  {phrase("Send")}
+                </Button>
+              </div>
+              {sendResult && (
+                <p role="status" className="mt-2 text-sm">
+                  <StateBadge state={s(sendResult.state)} /> {s(sendResult.reason)}{" "}
+                  {s(sendResult.reply)}
+                </p>
+              )}
+            </Section>
+          )}
         </div>
       </div>
     </>
