@@ -31,6 +31,7 @@ Baseline: `cd129e2` — `go test ./...` green on PostgreSQL 16 (throwaway DB; th
 | D01 | Installation-wide `domain_claims` (migration 0011): the first project whose ownership check passes holds the name; others cannot verify, create Live senders or send; audited operator transfer resets every project's proof; deleting the domain releases the claim; names verified by several projects before the upgrade are flagged `review_required`, not given to one | `test/domain_claims_test.go` |
 | D02 | One Live gate (`requireLiveDomain`) for `/v1/emails`, batch, compose, scheduled and bulk acceptance and for Live sender creation on every path (CLI, admin API, workspace). No grandfathering: unregistered → `domain_not_registered`, other project/review → `domain_claimed_elsewhere`, unverified or failing DNS → `domain_not_ready`. Temporary `ALLOW_UNREGISTERED_LIVE_DOMAINS` bridge for unclaimed names only | `TestDomainGateAndSearch`, `TestDomainClaimIsInstallationWide`, `TestUnregisteredDomainEscapeHatchIsNarrow` |
 | D03 | Canonical names (lowercase, IDNA/punycode, no trailing dot) on every create path; explicit policy: subdomains are separate claims needing their own proof. Fixed CLI `CreateDomain` still using the retired `inbound` purpose | `TestDomainNamesAreCanonical` |
+| D04 (part) | DNS requirements follow the sender that actually sends: with a generic SMTP server SPF and DKIM are marked templates (`placeholder: true`, no Copy action) and never authorise `OUTBOUND_IP`/`MAIL_HOSTNAME`; managed and Mailcow keep the configured values; MX/return-path guidance names exactly the host the check compares, priority 10 | `TestDNSRecordsFollowTheActualSender`, `Domains.test.tsx` |
 
 New admin routes (operator-only): `GET /admin/v1/installation`, `PUT /admin/v1/installation/wizard`, `GET|POST /admin/v1/installation/transport-profiles`, `GET|PUT|DELETE .../{id}` (DELETE retires), `POST .../{id}/test`, `GET .../{id}/activation-plan`, `POST .../{id}/activate`, `GET /admin/v1/domain-claims`, `POST /admin/v1/domain-claims/transfer`.
 
@@ -55,6 +56,7 @@ New admin routes (operator-only): `GET /admin/v1/installation`, `PUT /admin/v1/i
 
 - **Breaking for installs that sent Live mail from unregistered domains:** those sends now get `403 domain_not_registered`. Register and verify each sending domain before upgrading, or set `ALLOW_UNREGISTERED_LIVE_DOMAINS=true` temporarily (unclaimed names only). See `docs/OPERATIONS.md`.
 - A domain verified by two projects before the upgrade blocks Live mail from both until an operator transfers it.
+- The Domains page shows the records saved by the last DNS check; after changing the delivery mode or provider, run "Check now" to see the new requirements.
 - Messages already accepted are not re-checked at dispatch; a revoked or transferred domain stops *new* Live mail only.
 
 ## Compatibility / rollback notes

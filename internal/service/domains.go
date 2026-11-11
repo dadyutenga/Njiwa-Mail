@@ -21,6 +21,33 @@ type DomainRecord struct {
 	Pass      bool   `json:"pass"`
 	Found     string `json:"found"`
 	Hint      string `json:"hint,omitempty"`
+	// Placeholder marks a Value that is guidance with a part to fill in, not a
+	// record that can be published as is. Clients must not offer to copy it.
+	Placeholder bool `json:"placeholder,omitempty"`
+}
+
+// Which server actually sends a domain's mail decides what SPF and DKIM must
+// authorise. Only the managed MTA (this host) and an operator-chosen Mailcow
+// (whose IP and hostname MAIL_HOSTNAME/OUTBOUND_IP describe) are known here.
+// For a generic SMTP server Njiwa-Mail cannot see the egress or the signer.
+const (
+	senderManaged = "managed"
+	senderMailcow = "mailcow"
+	senderGeneric = "generic"
+)
+
+func (s *Service) senderKind(ctx context.Context) string {
+	var mode, provider string
+	if err := s.Pool.QueryRow(ctx, `SELECT mode, provider_type FROM transport_profiles WHERE is_active`).Scan(&mode, &provider); err != nil {
+		return senderGeneric
+	}
+	switch {
+	case mode == "managed_mta":
+		return senderManaged
+	case provider == "mailcow":
+		return senderMailcow
+	}
+	return senderGeneric
 }
 
 func shortHost(host, domain string) string {
@@ -95,7 +122,7 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 	if recs, ok := d["records"].([]any); !ok || len(recs) == 0 {
 		var token, purpose string
 		_ = s.Pool.QueryRow(ctx, `SELECT verify_token, purpose FROM domains WHERE id=$1`, id).Scan(&token, &purpose)
-		d["records"] = s.expectedRecords(name, purpose, token, "")
+		d["records"] = s.expectedRecords(s.senderKind(ctx), name, purpose, token, "")
 	}
 	if d["senders"], err = s.maps(ctx, `SELECT si.id::text AS id, si.email, e.mode FROM sender_identities si JOIN environments e ON e.id=si.environment_id
 WHERE si.project_id=$1 AND split_part(si.email,'@',2)=$2 ORDER BY si.email`, sc.ProjectID, name); err != nil {
@@ -116,49 +143,54 @@ FROM messages WHERE environment_id=$1 AND split_part(sender,'@',2)=$2 ORDER BY c
 	return d, nil
 }
 
-// expectedRecords lists what the domain needs. dkimValue is the public key
-// from Mailcow when known.
-func (s *Service) expectedRecords(name, purpose, token, dkimValue string) []DomainRecord {
+// expectedRecords lists what the domain needs. kind says which server sends
+// the mail (see senderKind). dkimValue is the real public key when known
+// (from the Mailcow API); otherwise the DKIM value is a placeholder.
+func (s *Service) expectedRecords(kind, name, purpose, token, dkimValue string) []DomainRecord {
 	host := fqdn(s.Opts.MailHost)
 	recs := []DomainRecord{{Key: "ownership", Type: "TXT", Host: name, Value: "njiwa-mail-verify=" + token,
 		Hint: "Proves the domain is yours. It can stay published; it does not affect mail."}}
 	if sendingPurpose(purpose) {
-		spf := "v=spf1 mx -all"
-		if ip := strings.TrimSpace(s.Opts.OutboundIP); ip != "" {
-			if strings.Contains(ip, ":") {
-				spf = "v=spf1 mx ip6:" + ip + " -all"
-			} else {
-				spf = "v=spf1 mx ip4:" + ip + " -all"
+		spf := DomainRecord{Key: "spf", Type: "TXT", Host: name,
+			Hint: "If the domain already has a v=spf1 record, edit that record and add the mechanism; never publish two."}
+		if kind == senderGeneric {
+			// Never authorise this host or MAIL_HOSTNAME for a server we cannot see.
+			spf.Value, spf.Placeholder = "v=spf1 <your mail server's sending IPs (ip4:/ip6:) or SPF include> -all", true
+			spf.Hint = "SPF must authorise the server that actually sends your mail: your SMTP server's outbound IP addresses, or the include: its operator documents. Njiwa-Mail cannot see that server, so replace the part in <…>. " + spf.Hint
+		} else {
+			spf.Value = "v=spf1 mx -all"
+			if ip := strings.TrimSpace(s.Opts.OutboundIP); ip != "" {
+				if strings.Contains(ip, ":") {
+					spf.Value = "v=spf1 mx ip6:" + ip + " -all"
+				} else {
+					spf.Value = "v=spf1 mx ip4:" + ip + " -all"
+				}
+			} else if host != "" {
+				spf.Value = "v=spf1 mx a:" + host + " -all"
 			}
-		} else if host != "" {
-			spf = "v=spf1 mx a:" + host + " -all"
 		}
+		dkim := DomainRecord{Key: "dkim", Type: "TXT", Host: s.Opts.DKIMSelector + "._domainkey." + name, Value: dkimValue,
+			Hint: "Paste the whole key. Some panels split long values into several quoted strings; that is fine."}
 		if dkimValue == "" {
-			dkimValue = "v=DKIM1; k=rsa; p=<public key from Mailcow: Configuration → ARC/DKIM keys>"
+			dkim.Placeholder = true
+			if kind == senderMailcow {
+				dkim.Value = "v=DKIM1; k=rsa; p=<public key from Mailcow: Configuration → ARC/DKIM keys>"
+			} else {
+				dkim.Value = "v=DKIM1; k=rsa; p=<public key from the server that signs your mail>"
+				dkim.Hint = "Get the public key from the DKIM settings of the server that signs your mail, for selector " + s.Opts.DKIMSelector + ", and publish exactly the value it gives you. Some panels split long values into several quoted strings; that is fine."
+			}
 		}
-		recs = append(recs,
-			DomainRecord{Key: "spf", Type: "TXT", Host: name, Value: spf,
-				Hint: "If the domain already has a v=spf1 record, edit that record and add the mechanism; never publish two."},
-			DomainRecord{Key: "dkim", Type: "TXT", Host: s.Opts.DKIMSelector + "._domainkey." + name, Value: dkimValue,
-				Hint: "Paste the whole key. Some panels split long values into several quoted strings; that is fine."},
+		recs = append(recs, spf, dkim,
 			DomainRecord{Key: "dmarc", Type: "TXT", Host: "_dmarc." + name, Value: "v=DMARC1; p=none; rua=mailto:postmaster@" + name,
 				Hint: "Start with p=none, then move to quarantine once reports look clean."})
 		if _, bd, ok := splitAddr(s.Opts.BounceAddress); ok {
-			v := host
-			if host == "" {
-				v = "<your Mailcow hostname>"
-			}
-			recs = append(recs, DomainRecord{Key: "return_path", Type: "MX", Host: bd, Value: v, Priority: 10,
-				Hint: "Bounces return to " + s.Opts.BounceAddress + ". Its domain needs an MX record so they arrive."})
+			rp := mxRecord(kind, "return_path", bd, host)
+			rp.Hint = "Bounces return to " + s.Opts.BounceAddress + ". " + rp.Hint
+			recs = append(recs, rp)
 		}
 	}
 	if receivingPurpose(purpose) {
-		v := host
-		if v == "" {
-			v = "<your Mailcow hostname>"
-		}
-		recs = append(recs, DomainRecord{Key: "mx", Type: "MX", Host: name, Value: v, Priority: 10,
-			Hint: "On Cloudflare the mail hostname must be DNS only (grey cloud), never proxied."})
+		recs = append(recs, mxRecord(kind, "mx", name, host))
 	}
 	for i := range recs {
 		recs[i].ShortHost = shortHost(recs[i].Host, name)
@@ -169,6 +201,22 @@ func (s *Service) expectedRecords(name, purpose, token, dkimValue string) []Doma
 
 // CheckDomain looks up every record of one domain, stores the per-record
 // results and updates the verification flags that gate live sending.
+// mxRecord is an MX requirement whose guidance names exactly the target the
+// check compares against (MAIL_HOSTNAME), with priority 10.
+func mxRecord(kind, key, at, host string) DomainRecord {
+	r := DomainRecord{Key: key, Type: "MX", Host: at, Value: host, Priority: 10}
+	if host == "" {
+		r.Value, r.Placeholder = "<your mail server hostname>", true
+		if kind == senderMailcow {
+			r.Value = "<your Mailcow hostname>"
+		}
+		r.Hint = "Point it at the mail server that receives for this name, with priority 10. Set MAIL_HOSTNAME to that host so the check can confirm it."
+		return r
+	}
+	r.Hint = "Point the MX at " + host + " with priority 10, the host shown here: the check passes only when the MX target is exactly this host. On Cloudflare the mail hostname must be DNS only (grey cloud), never proxied."
+	return r
+}
+
 func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]DomainRecord, error) {
 	if !uuidRe.MatchString(id) {
 		return nil, newErr(404, "not_found")
@@ -186,7 +234,7 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	if pk, err := s.mailcowDKIM(ctx, name); err == nil && pk != "" {
 		dkimKnown = pk
 	}
-	recs := s.expectedRecords(name, purpose, token, dkimKnown)
+	recs := s.expectedRecords(s.senderKind(ctx), name, purpose, token, dkimKnown)
 	host := fqdn(s.Opts.MailHost)
 	apex, apexErr := r.LookupTXT(ctx, name)
 	var verified, spfOK, dkimOK, dmarcOK, mxOK bool
