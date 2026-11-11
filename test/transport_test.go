@@ -690,3 +690,36 @@ func errCodeOf(err error) string {
 	}
 	return ""
 }
+
+// E01: a recorded host preflight drives the managed readiness steps; a
+// provider-side problem shows as blocked on an external action, and managed
+// mode still cannot become ready without the installer.
+func TestManagedPreflightRecordingDrivesReadiness(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	if err := e.svc.RecordManagedPreflight(ctx, true, "", false, nil); errCodeOf(err) != "managed_mode_not_selected" {
+		t.Fatalf("recorded without managed mode: %v", err)
+	}
+	e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"})
+	step := func(id string) installation.Step {
+		for _, s := range e.readiness().Steps {
+			if s.ID == id {
+				return s
+			}
+		}
+		t.Fatalf("no step %s", id)
+		return installation.Step{}
+	}
+	e.must(e.svc.RecordManagedPreflight(ctx, false, "PTR_MISSING", true, map[string]any{"ptr": "blocked_external_action"}))
+	if s := step("preflight"); s.Status != installation.BlockedExternalAction || s.ProblemCode != "PTR_MISSING" {
+		t.Fatalf("%+v", s)
+	}
+	e.must(e.svc.RecordManagedPreflight(ctx, true, "", false, map[string]any{"ptr": "ready"}))
+	if s := step("preflight"); s.Status != installation.Ready {
+		t.Fatalf("%+v", s)
+	}
+	if r := e.readiness(); r.Status == installation.Ready || step("install").ProblemCode != installation.CodeInstallerMissing {
+		t.Fatalf("managed mode ready without an installer: %+v", r)
+	}
+}

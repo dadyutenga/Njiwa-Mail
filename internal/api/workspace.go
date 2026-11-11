@@ -152,6 +152,22 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "message.compose", "message", acc.ID, scoped(sc, map[string]any{"reply": in.InReplyTo != ""}))
 		return acc, nil
 	})
+	// Controlled transport test through the real queue (C04).
+	h("POST", "/transport-test", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		acc, err := svc.QueueTransportTest(ctx(c), sc, u.Email, in.From, in.To)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "transport.test_queued", "message", acc.ID, scoped(sc, nil))
+		return acc, nil
+	})
 	h("POST", "/recipients/check", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Emails []string `json:"emails"`

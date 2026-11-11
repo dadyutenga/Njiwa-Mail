@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/dnsauth"
 )
 
 // The DNS health checker is read-only. It records what each record should be
@@ -16,6 +20,140 @@ type Resolver interface {
 	LookupTXT(ctx context.Context, name string) ([]string, error)
 	LookupMX(ctx context.Context, name string) ([]*net.MX, error)
 	LookupAddr(ctx context.Context, addr string) ([]string, error)
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
+}
+
+// testNetIP is TEST-NET-1 (RFC 5737): never a real sender. Evaluating SPF for
+// it checks that a record is valid and within limits when the real sending
+// address is not known to Njiwa-Mail.
+var testNetIP = net.ParseIP("192.0.2.0")
+
+// senderIP is the address mail really leaves from, when Njiwa-Mail knows it:
+// the managed MTA host, or the Mailcow server OUTBOUND_IP describes. For a
+// generic SMTP server it is unknown (nil).
+func (s *Service) senderIP(kind string) net.IP {
+	if kind == senderGeneric {
+		return nil
+	}
+	return net.ParseIP(strings.TrimSpace(s.Opts.OutboundIP))
+}
+
+// evalSPF checks domain's SPF. With a known sending IP it must evaluate to
+// pass for that IP; otherwise the record must be valid (no permerror or
+// temperror, no +all), and the hint says only a test message can prove it.
+func evalSPF(ctx context.Context, r Resolver, domain string, ip net.IP) (bool, string, []string) {
+	txt, _ := r.LookupTXT(ctx, domain)
+	recs := dnsauth.FindSPF(txt)
+	switch {
+	case len(recs) == 0:
+		return false, "No SPF record was found. Publish one TXT record that starts with v=spf1.", recs
+	case len(recs) > 1:
+		return false, "Two SPF records were found. Merge them into one record: receivers treat two as an error.", recs
+	}
+	if p := dnsauth.Problems(recs[0]); len(p) > 0 {
+		return false, p[0] + ".", recs
+	}
+	if ip != nil {
+		o := dnsauth.CheckHost(ctx, r, ip, domain)
+		if o.Result == dnsauth.Pass {
+			return true, "", recs
+		}
+		why := "SPF evaluates to " + string(o.Result) + " for " + ip.String() + ", the address this mail is sent from"
+		if o.Reason != "" {
+			why += ": " + o.Reason
+		}
+		if o.Result == dnsauth.Fail || o.Result == dnsauth.SoftFail || o.Result == dnsauth.Neutral {
+			why += ". Add a mechanism that covers it, such as ip4:" + ip.String() + "."
+		}
+		return false, why, recs
+	}
+	o := dnsauth.CheckHost(ctx, r, testNetIP, domain)
+	if o.Result == dnsauth.PermError || o.Result == dnsauth.TempError || o.Result == dnsauth.None {
+		return false, "The SPF record cannot be evaluated: " + o.Reason + ".", recs
+	}
+	return true, "The record is valid. Njiwa-Mail cannot see the address your mail server sends from, so only a test message shows it is authorised.", recs
+}
+
+// evalDKIM validates the public key published at host. When expected is a
+// known record (from the signing server), the published key must be the same
+// key. Publishing a key proves only that it is published: whether mail is
+// actually signed with it needs a received test message.
+func evalDKIM(txt []string, err error, expected string) (bool, string) {
+	switch {
+	case len(txt) == 0:
+		if err != nil && !isNotFoundErr(err) {
+			return false, "The DNS lookup failed; check again in a moment."
+		}
+		return false, "No DKIM record was found at this host. Publish the public key your signing server gives you."
+	case len(txt) > 1:
+		return false, "More than one TXT record was found at this host. Publish exactly one DKIM record per selector."
+	}
+	k, perr := dnsauth.ParseDKIMKey(txt[0])
+	switch {
+	case perr != nil:
+		return false, "The DKIM record is not valid: " + perr.Error() + "."
+	case k.Revoked:
+		return false, "p= is empty, which means the key is revoked. Publish the current public key."
+	}
+	if expected != "" {
+		if want, err := dnsauth.ParseDKIMKey(expected); err == nil && want.Fingerprint != "" && want.Fingerprint != k.Fingerprint {
+			return false, "The published key is not the key your signing server uses, or the value was cut off when pasted."
+		}
+	}
+	hint := "The key is published and valid. Only a received test message shows mail is actually signed with it."
+	if k.KeyType == "rsa" && k.Bits < 2048 {
+		hint = "The key is valid but only " + strconv.Itoa(k.Bits) + " bits; use 2048. " + hint
+	}
+	if k.TestingMode {
+		hint = "t=y marks the key as testing: receivers may ignore its signatures. Remove t=y when ready. " + hint
+	}
+	return true, hint
+}
+
+func isNotFoundErr(err error) bool {
+	var de *net.DNSError
+	return errors.As(err, &de) && de.IsNotFound
+}
+
+// evalDMARC finds and validates the domain's DMARC policy and checks that at
+// least one authenticated identifier can align with the From domain: DKIM
+// (signed with d=domain) or SPF on the envelope domain (the bounce address).
+func evalDMARC(ctx context.Context, r Resolver, domain, envDomain string, dkimOK, envSPFOK bool) (bool, string, string) {
+	d, err := dnsauth.LookupDMARC(ctx, r, domain)
+	if errors.Is(err, dnsauth.ErrNoDMARC) {
+		return false, "(no record)", "No DMARC record was found at _dmarc." + domain + " or its organisational domain."
+	}
+	found := d.Record
+	if d.FoundAt != "" && d.FoundAt != domain {
+		found += " (from _dmarc." + d.FoundAt + ")"
+	}
+	if err != nil {
+		if found == "" {
+			found = "(invalid)"
+		}
+		return false, found, "The DMARC record is not valid: " + err.Error() + "."
+	}
+	spfAligned := envSPFOK && dnsauth.Aligned(d.ASPF, domain, envDomain)
+	mode := map[string]string{"r": "relaxed", "s": "strict"}
+	switch {
+	case dkimOK || spfAligned:
+		hint := ""
+		if !spfAligned {
+			hint = "DMARC will pass through DKIM only: SPF authenticates " + envDomain + ", which is not aligned with " + domain + " (aspf=" + mode[d.ASPF] + "). Keep DKIM signing with d=" + domain + "."
+		}
+		if d.Policy == "none" {
+			hint = strings.TrimSpace(hint + " p=none only monitors; move to quarantine once reports look clean.")
+		}
+		return true, found, hint
+	default:
+		why := "DMARC cannot pass: DKIM is not passing yet"
+		if !dnsauth.Aligned(d.ASPF, domain, envDomain) {
+			why += ", and SPF authenticates " + envDomain + ", which is not aligned with " + domain + " (aspf=" + mode[d.ASPF] + ")"
+		} else if !envSPFOK {
+			why += ", and SPF does not pass for " + envDomain
+		}
+		return false, found, why + "."
+	}
 }
 
 type DNSResult struct {
@@ -92,6 +230,7 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 	}
 	sort.Strings(domains)
 	host, ip := fqdn(s.Opts.MailHost), strings.TrimSpace(s.Opts.OutboundIP)
+	sip := s.senderIP(s.senderKind(ctx))
 	var out []DNSResult
 	seen := map[string]bool{}
 
@@ -118,43 +257,42 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 		}
 		seen[d] = true
 
-		txt, err := r.LookupTXT(ctx, d)
-		spf := pick(txt, "v=spf1")
-		exp := "v=spf1 mx -all (must authorise the Mailcow IP)"
-		pass := len(spf) == 1
-		if ip != "" {
-			exp = "v=spf1 ip4:" + ip + " -all (or another mechanism that covers " + ip + ")"
-			if strings.Contains(ip, ":") {
-				exp = "v=spf1 ip6:" + ip + " -all (or another mechanism that covers " + ip + ")"
-			}
+		_, err := r.LookupTXT(ctx, d)
+		exp := "one valid v=spf1 record that authorises the server your mail is sent from"
+		if sip != nil {
+			exp = "v=spf1 record that evaluates to pass for " + sip.String()
 		}
-		if pass {
-			rec := " " + strings.ToLower(spf[0]) + " "
-			covers := strings.Contains(rec, " mx ") || strings.Contains(rec, " a ") || strings.Contains(rec, "include:") ||
-				(host != "" && strings.Contains(rec, "a:"+host)) || (ip != "" && strings.Contains(rec, ":"+strings.ToLower(ip)))
-			pass = covers && !strings.Contains(rec, "+all")
+		pass, why, spf := evalSPF(ctx, r, d, sip)
+		if why != "" && !pass {
+			exp += " (" + why + ")"
 		}
 		out = append(out, DNSResult{d, "SPF", exp, observed(spf, err), pass})
 
 		name := s.Opts.DKIMSelector + "._domainkey." + d
-		txt, err = r.LookupTXT(ctx, name)
-		joined := strings.ReplaceAll(strings.Join(txt, ""), " ", "")
-		pass = strings.Contains(joined, "p=") && !strings.Contains(joined, "p=;") && !strings.HasSuffix(joined, "p=")
-		out = append(out, DNSResult{d, "DKIM", name + " TXT v=DKIM1; k=rsa; p=<public key shown in Mailcow>", observed(txt, err), pass})
+		txt, err := r.LookupTXT(ctx, name)
+		dk := pick(txt, "v=dkim1")
+		if len(dk) == 0 {
+			dk = txt
+		}
+		pass, why = evalDKIM(dk, err, "")
+		dkexp := name + " TXT v=DKIM1; k=rsa; p=<public key of the server that signs your mail>"
+		if !pass {
+			dkexp += " (" + why + ")"
+		}
+		out = append(out, DNSResult{d, "DKIM", dkexp, observed(txt, err), pass})
 
-		// DMARC: the domain's own record, else the parent domain's (organisational fallback).
-		txt, err = r.LookupTXT(ctx, "_dmarc."+d)
-		dm := pick(txt, "v=dmarc1")
-		if len(dm) == 0 {
-			if i := strings.IndexByte(d, '.'); i > 0 && strings.Contains(d[i+1:], ".") {
-				ptxt, perr := r.LookupTXT(ctx, "_dmarc."+d[i+1:])
-				if p := pick(ptxt, "v=dmarc1"); len(p) > 0 {
-					dm, err = p, perr
-				}
+		// DMARC: the domain's own record, else the organisational domain's;
+		// validated, not just present.
+		dm, derr := dnsauth.LookupDMARC(ctx, r, d)
+		dexp := "_dmarc." + d + " TXT v=DMARC1; p=none (then quarantine once reports look clean)"
+		dobs := dm.Record
+		if derr != nil {
+			dexp += " (" + derr.Error() + ")"
+			if dobs == "" {
+				dobs = "(no record)"
 			}
 		}
-		pass = len(dm) == 1 && strings.Contains(strings.ToLower(strings.ReplaceAll(dm[0], " ", "")), ";p=")
-		out = append(out, DNSResult{d, "DMARC", "_dmarc." + d + " TXT v=DMARC1; p=none (then quarantine once reports look clean)", observed(dm, err), pass})
+		out = append(out, DNSResult{d, "DMARC", dexp, dobs, derr == nil})
 
 		mx(d, "bounces and replies return here")
 	}
@@ -163,19 +301,28 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 		mx(in, "inbound mail is relayed by Mailcow")
 	}
 
-	if ip != "" {
+	// Reverse DNS of the sending address, forward-confirmed (FCrDNS): the PTR
+	// name must resolve back to the same address. Only when Njiwa-Mail knows
+	// the sender; for a generic SMTP server its operator owns this check.
+	if sip != nil {
 		names, err := r.LookupAddr(ctx, ip)
 		pass := false
 		var vals []string
 		for _, n := range names {
-			vals = append(vals, fqdn(n))
-			pass = pass || (host != "" && fqdn(n) == host)
+			n = fqdn(n)
+			vals = append(vals, n)
+			if host != "" && n != host {
+				continue
+			}
+			if addrs, aerr := r.LookupIPAddr(ctx, n); aerr == nil {
+				for _, a := range addrs {
+					pass = pass || a.IP.Equal(sip)
+				}
+			}
 		}
-		exp := "PTR for " + ip + " equal to the Mailcow hostname (set MAIL_HOSTNAME to check the exact value)"
+		exp := "PTR for " + ip + " naming the mail host, whose A/AAAA record points back to " + ip + " (set MAIL_HOSTNAME to check the exact name)"
 		if host != "" {
-			exp = "PTR " + host
-		} else {
-			pass = len(names) > 0
+			exp = "PTR " + host + ", and " + host + " resolving back to " + ip
 		}
 		out = append(out, DNSResult{ip, "PTR", exp, observed(vals, err), pass})
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/njiwa-tz/mail/internal/api"
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/dnsauth/dkimtest"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/secure"
 	"github.com/njiwa-tz/mail/internal/service"
@@ -173,6 +174,18 @@ ON CONFLICT (project_id, name, purpose) DO UPDATE SET verified_at=now(), spf_ok=
 	_, err = e.pool.Exec(ctx, `INSERT INTO domain_claims(name, project_id, state) SELECT $2, id, 'active' FROM projects WHERE name=$1
 ON CONFLICT (name) DO NOTHING`, project, name)
 	e.must(err)
+}
+
+var (
+	dkimOnce sync.Once
+	dkimRec  string
+)
+
+// dkimRecord is a valid DKIM TXT record with a real 2048-bit RSA public key,
+// generated once per test run.
+func dkimRecord(t testing.TB) string {
+	dkimOnce.Do(func() { dkimRec = dkimtest.KeyRecord(t, 2048) })
+	return dkimRec
 }
 
 func resetBody(to string) map[string]any {

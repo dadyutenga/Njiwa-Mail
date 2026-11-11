@@ -98,6 +98,45 @@ export const problemFixes: Record<string, string> = {
   SMTP_AUTH_FAILED: "The login was rejected. Check the username and enter the password again.",
   SMTP_SENDER_FAILED:
     "This login may not send as the test sender. Allow it on your mail server, or use another sender.",
+  SMTP_DNS_NOT_FOUND: "The host name does not resolve. Check the spelling, or its DNS record.",
+  SMTP_HOST_FORBIDDEN:
+    "The host resolves to a link-local or metadata address. Enter the mail server's real host name.",
+  SMTP_TCP_REFUSED:
+    "Nothing is listening on that port. Check the port number and that the mail server is running.",
+  SMTP_TCP_TIMEOUT:
+    "No answer on that port. A firewall or your hosting provider may block it; ask them to allow it.",
+  SMTP_CONNECTION_FAILED:
+    "Could not connect. Check the port, and that a firewall allows this server to reach it.",
+  SMTP_TLS_MODE_MISMATCH:
+    "The encryption setting does not match the port. Use STARTTLS with port 587, or TLS with port 465.",
+  SMTP_STARTTLS_UNSUPPORTED:
+    "The server does not offer STARTTLS on this port. Use port 465 with TLS, or enable STARTTLS on the server.",
+  SMTP_TLS_CERT_INVALID:
+    "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
+  SMTP_NO_GREETING: "The server did not answer like a mail server. Check the host and port.",
+  SMTP_AUTH_MISSING: "Enter the SMTP username and password.",
+  SMTP_AUTH_REJECTED: "The login was rejected. Check the username and enter the password again.",
+  SMTP_SENDER_REJECTED:
+    "This login may not send as the test sender. Allow it on your mail server, or use another sender.",
+  SMTP_OUTCOME_UNKNOWN:
+    "The server may or may not have accepted the test. Check its logs before testing again; nothing is resent automatically.",
+  HOST_OS_UNSUPPORTED:
+    "Use Debian 12 or Ubuntu 22.04/24.04 for managed delivery, or connect an existing mail server.",
+  HOST_NO_SYSTEMD: "Managed delivery needs systemd to run the mail service.",
+  HOST_DISK_LOW: "Free at least 2 GiB and 100,000 inodes for the mail queue and logs.",
+  HOST_MEMORY_LOW: "Provide at least 512 MiB of free memory.",
+  HOST_CLOCK_NOT_SYNCED: "Enable NTP time synchronisation (timedatectl set-ntp true).",
+  HOST_IP_NOT_LOCAL:
+    "The sending IP is not on this host. Check OUTBOUND_IP, or confirm with your provider that mail leaves from it.",
+  HOSTNAME_NO_ADDRESS: "Add an A record for the mail hostname pointing at the sending IP.",
+  PTR_MISSING:
+    "In your VPS provider's panel, set the reverse DNS (PTR) of the sending IP to the mail hostname.",
+  PTR_MISMATCH:
+    "The reverse DNS names another host. Change the PTR of the sending IP to the mail hostname.",
+  FCRDNS_FAILED: "The mail hostname must resolve back to the sending IP. Fix its A record.",
+  MTA_CONFLICT:
+    "Another mail server runs on this host. Remove it, or connect it as an existing mail server instead.",
+  PREFLIGHT_PARAMETERS_MISSING: "Set MAIL_HOSTNAME and OUTBOUND_IP, then run the preflight again.",
   SMTP_TLS_VERIFICATION_FAILED:
     "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
 };
@@ -350,6 +389,18 @@ export function DeliveryInfrastructure({
                   "SMTP_HOST is set in the server environment and takes precedence over the saved settings. A test only counts for the saved settings when both are identical.",
                 )}
               </p>
+            )}
+            {mode === "managed_mta" && (
+              <div className="mb-3 rounded-lg border p-3 text-sm">
+                <p>
+                  {phrase(
+                    "The host checks run on the server itself and change nothing. Run this on the VPS, then reload this page:",
+                  )}
+                </p>
+                <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs">
+                  <code>njiwa-mail preflight -record</code>
+                </pre>
+              </div>
             )}
             {mode && (
               <ReadinessSteps
