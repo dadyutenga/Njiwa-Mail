@@ -579,6 +579,34 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 			return nil, false, &Error{Status: 429, Code: "rate_limited", RetryAfter: wait}
 		}
 	}
+	// Installation-wide caps protect the server's reputation from a single
+	// compromised key or a parallel flood across projects. They apply to all
+	// Live mail, bulk included; Sandbox never sends and is not counted.
+	if p.Mode == "live" {
+		dom := v.from[strings.LastIndexByte(v.from, '@')+1:]
+		for _, b := range []struct {
+			key, scope string
+			window     time.Duration
+			limit      int
+		}{
+			{"g:live:min", "installation", time.Minute, s.Opts.LiveGlobalPerMinute},
+			{"g:live:hour", "installation", time.Hour, s.Opts.LiveGlobalPerHour},
+			{"d:" + dom + ":min", "sending domain", time.Minute, s.Opts.LiveDomainPerMinute},
+			{"d:" + dom + ":hour", "sending domain", time.Hour, s.Opts.LiveDomainPerHour},
+		} {
+			if b.limit <= 0 {
+				continue
+			}
+			wait, ok, err := hit(ctx, tx, b.key, b.window, b.limit)
+			if err != nil {
+				return nil, false, unavailable("rate_limit", err)
+			}
+			if !ok {
+				return nil, false, &Error{Status: 429, Code: "rate_limited", RetryAfter: wait,
+					Message: "the " + b.scope + " limit for Live mail is reached; try again later"}
+			}
+		}
+	}
 	if p.KeyPerMinute > 0 {
 		wait, ok, err := hit(ctx, tx, "k:"+p.KeyID+":min", time.Minute, p.KeyPerMinute)
 		if err != nil {
