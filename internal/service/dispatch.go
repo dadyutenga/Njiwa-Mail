@@ -171,6 +171,17 @@ RETURNING transport_test`,
 			return false, err
 		}
 	}
+	if o.to == "submitted" && o.reply != nil {
+		qid := QueueIDFromReply(*o.reply)
+		if qid != "" {
+			if _, err := tx.Exec(ctx, `UPDATE messages SET mta_queue_id=$2 WHERE id=$1`, id, qid); err != nil {
+				return false, err
+			}
+		}
+		if err := addEvidence(ctx, tx, id, "smtp", "submitted", o.reason, "", "", qid, dedupe("submitted", id)); err != nil {
+			return false, err
+		}
+	}
 	// Webhook outbox: written in the same transaction as the state change.
 	if webhookStates[o.to] {
 		if err := emitMessageEvent(ctx, tx, id, "email."+o.to, o.reason); err != nil {

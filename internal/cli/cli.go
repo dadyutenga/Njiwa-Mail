@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -40,6 +41,9 @@ Runtime:
   worker-health [-max 60s]    exit non-zero if no worker heartbeat (for container healthchecks)
   role-health -role R [-max 60s]   same, for worker | inbound | scheduler
   dns-check                   run the read-only DNS health check now and print the results
+  mta-log [-file /var/log/mail.log|-] [-follow]
+                              record delivery evidence (sent, deferred, bounced) from Postfix log lines,
+                              correlated to messages by queue ID; "-" reads stdin (journalctl -fu postfix | ...)
   smtp-check                  verify TLS + auth against the SMTP server (sends nothing)
   preflight [-hostname H -ip IP -spool DIR -probe DOMAIN -json -record]
                               read-only host checks for "Send from my VPS" (managed mode); changes nothing.
@@ -173,6 +177,8 @@ func Run(args []string) {
 		runInstaller(ctx, &installerDeps{svc: svc, cfg: cfg}, args)
 	case "preflight":
 		runPreflight(ctx, &preflightDeps{svc: svc, hostname: cfg.MailHostname, ip: cfg.OutboundIP, spool: cfg.DataDir}, args)
+	case "mta-log":
+		runMTALog(ctx, svc, args)
 	case "dns-check":
 		res, err := svc.RunDNSChecks(ctx, nil)
 		if err != nil {
@@ -796,4 +802,68 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 	default:
 		die(errors.New("usage: njiwa-mail installer plan|apply|rollback|status [flags]"))
 	}
+}
+
+// runMTALog feeds Postfix log lines to the delivery-evidence collector. With
+// -follow it keeps reading new lines and reopens the file after rotation.
+func runMTALog(ctx context.Context, svc *service.Service, args []string) {
+	fs := flag.NewFlagSet("mta-log", flag.ExitOnError)
+	file := fs.String("file", "/var/log/mail.log", `Postfix log file, or "-" for stdin`)
+	follow := fs.Bool("follow", false, "keep reading new lines (like tail -F)")
+	fs.Parse(args)
+	if *file == "-" {
+		n, err := svc.IngestMTALog(ctx, os.Stdin)
+		if err != nil {
+			die(err)
+		}
+		fmt.Printf("%d delivery events recorded\n", n)
+		return
+	}
+	f, err := os.Open(*file)
+	if err != nil {
+		die(err)
+	}
+	if !*follow {
+		defer f.Close()
+		n, err := svc.IngestMTALog(ctx, f)
+		if err != nil {
+			die(err)
+		}
+		fmt.Printf("%d delivery events recorded\n", n)
+		return
+	}
+	_, _ = f.Seek(0, io.SeekEnd) // only new lines; run once without -follow to backfill
+	r := bufio.NewReader(f)
+	var pending strings.Builder
+	for ctx.Err() == nil {
+		line, err := r.ReadString('\n')
+		pending.WriteString(line)
+		if err == nil {
+			if _, err := svc.IngestMTALog(ctx, strings.NewReader(pending.String())); err != nil {
+				slog.Error("mta-log ingest failed", "err", err)
+			}
+			pending.Reset()
+			continue
+		}
+		// End of file: wait, and reopen if the file was rotated or truncated.
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
+		if st, err := os.Stat(*file); err == nil {
+			if cur, _ := f.Stat(); cur != nil && (!os.SameFile(st, cur) || st.Size() < offset(f)) {
+				f.Close()
+				if f, err = os.Open(*file); err != nil {
+					die(err)
+				}
+				r.Reset(f)
+			}
+		}
+	}
+	f.Close()
+}
+
+func offset(f *os.File) int64 {
+	o, _ := f.Seek(0, io.SeekCurrent)
+	return o
 }

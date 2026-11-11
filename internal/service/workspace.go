@@ -285,6 +285,9 @@ FROM messages m LEFT JOIN api_keys k ON k.id=m.api_key_id WHERE m.id=$1 AND m.en
 	if m["bounces"], err = s.maps(ctx, `SELECT id::text AS id, type, status_code, diagnostic, recipient_masked AS recipient, received_at FROM bounces WHERE message_id=$1 ORDER BY received_at`, id); err != nil {
 		return nil, err
 	}
+	if m["delivery_evidence"], m["delivery_summary"], err = s.DeliveryEvidence(ctx, id); err != nil {
+		return nil, err
+	}
 	if m["webhook_deliveries"], err = s.maps(ctx, `SELECT d.id::text AS id, d.endpoint_id::text AS endpoint_id, w.url, d.event_type, d.state, d.attempts, d.last_response_code, d.created_at
 FROM webhook_deliveries d JOIN webhook_endpoints w ON w.id=d.endpoint_id
 WHERE w.environment_id=$2 AND d.payload->>'message_id'=$1 ORDER BY d.created_at`, id, sc.EnvID); err != nil {
