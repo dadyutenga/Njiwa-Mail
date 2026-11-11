@@ -982,18 +982,11 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	}
 	e.admOK(admin, "POST", "/admin/v1/projects", body)
 
-	// Admin and owner can read the console. User management stays with the owner.
-	for _, p := range []string{"overview", "messages", "projects", "keys", "suppressions", "templates", "webhooks", "inbound", "dns", "settings", "senders", "bounces", "alerts", "sandbox"} {
+	// Both legacy owner inputs and admin inputs grant the same access.
+	for _, p := range []string{"overview", "messages", "projects", "keys", "suppressions", "templates", "webhooks", "inbound", "dns", "settings", "senders", "bounces", "alerts", "sandbox", "users"} {
 		e.admOK(admin, "GET", "/admin/v1/"+p, nil)
 		e.admOK(owner, "GET", "/admin/v1/"+p, nil)
 	}
-	// Admin: everything except users.
-	for _, wr := range []struct{ m, p string }{{"GET", "users"}, {"POST", "users"}, {"PATCH", "users/00000000-0000-4000-8000-000000000000"}} {
-		if r := e.adm(admin, wr.m, "/admin/v1/"+wr.p, map[string]any{}); r.Code != 403 {
-			t.Errorf("admin %s %s: %d", wr.m, wr.p, r.Code)
-		}
-	}
-	e.admOK(admin, "GET", "/admin/v1/sandbox", nil)
 
 	// API key creation shows the secret once; lists never contain it.
 	kr := e.admOK(admin, "POST", "/admin/v1/keys", map[string]any{"project": "sacas", "mode": "sandbox", "scopes": []string{"emails:send"}, "label": "ui"})
@@ -1009,20 +1002,13 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 		t.Fatalf("revoked key still works: %d", r.Code)
 	}
 
-	// Owner manages users; the last owner cannot be removed.
+	// Every admin can manage users; removed roles and weak passwords are rejected.
 	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "old.role@njiwa.co.tz", "password": adminPass, "role": "viewer"}); r.Code != 400 {
 		t.Fatalf("viewer role accepted: %d %s", r.Code, r.Raw)
 	}
-	nu := e.admOK(owner, "POST", "/admin/v1/users", map[string]any{"email": "New.Person@njiwa.co.tz", "password": adminPass, "role": "admin"})
+	nu := e.admOK(admin, "POST", "/admin/v1/users", map[string]any{"email": "New.Person@njiwa.co.tz", "password": adminPass})
 	if r := e.adm(owner, "POST", "/admin/v1/users", map[string]any{"email": "weak@njiwa.co.tz", "password": "short", "role": "admin"}); r.Code != 400 {
 		t.Fatalf("weak password accepted: %d", r.Code)
-	}
-	me := e.admOK(owner, "GET", "/admin/v1/auth/me", nil)
-	if r := e.adm(owner, "PATCH", "/admin/v1/users/"+str(me.JSON, "id"), map[string]any{"role": "admin"}); r.Code != 409 || errCode(r) != "last_owner" {
-		t.Fatalf("last owner was demoted: %d %s", r.Code, r.Raw)
-	}
-	if r := e.adm(owner, "PATCH", "/admin/v1/users/"+str(me.JSON, "id"), map[string]any{"disabled": true}); r.Code != 409 {
-		t.Fatalf("last owner was disabled: %d", r.Code)
 	}
 	// Disabling a user ends their session at once.
 	np := e.login("new.person@njiwa.co.tz")

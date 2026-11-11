@@ -75,13 +75,7 @@ export function useAuth() {
   if (!value) throw new Error("AuthProvider is missing");
   return value;
 }
-export function ProtectedRoute({
-  children,
-  role,
-}: {
-  children: ReactNode;
-  role?: AdminUser["role"];
-}) {
+export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading)
@@ -91,6 +85,5 @@ export function ProtectedRoute({
       </div>
     );
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
-  if (role && user.role !== role) return <Navigate to="/403" replace />;
   return children;
 }

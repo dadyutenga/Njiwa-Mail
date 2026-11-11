@@ -20,8 +20,8 @@ import (
 
 type wsFn func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error)
 
-func (s *Server) ws(role string, h wsFn) fiber.Handler {
-	return s.adm(role, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+func (s *Server) ws(h wsFn) fiber.Handler {
+	return s.adm(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		sc, err := s.Svc.ResolveScope(reqCtx(c), c.Params("project"), c.Params("mode"))
 		if err != nil {
 			return nil, err
@@ -44,33 +44,32 @@ func boolQuery(c *fiber.Ctx, k string) bool {
 }
 
 func (s *Server) workspaceRoutes(app *fiber.App) {
-	const A, O = service.RoleAdmin, service.RoleOwner
 	svc := s.Svc
 	base := "/admin/v1/w/:project/:mode"
-	h := func(method, path, role string, fn wsFn) { app.Add(method, base+path, s.ws(role, fn)) }
+	h := func(method, path string, fn wsFn) { app.Add(method, base+path, s.ws(fn)) }
 	ctx := reqCtx
 
 	// ---- context, checklist, search, overview
-	h("GET", "/context", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/context", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.WorkspaceContext(ctx(c), sc)
 	})
-	h("GET", "/checklist", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/checklist", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		steps, complete, err := svc.Checklist(ctx(c), sc, s.EnvSMTP != nil)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"steps": steps, "complete": complete}, nil
 	})
-	h("GET", "/search", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/search", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.Search(ctx(c), sc, c.Query("q"))
 		return map[string]any{"items": items}, err
 	})
-	h("GET", "/overview", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/overview", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.WorkspaceOverview(ctx(c), sc)
 	})
 
 	// ---- messages (Sent, Scheduled, Message log, Unknown queue)
-	h("GET", "/messages", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/messages", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		from, err := timeParam(c, "from")
 		if err != nil {
 			return nil, err
@@ -84,27 +83,27 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 			Campaign: c.Query("campaign"), From: from, To: to}, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET", "/messages/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/messages/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.WSMessage(ctx(c), sc, c.Params("id"))
 	})
-	h("GET", "/messages/:id/copy", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/messages/:id/copy", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.SentCopy(ctx(c), sc, c.Params("id"))
 	})
-	h("POST", "/messages/:id/cancel", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/messages/:id/cancel", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.WSCancel(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "message.cancel", "message", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("POST", "/messages/:id/send-now", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/messages/:id/send-now", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.SendNow(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "message.send_now", "message", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("POST", "/messages/:id/retry", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/messages/:id/retry", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		acc, err := svc.Retry(ctx(c), sc, c.Params("id"), u.Email)
 		if err != nil {
 			return nil, err
@@ -112,7 +111,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "message.retry", "message", acc.ID, scoped(sc, map[string]any{"original": c.Params("id")}))
 		return acc, nil
 	})
-	h("POST", "/messages/:id/resolve", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/messages/:id/resolve", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			As   string `json:"as"`
 			Note string `json:"note"`
@@ -131,7 +130,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	})
 
 	// ---- compose and drafts
-	h("POST", "/compose", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/compose", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.ComposeInput
 		if len(c.Body()) > 8<<20 {
 			return nil, &service.Error{Status: 413, Code: "body_too_large"}
@@ -146,7 +145,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "message.compose", "message", acc.ID, scoped(sc, map[string]any{"reply": in.InReplyTo != ""}))
 		return acc, nil
 	})
-	h("POST", "/recipients/check", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/recipients/check", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Emails []string `json:"emails"`
 			Bulk   bool     `json:"bulk"`
@@ -157,11 +156,11 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		blocked, err := svc.CheckRecipients(ctx(c), sc, in.Emails, in.Bulk)
 		return map[string]any{"blocked": blocked}, err
 	})
-	h("GET", "/drafts", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/drafts", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.ListDraftsMail(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET", "/drafts/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/drafts/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.GetDraftMail(ctx(c), sc, c.Params("id"))
 	})
 	saveDraft := func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
@@ -175,25 +174,25 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		}
 		return map[string]string{"id": id}, nil
 	}
-	h("POST", "/drafts", A, saveDraft)
-	h("PUT", "/drafts/:id", A, saveDraft)
-	h("DELETE", "/drafts/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/drafts", saveDraft)
+	h("PUT", "/drafts/:id", saveDraft)
+	h("DELETE", "/drafts/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return nil, svc.DeleteDraftMail(ctx(c), sc, c.Params("id"))
 	})
 
 	// ---- inbox and mailboxes
-	h("GET", "/inbox", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/inbox", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.Inbox(ctx(c), sc, service.InboxFilter{Mailbox: c.Query("mailbox"), Query: c.Query("q"), Label: c.Query("label"),
 			Unread: boolQuery(c, "unread"), Archived: boolQuery(c, "archived")}, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET", "/inbox/unread", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/inbox/unread", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.UnreadCounts(ctx(c), sc)
 	})
-	h("GET", "/inbox/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/inbox/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.OpenInbox(ctx(c), sc, c.Params("id"))
 	})
-	h("GET", "/inbox/:id/html", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/inbox/:id/html", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		m, err := svc.GetInbound(ctx(c), sc.EnvID, c.Params("id"), true)
 		if err != nil {
 			return nil, err
@@ -201,7 +200,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		html, _ := m["html"].(string)
 		return sandboxedHTML(html), nil
 	})
-	h("GET", "/inbox/:id/attachments/:aid", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/inbox/:id/attachments/:aid", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		f, err := svc.OpenAttachment(ctx(c), sc.EnvID, c.Params("id"), c.Params("aid"))
 		if err != nil {
 			return nil, err
@@ -209,7 +208,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "inbound.attachment_download", "inbound_attachment", c.Params("aid"), scoped(sc, nil))
 		return download(f), nil
 	})
-	h("PATCH", "/inbox/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("PATCH", "/inbox/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Read     *bool `json:"read"`
 			Archived *bool `json:"archived"`
@@ -219,14 +218,14 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		}
 		return nil, svc.UpdateInbox(ctx(c), sc, c.Params("id"), in.Read, in.Archived)
 	})
-	h("DELETE", "/inbox/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/inbox/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.DeleteInbox(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "inbound.delete", "inbound_message", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("POST", "/inbox/:id/block", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/inbox/:id/block", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		sender, err := svc.BlockSender(ctx(c), sc, c.Params("id"))
 		if err != nil {
 			return nil, err
@@ -234,22 +233,22 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "inbound.block_sender", "blocked_sender", "", scoped(sc, nil))
 		return map[string]string{"sender": sender}, nil
 	})
-	h("GET", "/blocked-senders", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/blocked-senders", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.ListBlocked(ctx(c), sc)
 		return map[string]any{"items": items}, err
 	})
-	h("DELETE", "/blocked-senders/:sender", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/blocked-senders/:sender", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return nil, svc.Unblock(ctx(c), sc, c.Params("sender"))
 	})
-	h("GET", "/mailboxes", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/mailboxes", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.ListMailboxes(ctx(c), sc, false, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET", "/receiving-domains", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/receiving-domains", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.ReceivingDomains(ctx(c), sc)
 		return map[string]any{"items": items}, err
 	})
-	h("POST", "/mailboxes", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/mailboxes", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.MailboxInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -261,7 +260,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "mailbox.create", "inbound_address", id, scoped(sc, map[string]any{"domain": in.Domain}))
 		return map[string]string{"id": id}, nil
 	})
-	h("PATCH", "/mailboxes/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("PATCH", "/mailboxes/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Enabled bool `json:"enabled"`
 		}
@@ -274,18 +273,18 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "mailbox.update", "inbound_address", c.Params("id"), scoped(sc, map[string]any{"enabled": in.Enabled}))
 		return nil, nil
 	})
-	h("DELETE", "/mailboxes/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/mailboxes/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.DeleteMailbox(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "mailbox.delete", "inbound_address", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("GET", "/temp-inboxes", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/temp-inboxes", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.ListMailboxes(ctx(c), sc, true, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST", "/temp-inboxes", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/temp-inboxes", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			TTL string `json:"ttl"`
 		}
@@ -299,16 +298,16 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "temp_inbox.create", "inbound_address", out["id"].(string), scoped(sc, map[string]any{"ttl": in.TTL}))
 		return out, nil
 	})
-	h("DELETE", "/temp-inboxes/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/temp-inboxes/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return nil, svc.DeleteMailbox(ctx(c), sc, c.Params("id"))
 	})
 
 	// ---- domains
-	h("GET", "/domains", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/domains", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSDomains(ctx(c), sc, c.Query("q"), boolQuery(c, "attention"), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST", "/domains", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/domains", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Name    string `json:"name"`
 			Purpose string `json:"purpose"`
@@ -324,10 +323,10 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "domain.create", "domain", id, scoped(sc, map[string]any{"name": in.Name, "purpose": in.Purpose, "bulk": in.Bulk}))
 		return map[string]string{"id": id, "txt": txt}, nil
 	})
-	h("GET", "/domains/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/domains/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.WSDomain(ctx(c), sc, c.Params("id"))
 	})
-	h("POST", "/domains/:id/check", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/domains/:id/check", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if _, err := svc.WSDomain(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
@@ -338,7 +337,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "domain.check", "domain", c.Params("id"), scoped(sc, nil))
 		return map[string]any{"records": recs}, nil
 	})
-	h("POST", "/domains/:id/mailcow", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/domains/:id/mailcow", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		steps, err := svc.ProvisionDomain(ctx(c), sc, c.Params("id"))
 		if err != nil {
 			return nil, err
@@ -346,7 +345,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "domain.mailcow_provision", "domain", c.Params("id"), scoped(sc, nil))
 		return map[string]any{"steps": steps}, nil
 	})
-	h("DELETE", "/domains/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/domains/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.WSDeleteDomain(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
@@ -355,15 +354,15 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	})
 
 	// ---- senders
-	h("GET", "/senders", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/senders", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSSenders(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET", "/bulk-senders", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/bulk-senders", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.BulkSenders(ctx(c), sc)
 		return map[string]any{"items": items}, err
 	})
-	h("POST", "/senders", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/senders", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Email       string `json:"email"`
 			DisplayName string `json:"display_name"`
@@ -378,14 +377,14 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "sender.upsert", "sender", id, scoped(sc, nil))
 		return map[string]string{"id": id}, nil
 	})
-	h("POST", "/senders/:id/default", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/senders/:id/default", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.SetDefaultSender(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "sender.default", "sender", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("DELETE", "/senders/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/senders/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.WSDeleteSender(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
@@ -394,11 +393,11 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	})
 
 	// ---- templates (this project's and shared ones)
-	h("GET", "/templates", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/templates", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSTemplates(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST", "/templates", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/templates", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.TemplateInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -418,15 +417,15 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 				return nil, err
 			}
 			if write && !own {
-				return nil, &service.Error{Status: 403, Code: "shared_template", Message: "shared templates are edited by an owner from the CLI; duplicate it to change it here"}
+				return nil, &service.Error{Status: 403, Code: "shared_template", Message: "shared templates are edited by an admin from the CLI; duplicate it to change it here"}
 			}
 			return fn(c, u, sc)
 		}
 	}
-	h("GET", "/templates/:id", A, tpl(false, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/templates/:id", tpl(false, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.GetTemplate(ctx(c), c.Params("id"))
 	}))
-	h("PATCH", "/templates/:id", A, tpl(true, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("PATCH", "/templates/:id", tpl(true, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Description *string `json:"description"`
 			Archived    *bool   `json:"archived"`
@@ -440,7 +439,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "template.update", "template", c.Params("id"), scoped(sc, map[string]any{"archived": in.Archived}))
 		return nil, nil
 	}))
-	h("PUT", "/templates/:id/draft", A, tpl(true, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("PUT", "/templates/:id/draft", tpl(true, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.VersionInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -452,7 +451,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "template.save_draft", "template", c.Params("id"), scoped(sc, map[string]any{"version": v}))
 		return map[string]int{"version": v}, nil
 	}))
-	h("POST", "/templates/:id/versions/:version/publish", A, tpl(true, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/templates/:id/versions/:version/publish", tpl(true, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		v, _ := strconv.Atoi(c.Params("version"))
 		if err := svc.PublishVersion(ctx(c), c.Params("id"), v); err != nil {
 			return nil, err
@@ -460,7 +459,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "template.publish", "template", c.Params("id"), scoped(sc, map[string]any{"version": v}))
 		return nil, nil
 	}))
-	h("POST", "/templates/:id/versions/:version/preview", A, tpl(false, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/templates/:id/versions/:version/preview", tpl(false, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		v, _ := strconv.Atoi(c.Params("version"))
 		var in struct {
 			Locale    string         `json:"locale"`
@@ -471,7 +470,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		}
 		return svc.PreviewVersion(ctx(c), c.Params("id"), v, in.Locale, in.Variables)
 	}))
-	h("POST", "/templates/:id/versions/:version/test-send", A, tpl(false, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/templates/:id/versions/:version/test-send", tpl(false, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		v, _ := strconv.Atoi(c.Params("version"))
 		var in service.TestSend
 		if err := decode(c, &in); err != nil {
@@ -485,7 +484,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "template.test_send", "message", acc.ID, scoped(sc, map[string]any{"template_id": c.Params("id"), "version": v}))
 		return acc, nil
 	}))
-	h("POST", "/templates/:id/duplicate", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/templates/:id/duplicate", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Slug string `json:"slug"`
 		}
@@ -501,11 +500,11 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	})
 
 	// ---- automations
-	h("GET", "/automations", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/automations", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.ListRules(ctx(c), sc)
 		return map[string]any{"items": items}, err
 	})
-	h("POST", "/automations", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/automations", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.RuleInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -517,7 +516,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "automation.create", "automation_rule", id, scoped(sc, nil))
 		return map[string]string{"id": id}, nil
 	})
-	h("POST", "/automations/reorder", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/automations/reorder", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			IDs []string `json:"ids"`
 		}
@@ -530,7 +529,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "automation.reorder", "automation_rule", "", scoped(sc, nil))
 		return nil, nil
 	})
-	h("PATCH", "/automations/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("PATCH", "/automations/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.RuleInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -541,14 +540,14 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "automation.update", "automation_rule", c.Params("id"), scoped(sc, map[string]any{"enabled": in.Enabled}))
 		return nil, nil
 	})
-	h("DELETE", "/automations/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/automations/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.DeleteRule(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "automation.delete", "automation_rule", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("POST", "/automations/:id/test", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/automations/:id/test", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			InboundID string `json:"inbound_id"`
 		}
@@ -557,17 +556,17 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		}
 		return svc.TestRule(ctx(c), sc, c.Params("id"), in.InboundID)
 	})
-	h("GET", "/automations/:id/runs", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/automations/:id/runs", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.RuleRuns(ctx(c), sc, c.Params("id"), pageOf(c))
 		return list(c, items, more, err)
 	})
 
-	// ---- bulk announcements (owner or admin)
-	h("GET", "/campaigns", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	// ---- bulk announcements (admin)
+	h("GET", "/campaigns", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.ListCampaigns(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST", "/campaigns/check", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/campaigns/check", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Recipients string `json:"recipients"`
 		}
@@ -576,7 +575,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		}
 		return svc.CheckCampaignRecipients(ctx(c), sc, in.Recipients)
 	})
-	h("POST", "/campaigns", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/campaigns", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.CampaignInput
 		if err := decodeLarge(c, &in); err != nil {
 			return nil, err
@@ -588,27 +587,27 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "campaign.create", "campaign", id, scoped(sc, map[string]any{"recipients": rep.Valid}))
 		return map[string]any{"id": id, "report": rep}, nil
 	})
-	h("GET", "/campaigns/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/campaigns/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.GetCampaign(ctx(c), sc, c.Params("id"))
 	})
-	h("POST", "/campaigns/:id/:action", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/campaigns/:id/:action", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.CampaignAction(ctx(c), sc, c.Params("id"), c.Params("action")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "campaign."+c.Params("action"), "campaign", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("GET", "/unsubscribes", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/unsubscribes", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSUnsubscribes(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
 
 	// ---- suppressions, bounces, complaints
-	h("GET", "/suppressions", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/suppressions", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSSuppressions(ctx(c), sc, c.Query("source"), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST", "/suppressions", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/suppressions", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Email  string `json:"email"`
 			Reason string `json:"reason"`
@@ -622,7 +621,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "suppression.add", "suppression", "", scoped(sc, map[string]any{"reason": in.Reason}))
 		return nil, nil
 	})
-	h("DELETE", "/suppressions/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/suppressions/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Reason string `json:"reason"`
 		}
@@ -635,17 +634,17 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "suppression.remove", "suppression", c.Params("id"), scoped(sc, map[string]any{"reason": in.Reason}))
 		return nil, nil
 	})
-	h("GET", "/bounces", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/bounces", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSBounces(ctx(c), sc, c.Query("type"), pageOf(c))
 		return list(c, items, more, err)
 	})
 
 	// ---- developers: API keys, webhooks, sandbox
-	h("GET", "/keys", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/keys", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSKeys(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST", "/keys", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/keys", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Scopes   []string `json:"scopes"`
 			Label    string   `json:"label"`
@@ -664,7 +663,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "api_key.create", "api_key", prefix, scoped(sc, map[string]any{"scopes": in.Scopes}))
 		return map[string]string{"prefix": prefix, "key": tok}, nil
 	})
-	h("POST", "/keys/:prefix/rotate", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/keys/:prefix/rotate", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.KeyInScope(ctx(c), sc, c.Params("prefix")); err != nil {
 			return nil, err
 		}
@@ -675,7 +674,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "api_key.rotate", "api_key", c.Params("prefix"), scoped(sc, map[string]any{"new_prefix": prefix}))
 		return map[string]string{"prefix": prefix, "key": tok}, nil
 	})
-	h("POST", "/keys/:prefix/revoke", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/keys/:prefix/revoke", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.KeyInScope(ctx(c), sc, c.Params("prefix")); err != nil {
 			return nil, err
 		}
@@ -685,11 +684,11 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "api_key.revoke", "api_key", c.Params("prefix"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("GET", "/webhooks", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/webhooks", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSWebhooks(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST", "/webhooks", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/webhooks", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			URL    string   `json:"url"`
 			Events []string `json:"events"`
@@ -712,7 +711,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 			return fn(c, u, sc)
 		}
 	}
-	h("PATCH", "/webhooks/:id", A, inEndpoint(func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("PATCH", "/webhooks/:id", inEndpoint(func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			URL     *string  `json:"url"`
 			Events  []string `json:"events"`
@@ -727,14 +726,14 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "webhook.update", "webhook_endpoint", c.Params("id"), scoped(sc, map[string]any{"enabled": in.Enabled}))
 		return nil, nil
 	}))
-	h("DELETE", "/webhooks/:id", A, inEndpoint(func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("DELETE", "/webhooks/:id", inEndpoint(func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.DeleteWebhook(ctx(c), c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "webhook.delete", "webhook_endpoint", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	}))
-	h("POST", "/webhooks/:id/rotate-secret", A, inEndpoint(func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/webhooks/:id/rotate-secret", inEndpoint(func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		secret, err := svc.RotateWebhookSecret(ctx(c), c.Params("id"))
 		if err != nil {
 			return nil, err
@@ -742,11 +741,11 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "webhook.rotate_secret", "webhook_endpoint", c.Params("id"), scoped(sc, nil))
 		return map[string]string{"signing_secret": secret}, nil
 	}))
-	h("GET", "/webhook-deliveries", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/webhook-deliveries", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSDeliveries(ctx(c), sc, c.Query("endpoint_id"), c.Query("state"), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST", "/webhook-deliveries/:id/replay", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/webhook-deliveries/:id/replay", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.DeliveryInScope(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
@@ -756,11 +755,11 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "webhook.replay", "webhook_delivery", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
-	h("GET", "/sandbox", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/sandbox", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, more, err := svc.WSCaptures(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET", "/sandbox/:id", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/sandbox/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.CaptureInScope(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
 		}
@@ -776,18 +775,18 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "sandbox.view_capture", "message", c.Params("id"), scoped(sc, nil))
 		return out, nil
 	})
-	h("GET", "/analytics", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("GET", "/analytics", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.Analytics(ctx(c), sc.Project, sc.Mode, c.Query("template"), c.Query("domain"))
 		return map[string]any{"items": items}, err
 	})
-	h("POST", "/privacy/export", A, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/privacy/export", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct{ Email string }
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
 		return svc.ExportRecipient(ctx(c), sc.Project, sc.Mode, in.Email)
 	})
-	h("POST", "/privacy/delete", O, func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+	h("POST", "/privacy/delete", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct{ Email string }
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -856,11 +855,10 @@ func decodeLarge(c *fiber.Ctx, v any) error {
 // ---------------------------------------------------------------- Mail server (Admin)
 
 func (s *Server) mailServerRoutes(app *fiber.App) {
-	const A, O = service.RoleAdmin, service.RoleOwner
 	svc := s.Svc
-	h := func(method, path, role string, fn adminFn) { app.Add(method, "/admin/v1"+path, s.adm(role, fn)) }
+	h := func(method, path string, fn adminFn) { app.Add(method, "/admin/v1"+path, s.adm(fn)) }
 
-	h("GET", "/mail-server", A, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "/mail-server", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		m, err := svc.GetMailServer(reqCtx(c))
 		if err != nil {
 			return nil, err
@@ -875,7 +873,7 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 		}
 		return m, nil
 	})
-	h("PUT", "/mail-server", O, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PUT", "/mail-server", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in service.MailServerInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -901,7 +899,7 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 		}
 		return cfg, sender, nil
 	}
-	h("POST", "/mail-server/test", A, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST", "/mail-server/test", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		cfg, sender, err := cfgFor(c)
 		if err != nil {
 			return nil, err
@@ -922,7 +920,7 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 		s.audit(c, u, "mail_server.test", "mail_server", "1", map[string]any{"ok": ok})
 		return out, nil
 	})
-	h("POST", "/mail-server/test-send", A, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST", "/mail-server/test-send", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			To string `json:"to"`
 		}
@@ -940,7 +938,7 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 		s.audit(c, u, "mail_server.test_send", "mail_server", "1", map[string]any{"state": out["state"]})
 		return out, nil
 	})
-	h("GET", "/mail-server/status", A, func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "/mail-server/status", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		m, err := svc.MailServerStatus(reqCtx(c))
 		if err != nil {
 			return nil, err

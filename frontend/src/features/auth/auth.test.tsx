@@ -58,41 +58,18 @@ describe("ProtectedRoute", () => {
     );
     expect(await screen.findByText("Sign in")).toBeInTheDocument();
   });
-  it("blocks admin users from owner-only screens", async () => {
+  it("allows admin users to manage users", async () => {
     vi.spyOn(admin, "me").mockResolvedValue(user);
     render(
-      <MemoryRouter initialEntries={["/private"]}>
+      <MemoryRouter initialEntries={["/users"]}>
         <QueryClientProvider client={new QueryClient()}>
           <AuthProvider>
             <Routes>
               <Route
-                path="/private"
+                path="/users"
                 element={
-                  <ProtectedRoute role="owner">
-                    <div>Private</div>
-                  </ProtectedRoute>
-                }
-              />
-              <Route path="/403" element={<div>Denied</div>} />
-            </Routes>
-          </AuthProvider>
-        </QueryClientProvider>
-      </MemoryRouter>,
-    );
-    expect(await screen.findByText("Denied")).toBeInTheDocument();
-  });
-  it("allows owners into owner-only screens", async () => {
-    vi.spyOn(admin, "me").mockResolvedValue({ ...user, role: "owner" });
-    render(
-      <MemoryRouter initialEntries={["/private"]}>
-        <QueryClientProvider client={new QueryClient()}>
-          <AuthProvider>
-            <Routes>
-              <Route
-                path="/private"
-                element={
-                  <ProtectedRoute role="owner">
-                    <div>Private</div>
+                  <ProtectedRoute>
+                    <div>User management</div>
                   </ProtectedRoute>
                 }
               />
@@ -101,6 +78,6 @@ describe("ProtectedRoute", () => {
         </QueryClientProvider>
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Private")).toBeInTheDocument();
+    expect(await screen.findByText("User management")).toBeInTheDocument();
   });
 });

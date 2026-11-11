@@ -32,15 +32,15 @@ Alert on: any role down, `njiwa_mail_oldest_queued_age_seconds` rising, any `unk
 
 ## Admin users
 
-There is no signup page. Create the first owner on the server; owners add the rest in the UI.
+There is no signup page. Create the first admin on the server; any admin can add the rest in the UI.
 
 ```bash
-njiwa-mail user create -email you@example.com -role owner     # password is read from stdin (min 12 characters)
+njiwa-mail user create -email you@example.com -role admin     # password is read from stdin (min 12 characters)
 njiwa-mail user password -email you@example.com               # reset a password; ends that user's sessions
 njiwa-mail user disable -email someone@example.com
 ```
-Roles: `owner` (everything, including users) and `admin` (everything except users). Both can read the console, including inbound bodies and sandbox captures.
-The last enabled owner cannot be demoted or disabled. Logins are limited per account and per IP (15-minute windows; see Settings).
+There is one user role: `admin`. Every enabled user can manage users, mail-server settings and recipient privacy, and read inbound bodies and sandbox captures. Existing owners are migrated to admin; old `owner` inputs are accepted as an alias for admin.
+The last enabled user cannot be disabled. Logins are limited per account and per IP (15-minute windows; see Settings).
 Every write from the UI, the CLI or an API key is recorded in `audit_log` (UI: Audit log). The admin API uses password-based sessions without MFA; keep `/admin/v1` behind HTTPS and an IP allowlist (`deploy/nginx.conf`).
 
 ## Alerts

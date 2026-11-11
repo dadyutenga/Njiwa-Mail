@@ -32,10 +32,9 @@ import {
 import type { ComponentType } from "react";
 
 export type NavItem = {
-  path: string; // relative to /p/{project}/{env}/
+  path: string; // relative to /p/{project}/
   label: string;
   icon: ComponentType<{ size?: number; className?: string }>;
-  role?: "owner";
   badge?: "unread";
 };
 export type NavGroup = { label: string; items: NavItem[] };
@@ -56,7 +55,7 @@ export const navGroups: NavGroup[] = [
       { path: "scheduled", label: "Scheduled", icon: CalendarClock },
       { path: "bulk", label: "Bulk send", icon: Megaphone },
       { path: "temp-inboxes", label: "Temporary inboxes", icon: Timer },
-      { path: "sandbox", label: "Sandbox", icon: TestTube2 },
+      { path: "captures", label: "Sandbox", icon: TestTube2 },
     ],
   },
   {
@@ -86,7 +85,7 @@ export const navGroups: NavGroup[] = [
     label: "Admin",
     items: [
       { path: "projects", label: "Projects", icon: FolderKanban },
-      { path: "users", label: "Users", icon: Users, role: "owner" },
+      { path: "users", label: "Users", icon: Users },
       { path: "mail-server", label: "Mail server", icon: Server },
       { path: "analytics", label: "Analytics", icon: BarChart3 },
       { path: "alerts", label: "Alerts", icon: Bell },

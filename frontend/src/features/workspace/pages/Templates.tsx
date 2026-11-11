@@ -5,7 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
-import { useWorkspace, useWsKey } from "../context";
+import { useWorkspace, useWsKey, useSendingEnvironment, type Env } from "../context";
 import {
   ConfirmButton,
   DataState,
@@ -26,6 +26,7 @@ import {
   type Page,
   type Row,
 } from "../ui";
+import { SendingMode } from "../SendingMode";
 import { cn } from "@/lib/utils";
 
 type VarSpec = {
@@ -213,7 +214,9 @@ function NewTemplateDialog({
 
 function Editor({ id }: { id: string }) {
   const phrase = usePhrase();
-  const { api, to, env } = useWorkspace();
+  const { api, to } = useWorkspace();
+  const [env, setEnv] = useState<Env>("live");
+  const { api: testApi, key: testKey } = useSendingEnvironment(env);
   const key = useWsKey();
   const client = useQueryClient();
   const q = useQuery({
@@ -221,8 +224,8 @@ function Editor({ id }: { id: string }) {
     queryFn: () => api.get<Template>(`/templates/${id}`),
   });
   const senders = useQuery({
-    queryKey: key("senders"),
-    queryFn: () => api.get<Page>("/senders?limit=100"),
+    queryKey: testKey("senders"),
+    queryFn: () => testApi.get<Page>("/senders?limit=100"),
   });
   const t = q.data;
   const draft = t?.versions.find((v) => !v.published_at);
@@ -579,6 +582,9 @@ function Editor({ id }: { id: string }) {
               )}
             </Section>
             <Section title={phrase("Send a test")}>
+              <div className="mb-3">
+                <SendingMode value={env} onChange={setEnv} />
+              </div>
               <p className="mb-3 text-sm text-muted-foreground">
                 {env === "sandbox"
                   ? phrase(
@@ -611,7 +617,7 @@ function Editor({ id }: { id: string }) {
                         vars[x.name] = x.type === "int" ? Number(sample[x.name]) : sample[x.name];
                     const r = await run(
                       () =>
-                        api.send<{ id: string }>(
+                        testApi.send<{ id: string }>(
                           `/templates/${id}/versions/${v}/test-send`,
                           "POST",
                           {

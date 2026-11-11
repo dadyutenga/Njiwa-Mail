@@ -6,7 +6,8 @@ import { Bold, Italic, Link2, List, Paperclip, Trash2, X } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
-import { useWorkspace, useWsKey } from "../context";
+import { useWorkspace, useSendingEnvironment, type Env } from "../context";
+import { SendingMode } from "../SendingMode";
 import {
   emailOk,
   errorMessage,
@@ -20,6 +21,7 @@ import {
 } from "../ui";
 
 export type ComposePrefill = {
+  mode?: Env;
   to?: string;
   cc?: string;
   subject?: string;
@@ -150,12 +152,15 @@ export function ComposePanel({
   prefill?: ComposePrefill;
 }) {
   const phrase = usePhrase();
-  const { api, env, to: path, info } = useWorkspace();
-  const key = useWsKey();
+  const { to: path } = useWorkspace();
+  const [env, setEnv] = useState<Env>(prefill?.mode ?? "live");
+  const modeRef = useRef(env);
+  modeRef.current = env;
+  const { api, key, info } = useSendingEnvironment(env);
   const client = useQueryClient();
   const navigate = useNavigate();
   // One idempotency key per panel opening: a double click cannot send twice.
-  const [idemKey] = useState(() => "ui-" + crypto.randomUUID());
+  const [idemKey, setIdemKey] = useState(() => "ui-" + crypto.randomUUID());
   const [tab, setTab] = useState<"write" | "drafts">("write");
   const [from, setFrom] = useState(prefill?.from ?? "");
   const [toV, setTo] = useState(prefill?.to ?? "");
@@ -215,7 +220,9 @@ export function ComposePanel({
   useEffect(() => {
     if (!prefill?.draftId) return;
     api.get<Record<string, unknown>>(`/drafts/${prefill.draftId}`).then(
-      (d) => applyDraft(d),
+      (d) => {
+        if (modeRef.current === env) applyDraft(d);
+      },
       () => toast.error(phrase("The draft could not be opened.")),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -243,19 +250,21 @@ export function ComposePanel({
     subject,
     html,
     template,
-    in_reply_to: prefill?.inReplyTo ?? "",
+    in_reply_to: env === "live" ? (prefill?.inReplyTo ?? "") : "",
   });
   const saved = useRef(snapshot);
   const draftRef = useRef(draftId);
   draftRef.current = draftId;
   useEffect(() => {
     if (!open || snapshot === saved.current || (!toV && !subject && !html)) return;
+    let active = true;
     const t = setTimeout(async () => {
       try {
         const body = JSON.parse(snapshot);
         const r = draftRef.current
           ? await api.send<{ id: string }>(`/drafts/${draftRef.current}`, "PUT", body)
           : await api.send<{ id: string }>("/drafts", "POST", body);
+        if (!active) return;
         setDraftId(r.id);
         saved.current = snapshot;
         client.invalidateQueries({ queryKey: key("drafts") });
@@ -263,7 +272,10 @@ export function ComposePanel({
         /* autosave is best effort; sending still works */
       }
     }, 3000);
-    return () => clearTimeout(t);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
   }, [snapshot, open, api, client, key, toV, subject, html]);
 
   const validate = () => {
@@ -342,7 +354,7 @@ export function ComposePanel({
           content_type,
           content,
         })),
-        in_reply_to: prefill?.inReplyTo ?? "",
+        in_reply_to: env === "live" ? (prefill?.inReplyTo ?? "") : "",
         draft_id: draftId,
       };
       if (template) {
@@ -360,7 +372,13 @@ export function ComposePanel({
           : env === "sandbox"
             ? phrase("Sent to the sandbox. Nothing left the server.")
             : phrase("Queued for sending."),
-        { action: { label: phrase("Open"), onClick: () => navigate(path(`messages/${r.id}`)) } },
+        {
+          action: {
+            label: phrase("Open"),
+            onClick: () =>
+              navigate(path(`messages/${r.id}`) + (env === "sandbox" ? "?mode=sandbox" : "")),
+          },
+        },
       );
       client.invalidateQueries({ queryKey: key("messages") });
       client.invalidateQueries({ queryKey: key("drafts") });
@@ -382,6 +400,22 @@ export function ComposePanel({
             ? phrase("Sandbox: the message is captured for review and nothing leaves the server.")
             : phrase("Live: the message goes to real recipients.")}
         </SheetDescription>
+        <div className="mt-3">
+          <SendingMode
+            value={env}
+            disabled={busy}
+            onChange={(mode) => {
+              setEnv(mode);
+              setFrom("");
+              setDraftId("");
+              draftRef.current = "";
+              saved.current = "";
+              setBlocked([]);
+              setErrors({});
+              setIdemKey("ui-" + crypto.randomUUID());
+            }}
+          />
+        </div>
         <div className="mt-3 flex gap-2 border-b" role="tablist">
           {(["write", "drafts"] as const).map((t) => (
             <button
@@ -410,9 +444,12 @@ export function ComposePanel({
                 <button
                   className="min-w-0 flex-1 text-left"
                   onClick={() =>
-                    api
-                      .get<Record<string, unknown>>(`/drafts/${s(d.id)}`)
-                      .then(applyDraft, (e) => toast.error(errorMessage(e)))
+                    api.get<Record<string, unknown>>(`/drafts/${s(d.id)}`).then(
+                      (d) => {
+                        if (modeRef.current === env) applyDraft(d);
+                      },
+                      (e) => toast.error(errorMessage(e)),
+                    )
                   }
                 >
                   <span className="block truncate font-medium">

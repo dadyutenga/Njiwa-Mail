@@ -445,10 +445,7 @@ func TestMailServerSettingsSecrets(t *testing.T) {
 	admin := e.user("admin@njiwa.co.tz", "admin")
 	in := map[string]any{"smtp_host": "mail.example.com", "smtp_port": 587, "smtp_tls_mode": "starttls", "smtp_username": "njiwa@example.com",
 		"smtp_password": "very-secret-password", "test_sender": "hello@notify.example.com", "mailcow_api_url": "https://mail.example.com", "mailcow_api_key": "KEY-123"}
-	if r := e.adm(admin, "PUT", "/admin/v1/mail-server", in); r.Code != 403 {
-		t.Fatalf("admin may not change the mail server: %d", r.Code)
-	}
-	r := e.admOK(owner, "PUT", "/admin/v1/mail-server", in)
+	r := e.admOK(admin, "PUT", "/admin/v1/mail-server", in)
 	if strings.Contains(r.Raw, "very-secret") || strings.Contains(r.Raw, "KEY-123") || r.JSON["smtp_password_set"] != true || r.JSON["mailcow_api_key_set"] != true {
 		t.Fatalf("secrets returned: %s", r.Raw)
 	}

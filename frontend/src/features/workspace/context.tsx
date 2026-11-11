@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { admin, adminRequest, AdminError, type Page } from "@/lib/admin-api";
 
@@ -37,18 +37,18 @@ export type ProjectRow = {
 
 const LAST_KEY = "njiwa.workspace";
 
-export function rememberWorkspace(project: string, env: Env) {
+export function rememberWorkspace(project: string) {
   try {
-    localStorage.setItem(LAST_KEY, JSON.stringify({ project, env }));
+    localStorage.setItem(LAST_KEY, JSON.stringify({ project }));
   } catch {
     /* storage unavailable: the URL still carries the workspace */
   }
 }
 
-export function lastWorkspace(): { project: string; env: Env } | null {
+export function lastWorkspace(): { project: string } | null {
   try {
     const v = JSON.parse(localStorage.getItem(LAST_KEY) || "null");
-    if (v && typeof v.project === "string" && (v.env === "sandbox" || v.env === "live")) return v;
+    if (v && typeof v.project === "string") return { project: v.project };
   } catch {
     /* ignore */
   }
@@ -75,24 +75,17 @@ export function scopedApi(project: string, env: Env) {
 
 type Ctx = {
   project: string;
-  env: Env;
+  env: "live";
   info: WorkspaceInfo | undefined;
   api: ReturnType<typeof scopedApi>;
-  /** Path inside this workspace, e.g. to("inbox") → /p/sacas/sandbox/inbox */
+  /** Path inside this workspace, e.g. to("inbox") → /p/sacas/inbox */
   to: (path?: string) => string;
 };
 
 const WorkspaceContext = createContext<Ctx | null>(null);
 
-export function WorkspaceProvider({
-  project,
-  env,
-  children,
-}: {
-  project: string;
-  env: Env;
-  children: ReactNode;
-}) {
+export function WorkspaceProvider({ project, children }: { project: string; children: ReactNode }) {
+  const env = "live" as const;
   const api = useMemo(() => scopedApi(project, env), [project, env]);
   const info = useQuery({
     queryKey: ["ws", project, env, "context"],
@@ -107,7 +100,7 @@ export function WorkspaceProvider({
       info: info.data,
       api,
       to: (path = "") =>
-        `/p/${encodeURIComponent(project)}/${env}${path ? "/" + path.replace(/^\//, "") : ""}`,
+        `/p/${encodeURIComponent(project)}${path ? "/" + path.replace(/^\//, "") : ""}`,
     }),
     [project, env, info.data, api],
   );
@@ -121,9 +114,22 @@ export function useWorkspace() {
 }
 
 /** Query key scoped to the current workspace, so switching reloads data. */
-export function useWsKey() {
-  const { project, env } = useWorkspace();
-  return (...parts: unknown[]) => ["ws", project, env, ...parts];
+export function useWsKey(mode: Env = "live") {
+  const { project } = useWorkspace();
+  return useCallback((...parts: unknown[]) => ["ws", project, mode, ...parts], [project, mode]);
+}
+
+/** Sending mode is owned by the calling form, never by the workspace. */
+export function useSendingEnvironment(mode: Env) {
+  const { project } = useWorkspace();
+  const api = useMemo(() => scopedApi(project, mode), [project, mode]);
+  const key = useWsKey(mode);
+  const info = useQuery({
+    queryKey: key("context"),
+    queryFn: () => api.get<WorkspaceInfo>("/context"),
+    staleTime: 30_000,
+  });
+  return { api, key, info: info.data };
 }
 
 export async function allProjects(): Promise<ProjectRow[]> {

@@ -36,7 +36,7 @@ import {
 
 export function Projects() {
   const phrase = usePhrase();
-  const { project, env, to } = useWorkspace();
+  const { project, to } = useWorkspace();
   const client = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ProjectRow | null>(null);
@@ -72,7 +72,7 @@ export function Projects() {
                     <span className="flex items-center gap-2">
                       <Link
                         className="font-medium hover:underline"
-                        to={`/p/${encodeURIComponent(s(r.name))}/${env}/dashboard`}
+                        to={`/p/${encodeURIComponent(s(r.name))}/dashboard`}
                       >
                         {s(r.name)}
                       </Link>
@@ -249,31 +249,20 @@ export function Users() {
   const client = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("admin");
   const [error, setError] = useState("");
   const q = useQuery({
     queryKey: ["users"],
     queryFn: () => admin.get<Page>("/users?limit=100"),
-    enabled: user?.role === "owner",
   });
-  if (user?.role !== "owner")
-    return (
-      <Empty
-        title={phrase("Owner access required")}
-        description={phrase("Only an owner can manage users.")}
-      />
-    );
   const refresh = () => client.invalidateQueries({ queryKey: ["users"] });
   return (
     <>
       <PageHeader
         title={phrase("Users")}
-        description={phrase(
-          "People who can sign in. Owners also manage users and the mail server.",
-        )}
+        description={phrase("People who can sign in. Every user can manage the workspace.")}
       />
       <form
-        className="mb-4 grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-[1fr_1fr_10rem_auto]"
+        className="mb-4 grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-[1fr_1fr_auto]"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!emailOk(email)) return setError(phrase("Enter an email address."));
@@ -282,7 +271,7 @@ export function Users() {
           setError("");
           if (
             await run(
-              () => admin.send("/users", "POST", { email, password, role }),
+              () => admin.send("/users", "POST", { email, password }),
               phrase("User added."),
             )
           ) {
@@ -311,12 +300,6 @@ export function Users() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-        </Field>
-        <Field label={phrase("Role")}>
-          <select className={selectClass} value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="admin">admin</option>
-            <option value="owner">owner</option>
-          </select>
         </Field>
         <Button type="submit" className="self-end">
           {phrase("Add user")}
@@ -349,26 +332,10 @@ export function Users() {
                 key: "x",
                 label: <span className="sr-only">{phrase("Actions")}</span>,
                 render: (r) =>
-                  r.email === user.email ? (
+                  r.email === user?.email ? (
                     <span className="text-xs text-muted-foreground">{phrase("you")}</span>
                   ) : (
                     <span className="flex gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          await run(
-                            () =>
-                              admin.send(`/users/${s(r.id)}`, "PATCH", {
-                                role: r.role === "owner" ? "admin" : "owner",
-                              }),
-                            phrase("Role changed."),
-                          );
-                          refresh();
-                        }}
-                      >
-                        {r.role === "owner" ? phrase("Make admin") : phrase("Make owner")}
-                      </Button>
                       <ConfirmButton
                         destructive={!r.disabled}
                         title={`${r.disabled ? phrase("Enable") : phrase("Disable")} ${s(r.email)}?`}
@@ -413,9 +380,7 @@ function StepIcon({ st }: { st: { ok: boolean; skipped?: boolean } }) {
 
 export function MailServer() {
   const phrase = usePhrase();
-  const { user } = useAuth();
   const client = useQueryClient();
-  const isOwner = user?.role === "owner";
   const cfg = useQuery({
     queryKey: ["mail-server"],
     queryFn: () => admin.get<Row>("/mail-server"),
@@ -567,7 +532,7 @@ export function MailServer() {
             </p>
           )}
           <Section title={phrase("Outbound (SMTP submission)")}>
-            <fieldset disabled={!isOwner} className="grid gap-3 sm:grid-cols-2">
+            <fieldset className="grid gap-3 sm:grid-cols-2">
               <Field
                 label={phrase("SMTP host")}
                 hint={phrase("The Mailcow hostname, for example mail.example.com.")}
@@ -644,7 +609,7 @@ export function MailServer() {
             </fieldset>
           </Section>
           <Section title={phrase("Inbound")}>
-            <fieldset disabled={!isOwner}>
+            <fieldset>
               <Field
                 label={phrase("Inbound listener address")}
                 error={errors.inbound_listener}
@@ -667,7 +632,7 @@ export function MailServer() {
                 "With the API, the Domains page can add domains, create DKIM keys and add the inbound transport for you. Without it, the Domains page shows the manual steps. Njiwa-Mail never changes global Mailcow settings.",
               )}
             </p>
-            <fieldset disabled={!isOwner} className="grid gap-3 sm:grid-cols-2">
+            <fieldset className="grid gap-3 sm:grid-cols-2">
               <Field label={phrase("API URL")} error={errors.mailcow_api_url}>
                 <input
                   className={inputClass}
@@ -694,15 +659,9 @@ export function MailServer() {
               </Field>
             </fieldset>
           </Section>
-          {isOwner ? (
-            <Button onClick={save} disabled={Object.keys(errors).length > 0}>
-              {phrase("Save settings")}
-            </Button>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {phrase("Only an owner can change these settings.")}
-            </p>
-          )}
+          <Button onClick={save} disabled={Object.keys(errors).length > 0}>
+            {phrase("Save settings")}
+          </Button>
         </div>
         <div className="space-y-4">
           <Section title={phrase("Status")}>
@@ -1162,7 +1121,6 @@ export function Audit() {
 export function Privacy() {
   const phrase = usePhrase();
   const { api, project, env } = useWorkspace();
-  const { user } = useAuth();
   const [email, setEmail] = useState("");
   return (
     <>
@@ -1201,25 +1159,23 @@ export function Privacy() {
           >
             {phrase("Export")}
           </Button>
-          {user?.role === "owner" && (
-            <ConfirmButton
-              size="default"
-              disabled={!emailOk(email)}
-              title={`${phrase("Delete all stored data for")} ${email}?`}
-              description={phrase(
-                "Message metadata, suppressions and captures for this recipient in this project and environment are removed. This cannot be undone.",
-              )}
-              confirm="Delete data"
-              onConfirm={() =>
-                run(
-                  () => api.send("/privacy/delete", "POST", { email }),
-                  phrase("Recipient data deleted."),
-                )
-              }
-            >
-              {phrase("Delete")}
-            </ConfirmButton>
-          )}
+          <ConfirmButton
+            size="default"
+            disabled={!emailOk(email)}
+            title={`${phrase("Delete all stored data for")} ${email}?`}
+            description={phrase(
+              "Message metadata, suppressions and captures for this recipient in this project and environment are removed. This cannot be undone.",
+            )}
+            confirm="Delete data"
+            onConfirm={() =>
+              run(
+                () => api.send("/privacy/delete", "POST", { email }),
+                phrase("Recipient data deleted."),
+              )
+            }
+          >
+            {phrase("Delete")}
+          </ConfirmButton>
         </div>
       </Section>
     </>

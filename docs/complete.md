@@ -50,14 +50,14 @@ You are completing **Njiwa Mail**, our internal email platform: a Go backend and
 
 - Analytics page: sends, failures, hard, soft and policy bounces, inbound volume and webhook success rate over time, filterable by project, environment, template and domain. Every chart is built from real recorded events only.
 - Operator alerts by email and by webhook: queue stuck, worker heartbeat lost, bounce rate above threshold, DNS check failing, messages in `unknown`, disk usage for attachments.
-- Daily summary email to owners.
+- Daily summary email to enabled admins.
 
 **Developer experience**
 
 - Go client package `njiwamail` with typed requests, retries using the same idempotency key, and webhook signature verification.
 - TypeScript client with the same features.
 - API documentation page in the UI, generated from `docs/openapi.yaml`.
-- CLI `dmctl` for every admin operation: create owner, projects, keys, domains, suppressions, replaying webhooks, reconciling `unknown` messages.
+- CLI `dmctl` for every admin operation: create admin, projects, keys, domains, suppressions, replaying webhooks, reconciling `unknown` messages.
 
 **Operations**
 

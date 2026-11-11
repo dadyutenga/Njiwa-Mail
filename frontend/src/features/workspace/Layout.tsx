@@ -1,8 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  NavLink,
+  Outlet,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Menu, PanelLeftClose, PenSquare, Plus, Search } from "lucide-react";
-import { useAuth } from "@/features/auth/auth";
 import { usePhrase } from "@/features/i18n/i18n";
 import { LanguageSwitcher } from "@/features/i18n/LanguageSwitcher";
 import { NotificationBell, ThemeToggle, UserMenu } from "@/components/shared/Toolbar";
@@ -19,7 +26,6 @@ import {
   useWorkspace,
   useWsKey,
   WorkspaceProvider,
-  type Env,
 } from "./context";
 import { detailLabels, findNav, navGroups } from "./nav";
 import { Empty, ErrorState, errorMessage, Field, inputClass, run } from "./ui";
@@ -57,8 +63,8 @@ export function NewProjectDialog({
       await client.invalidateQueries({ queryKey: ["projects"] });
       onOpenChange(false);
       setName("");
-      rememberWorkspace(name, "sandbox");
-      navigate(`/p/${encodeURIComponent(name)}/sandbox/setup`, { state: { created: true } });
+      rememberWorkspace(name);
+      navigate(`/p/${encodeURIComponent(name)}/setup`, { state: { created: true } });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -71,7 +77,7 @@ export function NewProjectDialog({
         <DialogTitle>{phrase("New project")}</DialogTitle>
         <DialogDescription>
           {phrase(
-            "A project gets a Sandbox and a Live environment. You will land on its setup checklist.",
+            "A project opens in Live. Choose Sandbox only when sending a test. You will land on its setup checklist.",
           )}
         </DialogDescription>
         <form onSubmit={submit} className="space-y-4">
@@ -108,24 +114,24 @@ export function NewProjectDialog({
 
 function useSegment() {
   const { pathname } = useLocation();
-  const parts = pathname.split("/").filter(Boolean); // p, project, env, segment, ...
-  return { segment: parts[3] ?? "dashboard", rest: parts.slice(3) };
+  const parts = pathname.split("/").filter(Boolean); // p, project, segment, ...
+  return { segment: parts[2] ?? "dashboard", rest: parts.slice(2) };
 }
 
 function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
   const phrase = usePhrase();
-  const { project, env } = useWorkspace();
+  const { project } = useWorkspace();
   const { segment } = useSegment();
   const navigate = useNavigate();
   const projects = useProjects();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
-  const go = (p: string, e: Env) => {
+  const go = (p: string) => {
     setOpen(false);
     setQ("");
-    rememberWorkspace(p, e);
-    navigate(`/p/${encodeURIComponent(p)}/${e}/${segment}`);
+    rememberWorkspace(p);
+    navigate(`/p/${encodeURIComponent(p)}/${segment}`);
   };
   const list = (projects.data ?? []).filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
   return (
@@ -137,21 +143,14 @@ function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
               "flex w-full items-center gap-2 rounded-xl border bg-background px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               compact && "justify-center px-0",
             )}
-            aria-label={phrase("Switch project or environment")}
+            aria-label={phrase("Switch project")}
           >
-            <span
-              className={cn(
-                "h-2.5 w-2.5 shrink-0 rounded-full",
-                env === "live" ? "bg-destructive" : "bg-primary",
-              )}
-              aria-hidden
-            />
             {!compact && (
               <>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">{project}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {env === "live" ? phrase("Live") : phrase("Sandbox")}
+                    {phrase("Project workspace")}
                   </span>
                 </span>
                 <ChevronsUpDown size={16} className="text-muted-foreground" />
@@ -160,28 +159,6 @@ function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-72 p-2">
-          <div
-            role="radiogroup"
-            aria-label={phrase("Environment")}
-            className="mb-2 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
-          >
-            {(["sandbox", "live"] as Env[]).map((e) => (
-              <button
-                key={e}
-                role="radio"
-                aria-checked={env === e}
-                onClick={() => go(project, e)}
-                className={cn(
-                  "rounded-md px-2 py-1.5 text-sm font-medium",
-                  env === e
-                    ? "bg-background shadow"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {e === "live" ? phrase("Live") : phrase("Sandbox")}
-              </button>
-            ))}
-          </div>
           <input
             className={inputClass}
             placeholder={phrase("Search projects…")}
@@ -202,7 +179,7 @@ function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
                 <button
                   role="option"
                   aria-selected={p.name === project}
-                  onClick={() => go(p.name, env)}
+                  onClick={() => go(p.name)}
                   className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                 >
                   <span className="truncate">{p.name}</span>
@@ -234,7 +211,6 @@ function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
 
 function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () => void }) {
   const phrase = usePhrase();
-  const { user } = useAuth();
   const { to, api } = useWorkspace();
   const key = useWsKey();
   const compose = useCompose();
@@ -270,7 +246,6 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
             )}
             <ul className="space-y-0.5">
               {g.items
-                .filter((i) => !i.role || user?.role === i.role)
                 .filter((i) => !(i.path === "setup" && checklist.data?.complete))
                 .map(({ path, label, icon: Icon, badge }) => (
                   <li key={path}>
@@ -494,7 +469,7 @@ function Breadcrumbs() {
 
 function Shell() {
   const phrase = usePhrase();
-  const { env, project, to } = useWorkspace();
+  const { project, to } = useWorkspace();
   const [compact, setCompact] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [compose, setCompose] = useState<{
@@ -506,7 +481,7 @@ function Shell() {
     () => ({ open: (prefill) => setCompose((c) => ({ open: true, prefill, nonce: c.nonce + 1 })) }),
     [],
   );
-  useEffect(() => rememberWorkspace(project, env), [project, env]);
+  useEffect(() => rememberWorkspace(project), [project]);
   return (
     <ComposeContext.Provider value={composeCtx}>
       <div className="min-h-screen bg-background text-foreground">
@@ -561,21 +536,6 @@ function Shell() {
               <PanelLeftClose />
             </Button>
             <Breadcrumbs />
-            {env === "live" ? (
-              <span
-                className="rounded-full bg-destructive px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-destructive-foreground"
-                title={phrase("Mail sent here goes to real recipients.")}
-              >
-                {phrase("Live")}
-              </span>
-            ) : (
-              <span
-                className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-primary"
-                title={phrase("Mail is captured, nothing leaves the server.")}
-              >
-                {phrase("Sandbox")}
-              </span>
-            )}
             <div className="ml-auto flex items-center gap-1">
               <GlobalSearch />
               <LanguageSwitcher />
@@ -620,16 +580,16 @@ function NotFoundProject({ project }: { project: string }) {
   );
 }
 
-/** Route element for /p/:project/:env/* */
+/** Route element for the project workspace. Normal pages always use Live. */
 export function WorkspaceRoute() {
-  const { project = "", env = "" } = useParams();
+  const { project = "" } = useParams();
+  const env = "live";
   const info = useQuery({
     queryKey: ["ws", project, env, "context"],
     queryFn: () => admin.get(`/w/${encodeURIComponent(project)}/${env}/context`),
     retry: (n, e) => !(e instanceof AdminError && e.status === 404) && n < 1,
     staleTime: 30_000,
   });
-  if (env !== "sandbox" && env !== "live") return <NotFoundProject project={project} />;
   if (
     info.error instanceof AdminError &&
     info.error.status === 404 &&
@@ -643,9 +603,25 @@ export function WorkspaceRoute() {
       </FirstRunShell>
     );
   return (
-    <WorkspaceProvider project={project} env={env}>
+    <WorkspaceProvider project={project}>
       <Shell />
     </WorkspaceProvider>
+  );
+}
+
+/** Preserve old environment URLs without restoring a global environment. */
+export function LegacyWorkspaceRoute({ mode }: { mode: "live" | "sandbox" }) {
+  const { project = "", "*": legacyPath = "" } = useParams();
+  const rest = legacyPath.replace(/^sandbox(\/|$)/, "captures$1");
+  const { search, hash } = useLocation();
+  const params = new URLSearchParams(search);
+  if (mode === "sandbox" && /^(messages|sent|scheduled|unknown|bulk|keys)(\/|$)/.test(rest))
+    params.set("mode", "sandbox");
+  return (
+    <Navigate
+      replace
+      to={`/p/${encodeURIComponent(project)}/${rest || "dashboard"}${params.size ? "?" + params : ""}${hash}`}
+    />
   );
 }
 

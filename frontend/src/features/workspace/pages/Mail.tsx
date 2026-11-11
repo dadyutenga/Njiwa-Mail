@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
-import { useWorkspace, useWsKey } from "../context";
+import { useWorkspace, useWsKey, useSendingEnvironment } from "../context";
+import { SendingMode, useSendingModeParam, withSendingMode } from "../SendingMode";
 import { useCompose } from "../Layout";
 import {
   ConfirmButton,
@@ -490,8 +491,14 @@ const SOURCES = [
 
 function MessageList({ preset, extended }: { preset?: { state?: string }; extended?: boolean }) {
   const phrase = usePhrase();
-  const { api, to } = useWorkspace();
-  const key = useWsKey();
+  const { to: workspaceTo } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const { api, key } = useSendingEnvironment(env);
+  const to = (path: string) =>
+    withSendingMode(
+      workspaceTo(path),
+      /^(messages|sent|scheduled|unknown)(\/|\?|$)/.test(path) ? env : "live",
+    );
   const navigate = useNavigate();
   const client = useQueryClient();
   const [state, setState] = useParam("state", preset?.state ?? "");
@@ -536,6 +543,7 @@ function MessageList({ preset, extended }: { preset?: { state?: string }; extend
   return (
     <>
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <SendingMode value={env} onChange={setEnv} />
         {!preset?.state && (
           <Field label={phrase("State")}>
             <select
@@ -795,8 +803,14 @@ export function UnknownQueue() {
 export function MessageDetail() {
   const phrase = usePhrase();
   const { id = "" } = useParams();
-  const { api, to } = useWorkspace();
-  const key = useWsKey();
+  const { to: workspaceTo } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const { api, key } = useSendingEnvironment(env);
+  const to = (path: string) =>
+    withSendingMode(
+      workspaceTo(path),
+      /^(messages|sent|scheduled|unknown)(\/|\?|$)/.test(path) ? env : "live",
+    );
   const client = useQueryClient();
   const navigate = useNavigate();
   const compose = useCompose();
@@ -980,7 +994,7 @@ export function MessageDetail() {
                   )}
                   {m.has_capture === true && (
                     <Button asChild variant="outline">
-                      <Link to={to(`sandbox/${id}`)}>{phrase("View capture")}</Link>
+                      <Link to={to(`captures/${id}`)}>{phrase("View capture")}</Link>
                     </Button>
                   )}
                 </>
@@ -1153,8 +1167,8 @@ export function MessageDetail() {
 
 export function Sandbox() {
   const phrase = usePhrase();
-  const { api, to, env } = useWorkspace();
-  const key = useWsKey();
+  const { to } = useWorkspace();
+  const { api, key } = useSendingEnvironment("sandbox");
   const navigate = useNavigate();
   const compose = useCompose();
   const offset = useOffset();
@@ -1171,24 +1185,9 @@ export function Sandbox() {
           "Mail sent in the Sandbox environment is captured here instead of being delivered. Captures expire after a day.",
         )}
         action={
-          env === "sandbox" ? (
-            <Button onClick={() => compose.open()}>{phrase("Send a test")}</Button>
-          ) : (
-            <Button asChild variant="outline">
-              <Link to={to("sandbox").replace("/live/", "/sandbox/")}>
-                {phrase("Open the Sandbox environment")}
-              </Link>
-            </Button>
-          )
+          <Button onClick={() => compose.open({ mode: "sandbox" })}>{phrase("Send a test")}</Button>
         }
       />
-      {env === "live" && (
-        <p className="mb-4 rounded-lg border p-3 text-sm">
-          {phrase(
-            "You are in Live. Live mail is delivered, not captured, so this list is empty here.",
-          )}
-        </p>
-      )}
       <DataState
         q={q}
         isEmpty={(d) => d.items.length === 0}
@@ -1208,7 +1207,7 @@ export function Sandbox() {
             <Table
               rows={d.items}
               rowKey={(r) => s(r.id)}
-              onRow={(r) => navigate(to(`sandbox/${s(r.id)}`))}
+              onRow={(r) => navigate(to(`captures/${s(r.id)}`))}
               columns={[
                 { key: "recipient", label: phrase("Recipient") },
                 {
@@ -1241,8 +1240,8 @@ export function Sandbox() {
 export function CaptureDetail() {
   const phrase = usePhrase();
   const { id = "" } = useParams();
-  const { api, to } = useWorkspace();
-  const key = useWsKey();
+  const { to } = useWorkspace();
+  const { api, key } = useSendingEnvironment("sandbox");
   const [view, setView] = useState<"text" | "html" | "raw">("html");
   const q = useQuery({
     queryKey: key("capture", id),
@@ -1253,12 +1252,14 @@ export function CaptureDetail() {
       {(c) => (
         <>
           <PageHeader
-            back={{ to: to("sandbox"), label: phrase("Sandbox") }}
+            back={{ to: to("captures"), label: phrase("Sandbox") }}
             title={s(c.subject) || phrase("(no subject)")}
             description={`${s(c.from)} → ${s(c.to)}`}
             action={
               <Button asChild variant="outline">
-                <Link to={to(`messages/${id}`)}>{phrase("Message details")}</Link>
+                <Link to={withSendingMode(to(`messages/${id}`), "sandbox")}>
+                  {phrase("Message details")}
+                </Link>
               </Button>
             }
           />

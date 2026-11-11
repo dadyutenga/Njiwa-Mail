@@ -1,19 +1,5 @@
 import type { ReactNode } from "react";
 
-export type Role = "admin" | "member";
-
-export interface User {
-  name: string;
-  role: Role;
-  email?: string;
-}
-
-export interface AuthContextType {
-  user: User | null;
-  login: (name: string, role?: Role) => void;
-  logout: () => void;
-}
-
 export type Theme = "light" | "dark" | "system";
 
 export type Locale = "en" | "sw";
@@ -51,5 +37,4 @@ export interface NavRoute {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   component: React.ComponentType;
   navigation: boolean;
-  requiredRole?: Role;
 }

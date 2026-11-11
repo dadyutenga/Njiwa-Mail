@@ -18,10 +18,10 @@ import (
 )
 
 // Admin users sign in with email and password (argon2id) and get a
-// server-side session. There is no signup: the first owner is created by CLI.
+// server-side session. There is no signup: the first user is created by CLI.
 
 const (
-	RoleOwner = "owner"
+	// RoleAdmin is the only operator role.
 	RoleAdmin = "admin"
 
 	argonTime    = 2
@@ -32,15 +32,11 @@ const (
 	MinPasswordLen = 12
 )
 
-// RoleLevel orders roles: admin < owner. Unknown roles, including the removed viewer role, get 0.
-func RoleLevel(role string) int {
-	switch role {
-	case RoleAdmin:
-		return 1
-	case RoleOwner:
-		return 2
+func canonicalRole(role string) (string, error) {
+	if role != "" && role != RoleAdmin && role != "owner" {
+		return "", badRequest("role must be admin")
 	}
-	return 0
+	return RoleAdmin, nil
 }
 
 func hashPassword(pw string) string {
@@ -86,28 +82,22 @@ func checkPassword(pw string) error {
 	return nil
 }
 
-func validRole(r string) error {
-	if RoleLevel(r) == 0 {
-		return badRequest("role must be owner or admin")
-	}
-	return nil
-}
-
-// CreateUser adds an admin user. Used by the CLI for the first owner and by
-// owners through the admin API.
+// CreateUser adds an admin user. An omitted role defaults to admin; the old
+// owner input is accepted for compatibility. All users can manage accounts.
 func (s *Service) CreateUser(ctx context.Context, email, password, role string) (string, error) {
 	e, ok := NormalizeEmail(email)
 	if !ok {
 		return "", badRequest("invalid email address")
 	}
-	if err := validRole(role); err != nil {
+	role, err := canonicalRole(role)
+	if err != nil {
 		return "", err
 	}
 	if err := checkPassword(password); err != nil {
 		return "", err
 	}
 	var id string
-	err := s.Pool.QueryRow(ctx, `INSERT INTO users(email, password_hash, role) VALUES ($1,$2,$3) ON CONFLICT (email) DO NOTHING RETURNING id::text`,
+	err = s.Pool.QueryRow(ctx, `INSERT INTO users(email, password_hash, role) VALUES ($1,$2,$3) ON CONFLICT (email) DO NOTHING RETURNING id::text`,
 		e, hashPassword(password), role).Scan(&id)
 	if errors.Is(err, db.ErrNoRows) {
 		return "", newErr(409, "user_exists")
@@ -118,17 +108,19 @@ func (s *Service) CreateUser(ctx context.Context, email, password, role string) 
 	return id, nil
 }
 
-// UpdateUser changes role, disabled state or password. The last enabled owner
-// can be neither demoted nor disabled, so the installation cannot lock itself
-// out. Disabling a user or changing a password ends that user's sessions.
+// UpdateUser changes disabled state or password. Role is always admin.
+// The last enabled user cannot be disabled, so the installation cannot lock
+// itself out. Disabling a user or changing a password ends that user's sessions.
 func (s *Service) UpdateUser(ctx context.Context, id string, role *string, disabled *bool, password *string) error {
 	if !uuidRe.MatchString(id) {
 		return newErr(404, "not_found")
 	}
 	if role != nil {
-		if err := validRole(*role); err != nil {
+		canon, err := canonicalRole(*role)
+		if err != nil {
 			return err
 		}
+		role = &canon
 	}
 	var hash *string
 	if password != nil {
@@ -154,12 +146,12 @@ func (s *Service) UpdateUser(ctx context.Context, id string, role *string, disab
 	if tag.RowsAffected() == 0 {
 		return newErr(404, "not_found")
 	}
-	var owners int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE role='owner' AND NOT disabled`).Scan(&owners); err != nil {
-		return unavailable("owner_count", err)
+	var enabled int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE NOT disabled`).Scan(&enabled); err != nil {
+		return unavailable("user_count", err)
 	}
-	if owners == 0 {
-		return newErr(409, "last_owner")
+	if enabled == 0 {
+		return newErr(409, "last_user")
 	}
 	if (disabled != nil && *disabled) || hash != nil || role != nil {
 		if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id); err != nil {
@@ -185,8 +177,6 @@ type AdminUser struct {
 	CSRF      string    `json:"csrf_token"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
-
-func (u *AdminUser) Can(minRole string) bool { return RoleLevel(u.Role) >= RoleLevel(minRole) }
 
 func (s *Service) csrfFor(tokenHash []byte) string {
 	return hex.EncodeToString(s.Box.MAC("admin-csrf", tokenHash))
@@ -222,7 +212,7 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent stri
 	if err != nil {
 		return "", nil, unavailable("login", err)
 	}
-	if !verifyPassword(hash, password) || disabled {
+	if !verifyPassword(hash, password) || disabled || role != RoleAdmin {
 		return "", nil, errBadLogin
 	}
 	raw := make([]byte, 32)
@@ -264,7 +254,7 @@ func (s *Service) Session(ctx context.Context, token string) (*AdminUser, error)
 	th := sha256.Sum256([]byte(token))
 	var u AdminUser
 	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
-WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.ExpiresAt)
+WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled AND u.role='admin'`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.ExpiresAt)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(401, "unauthenticated")
 	}

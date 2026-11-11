@@ -158,7 +158,7 @@ type User struct {
 	ID           string `gorm:"type:uuid;primaryKey"`
 	Email        string `gorm:"uniqueIndex"`
 	PasswordHash string
-	Role         string
+	Role         string `gorm:"default:admin"`
 	Disabled     bool
 	LastLoginAt  *time.Time
 	CreatedAt    time.Time

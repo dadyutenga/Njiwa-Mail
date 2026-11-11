@@ -87,3 +87,32 @@ Not verified here: real Mailcow delivery and a restore drill. Apps integrate thr
 
 Postfix log collector/bounce processor; automated suppression; signed webhooks; operational dashboard; admin auth/roles; domain onboarding;
 template editor/publishing; analytics/complaint feedback; scale/availability (HA, restore drills, isolated reputation); external customers/billing.
+
+## Mail workspace and Mailcow checks (2026-11-11)
+
+Scope: `NJIWA_MAIL_WORKSPACE_AND_UX_TASK.md`. **All results below are local**: a development stack on one machine (PostgreSQL, API, worker, scheduler, inbound listener on 127.0.0.1, Vite). No Mailcow server was available, so nothing below proves delivery through Mailcow.
+
+| Check (task §9) | Result | Evidence |
+|---|---|---|
+| Workspace scope isolation (unknown project → 404, no cross-project reads or key revokes) | PASS (local, automated) | `TestWorkspaceScopeIsolation` |
+| Domain added → records → verified; sender only on verified domain; delete blocked while in use | PASS (local, fake DNS resolver) | `TestWorkspaceDomainsSendersAndChecklist` |
+| Compose: double submit sends once, suppression named and refused, sent copy, drafts, schedule → send now | PASS (local, automated) | `TestComposeIdempotencySuppressionAndCopy` |
+| Receive → read → reply threaded (`In-Reply-To`), auto-reply from template once per sender per day, none to automatic mail, block sender, temporary inbox expiry | PASS (local, real SMTP listener on 127.0.0.1) | `TestInboxReplyAutomationAndTempInbox` |
+| Bulk: duplicates/invalid listed, restart never sends twice, `List-Unsubscribe` headers, one-click unsubscribe, unsubscribed address skipped next time, complaint pauses campaign and suppresses | PASS (local, automated) | `TestBulkCampaignUnsubscribeAndComplaintPause` |
+| Mail server secrets encrypted, never returned, kept on re-save | PASS (local, automated) | `TestMailServerSettingsSecrets` |
+| Inbound via the listener into the Inbox UI | PASS (local, manual: Python `smtplib` → 127.0.0.1:2525 → Inbox) | dev walk |
+| UI walk: 32 workspace pages × 360/768/1024/1440 px × light and dark | PASS (local): no runtime error, no horizontal page scroll after two fixes (inbox grid, table sr-only overflow) | headless Chromium walk |
+| **Mailcow connection test** | **NOT RUN** | needs the real Mailcow host and submission mailbox (`docs/MAILCOW_SETUP.md` A1–A5) |
+| **Test email to Gmail/Outlook with SPF/DKIM/DMARC pass** | **NOT RUN** | C3 |
+| **Inbound from outside through Mailcow relay** | **NOT RUN** | B1–B2, C4 |
+| **Bounce from a real remote server** | **NOT RUN** | C6 (the parser path is covered by `TestBounceHardPolicyDuplicate`) |
+
+Release state is unchanged: working build, not released for production traffic until the four Mailcow checks above pass and are recorded here.
+
+## Shared admin access and local sending modes (2026-11-11)
+
+All enabled users now have one `admin` role and the same pages and settings. Migrations `0008_one_role.sql` and `0009_default_admin_role.sql` convert existing accounts and default new accounts to admin. Existing sessions survive migration, and concurrent updates cannot disable the last enabled user.
+
+The main workspace uses Live at `/p/{project}/…`; choosing Sandbox for a send, template test, API key or message filter does not change other pages. Only the last project is saved in browser storage. Legacy environment URLs redirect to the new routes, and captures remain accessible on the Sandbox page.
+
+Validation: `go test ./... -race -count=1` and `go vet ./...` pass; all 34 frontend tests and the production build pass. Frontend lint reports warnings only. Authenticated local checks verify Live and Sandbox API scopes and the new workspace paths. Real Mailcow delivery was not exercised for these changes.

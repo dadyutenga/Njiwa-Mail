@@ -52,7 +52,7 @@ Provisioning (operator CLI only):
   key revoke    -prefix P
   key list      [-project N]
   suppress add|remove -project N -mode M -email addr [-reason R]
-  user create   -email E -role owner|admin   (password read from stdin; first owner is created here)
+  user create   -email E [-role admin]   (password read from stdin; the first user is created here)
   user password -email E                            (new password read from stdin)
   user disable|enable -email E
 
@@ -339,11 +339,11 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 	})
 	every(5*time.Minute, "bounce_rate_alerts", func() error { return svc.CheckBounceRates(ctx) })
 	every(24*time.Hour, "daily_summary", func() error {
-		body, owners, err := svc.DailySummary(ctx)
+		body, recipients, err := svc.DailySummary(ctx)
 		if err != nil {
 			return err
 		}
-		slog.Info("daily summary", "owners", len(owners), "bytes", len(body))
+		slog.Info("daily summary", "recipients", len(recipients), "bytes", len(body))
 		return nil
 	})
 	every(time.Hour, "dns_checks", func() error { // runs the check when the last one is a day old
@@ -426,7 +426,7 @@ func adminCmd(ctx context.Context, svc *service.Service, group string, args []st
 		perDay   = fs.Int("per-day", 0, "")
 		rcptMin  = fs.Int("rcpt-per-minute", 0, "")
 		rcptHour = fs.Int("rcpt-per-hour", 0, "")
-		role     = fs.String("role", "", "")
+		role     = fs.String("role", service.RoleAdmin, "admin")
 		origins  multi
 	)
 	fs.Var(&origins, "origin", "")
@@ -505,7 +505,7 @@ func adminCmd(ctx context.Context, svc *service.Service, group string, args []st
 		if err != nil {
 			return cliErr(err)
 		}
-		fmt.Printf("user %s created with role %s (id %s)\n", strings.ToLower(*email), *role, id)
+		fmt.Printf("user %s created with role %s (id %s)\n", strings.ToLower(*email), service.RoleAdmin, id)
 	case "user password", "user disable", "user enable":
 		id, err := svc.UserIDByEmail(ctx, *email)
 		if err != nil {

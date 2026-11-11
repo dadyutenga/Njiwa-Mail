@@ -2,7 +2,7 @@ const base = "/admin/v1";
 export type AdminUser = {
   id: string;
   email: string;
-  role: "owner" | "admin";
+  role: "admin";
   csrf_token: string;
   expires_at: string;
 };

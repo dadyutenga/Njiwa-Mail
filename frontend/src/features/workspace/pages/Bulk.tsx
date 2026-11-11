@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useAuth } from "@/features/auth/auth";
-import { useWorkspace, useWsKey } from "../context";
+import { useWorkspace, useSendingEnvironment } from "../context";
+import { SendingMode, useSendingModeParam, withSendingMode } from "../SendingMode";
 import {
   ConfirmButton,
   DataState,
@@ -40,8 +41,11 @@ type Report = {
 
 export function Bulk() {
   const phrase = usePhrase();
-  const { api, to } = useWorkspace();
-  const key = useWsKey();
+  const { to: workspaceTo } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const { api, key, info } = useSendingEnvironment(env);
+  const to = (path: string) =>
+    withSendingMode(workspaceTo(path), /^(bulk|messages)(\/|\?|$)/.test(path) ? env : "live");
   const navigate = useNavigate();
   const offset = useOffset();
   const q = useQuery({
@@ -64,6 +68,14 @@ export function Bulk() {
           </Button>
         }
       />
+      <div className="mb-4">
+        <SendingMode
+          value={env}
+          onChange={(mode) => {
+            setEnv(mode);
+          }}
+        />
+      </div>
       <DataState
         q={q}
         isEmpty={(d) => d.items.length === 0}
@@ -127,8 +139,13 @@ export function Bulk() {
 
 export function NewCampaign() {
   const phrase = usePhrase();
-  const { api, to, info } = useWorkspace();
-  const key = useWsKey();
+  const { to: workspaceTo } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const modeRef = useRef(env);
+  modeRef.current = env;
+  const { api, key, info } = useSendingEnvironment(env);
+  const to = (path: string) =>
+    withSendingMode(workspaceTo(path), /^(bulk|messages)(\/|\?|$)/.test(path) ? env : "live");
   const navigate = useNavigate();
   const client = useQueryClient();
   const senders = useQuery({
@@ -162,7 +179,7 @@ export function NewCampaign() {
       () => api.send<Report>("/campaigns/check", "POST", { recipients: f.recipients }),
       "",
     );
-    if (r) setReport(r);
+    if (r && modeRef.current === env) setReport(r);
   };
   const submit = async () => {
     const e: Record<string, string> = {};
@@ -205,6 +222,18 @@ export function NewCampaign() {
         back={{ to: to("bulk"), label: phrase("Bulk send") }}
         title={phrase("New announcement")}
       />
+      <div className="mb-4">
+        <SendingMode
+          disabled={busy}
+          value={env}
+          onChange={(mode) => {
+            setEnv(mode);
+            setReport(null);
+            setErrors({});
+            setF((current) => ({ ...current, sender_email: "" }));
+          }}
+        />
+      </div>
       {noSenders ? (
         <Section>
           <Empty
@@ -437,9 +466,12 @@ export function NewCampaign() {
 export function CampaignDetail() {
   const phrase = usePhrase();
   const { id = "" } = useParams();
-  const { api, to, env } = useWorkspace();
+  const { to: workspaceTo } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const { api, key, info } = useSendingEnvironment(env);
+  const to = (path: string) =>
+    withSendingMode(workspaceTo(path), /^(bulk|messages)(\/|\?|$)/.test(path) ? env : "live");
   const { user } = useAuth();
-  const key = useWsKey();
   const client = useQueryClient();
   const q = useQuery({
     queryKey: key("campaign", id),
@@ -451,7 +483,7 @@ export function CampaignDetail() {
     client.invalidateQueries({ queryKey: key("campaign", id) });
     client.invalidateQueries({ queryKey: key("campaigns") });
   };
-  const canAct = user?.role === "owner" || user?.role === "admin";
+  const canAct = Boolean(user);
   return (
     <DataState q={q}>
       {(c) => {
@@ -478,8 +510,8 @@ export function CampaignDetail() {
               title={s(c.name)}
               description={
                 <>
-                  <StateBadge state={state} /> {s(c.sender_email)} · {s(c.rate_per_minute)}{" "}
-                  {phrase("per minute")}
+                  <StateBadge state={env} /> <StateBadge state={state} /> {s(c.sender_email)} ·{" "}
+                  {s(c.rate_per_minute)} {phrase("per minute")}
                   {c.send_at ? (
                     <>
                       {" · "}

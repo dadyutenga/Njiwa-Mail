@@ -392,7 +392,7 @@ ORDER BY m.received_at DESC`, envID, project, mode, query)
 }
 
 // GetInbound returns one inbound message. Bodies are decrypted only when
-// withBodies is set (API keys with inbound:read, and admin or owner users).
+// withBodies is set (API keys with inbound:read, and admin users).
 func (s *Service) GetInbound(ctx context.Context, envID, id string, withBodies bool) (map[string]any, error) {
 	if !uuidRe.MatchString(id) {
 		return nil, newErr(404, "not_found")

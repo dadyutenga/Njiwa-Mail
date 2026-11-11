@@ -305,7 +305,7 @@ func (s *Service) ListAlertChannels(ctx context.Context) ([]map[string]any, erro
 	return s.maps(ctx, `SELECT id::text AS id, kind, target, enabled, created_at FROM alert_channels ORDER BY created_at`)
 }
 
-// DailySummary is the text of the owner summary. The caller sends it when SMTP is configured.
+// DailySummary is the text of the admin summary. The caller sends it when SMTP is configured.
 func (s *Service) DailySummary(ctx context.Context) (string, []string, error) {
 	var submitted, failed, unknown, inbound int
 	err := s.Pool.QueryRow(ctx, `SELECT
@@ -317,9 +317,9 @@ func (s *Service) DailySummary(ctx context.Context) (string, []string, error) {
 		return "", nil, unavailable("summary", err)
 	}
 	body := fmt.Sprintf("Njiwa Mail daily summary\nsubmitted: %d\nfailed: %d\nunknown: %d\ninbound: %d\n", submitted, failed, unknown, inbound)
-	rows, err := s.Pool.Query(ctx, `SELECT email FROM users WHERE role='owner' AND NOT disabled`)
+	rows, err := s.Pool.Query(ctx, `SELECT email FROM users WHERE NOT disabled ORDER BY email`)
 	if err != nil {
-		return "", nil, unavailable("owners", err)
+		return "", nil, unavailable("summary_recipients", err)
 	}
 	defer rows.Close()
 	var to []string

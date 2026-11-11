@@ -20,18 +20,15 @@ it("sends the session cookie and CSRF token on writes", async () => {
 it("reports backend permission errors without hiding them", async () => {
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({ error: { code: "forbidden", message: "Owner access required" } }),
-          { status: 403 },
-        ),
-      ),
+    vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: "forbidden", message: "Access denied" } }), {
+        status: 403,
+      }),
+    ),
   );
   await expect(admin.get("/users")).rejects.toMatchObject({
     status: 403,
     code: "forbidden",
-    message: "Owner access required",
+    message: "Access denied",
   });
 });

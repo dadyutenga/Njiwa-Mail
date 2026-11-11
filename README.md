@@ -9,7 +9,8 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - **Inbound:** Mailcow relays `in.<domain>` to a private SMTP listener; mail is parsed to JSON (text, HTML, headers, attachments).
 - **Bounces:** DSNs are parsed; hard bounces suppress the recipient automatically; policy bounces raise an alert and never suppress.
 - **Webhooks:** signed (HMAC-SHA256), retried for about 24 hours, replayable, with SSRF controls.
-- **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, roles (`owner`, `admin`), audit log, DNS health check, metrics.
+- **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, one role (`admin`), audit log, DNS health check, metrics.
+- The operator workspace opens in Live at `/p/{project}/…`. Live/Sandbox is selected locally for sending, template tests, and API keys; Sandbox captures have their own page. Only the last project is remembered.
 - Per-project, per-environment (sandbox/live) API keys, approved senders, approved link origins, recipient allowlist, rate limits.
 - Honest status: `submitted` = Mailcow acknowledged acceptance. Never "delivered".
 - Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. The HTTP API is Fiber. Persistence is GORM on PostgreSQL.
@@ -27,7 +28,7 @@ $CLI project create -name myapp
 $CLI env origins -project myapp -mode sandbox -origin https://app.example.com
 $CLI sender add  -project myapp -mode sandbox -email noreply@notify.example.com -display "My App"
 $CLI key create  -project myapp -mode sandbox -label dev      # secret shown ONCE
-docker compose run --rm -T api user create -email you@example.com -role owner <<< 'a-long-password'   # first admin user
+docker compose run --rm -T api user create -email you@example.com -role admin <<< 'a-long-password'   # first admin user
 ```
 
 Without Docker: `go build -o njiwa-mail ./cmd/njiwa-mail`, set the env vars from `.env.example`,
@@ -42,14 +43,14 @@ You can also run CLI commands from the root, for example `go run . migrate`.
 `/admin/v1` is the backend for the operator UI: projects, keys, senders, templates (draft, preview, publish, test-send), messages,
 the `unknown` queue, inbound mail, bounces, suppressions, webhooks, DNS checks, users, audit log and settings.
 Sign in with `POST /admin/v1/auth/login`; the response carries a `csrf_token` that must be sent as `X-CSRF-Token` on every
-state-changing request. There is no signup endpoint: the first owner is created with `njiwa-mail user create`.
+state-changing request. There is no signup endpoint: the first admin is created with `njiwa-mail user create`.
 The contract is in [docs/openapi.yaml](docs/openapi.yaml).
 
 ## Operator UI
 
 `frontend` is the operator UI for `/admin/v1`. The browser holds a session cookie, never a project API key.
 
-1. Create the first owner: `njiwa-mail user create -email you@example.com -role owner` (password on stdin).
+1. Create the first admin: `njiwa-mail user create -email you@example.com -role admin` (password on stdin).
 2. For local HTTP, set `ADMIN_INSECURE_COOKIES=true` in the API environment. Leave it false behind HTTPS.
 3. Start the API on `127.0.0.1:8080`. From `frontend`: `cp .env.example .env && npm install && npm run dev`.
 4. Open `http://localhost:3000` and sign in with that email and password.

@@ -6,7 +6,7 @@ import AuthPage from "@/pages/Auth";
 import Status from "@/pages/Status";
 import { PageLoader } from "@/components/shared/Display";
 import { ErrorBoundary, NotFound } from "@/components/shared/RouteErrors";
-import { WorkspaceRoute } from "@/features/workspace/Layout";
+import { LegacyWorkspaceRoute, WorkspaceRoute } from "@/features/workspace/Layout";
 import { AppResolver, Checklist, Dashboard } from "@/features/workspace/pages/Overview";
 import {
   CaptureDetail,
@@ -66,8 +66,8 @@ const workspacePages: [string, ReactNode][] = [
   ["bulk/new", <NewCampaign />],
   ["bulk/:id", <CampaignDetail />],
   ["temp-inboxes", <TempInboxes />],
-  ["sandbox", <Sandbox />],
-  ["sandbox/:id", <CaptureDetail />],
+  ["captures", <Sandbox />],
+  ["captures/:id", <CaptureDetail />],
   ["domains", <Domains />],
   ["domains/:id", <DomainDetail />],
   ["dns-guide", <DnsGuide />],
@@ -138,7 +138,7 @@ export const router = createBrowserRouter([
     ),
   },
   {
-    path: "/p/:project/:env",
+    path: "/p/:project",
     errorElement: <ErrorBoundary />,
     element: (
       <ProtectedRoute>
@@ -151,6 +151,14 @@ export const router = createBrowserRouter([
       { path: "*", element: <WorkspaceNotFound /> },
     ],
   },
+  ...(["live", "sandbox"] as const).map((mode) => ({
+    path: `/p/:project/${mode}/*`,
+    element: (
+      <ProtectedRoute>
+        <LegacyWorkspaceRoute mode={mode} />
+      </ProtectedRoute>
+    ),
+  })),
   { path: "/settings", element: <Navigate to="/app?next=settings" replace /> },
   { path: "/profile", element: <Navigate to="/app?next=profile" replace /> },
   { path: "/privacy", element: <Navigate to="/app?next=privacy" replace /> },

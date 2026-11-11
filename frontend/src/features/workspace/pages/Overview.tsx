@@ -41,13 +41,11 @@ export function AppResolver() {
     last && list.some((p) => p.name === last.project)
       ? last
       : list.length === 1
-        ? { project: list[0].name, env: "sandbox" }
+        ? { project: list[0].name }
         : null;
   if (target && !choose) {
     const page = ["profile", "settings", "privacy"].includes(next) ? next : "dashboard";
-    return (
-      <Navigate to={`/p/${encodeURIComponent(target.project)}/${target.env}/${page}`} replace />
-    );
+    return <Navigate to={`/p/${encodeURIComponent(target.project)}/${page}`} replace />;
   }
   return (
     <FirstRunShell>
@@ -56,7 +54,7 @@ export function AppResolver() {
         {list.map((p) => (
           <li key={p.id}>
             <Link
-              to={`/p/${encodeURIComponent(p.name)}/sandbox/dashboard`}
+              to={`/p/${encodeURIComponent(p.name)}/dashboard`}
               className="flex items-center gap-3 rounded-xl border bg-card p-4 hover:border-primary"
             >
               <FolderKanban size={20} className="text-primary" />

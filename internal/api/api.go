@@ -234,8 +234,8 @@ func forbidden() error { return &service.Error{Status: 403, Code: "forbidden"} }
 
 type adminFn func(c *fiber.Ctx, u *service.AdminUser) (any, error)
 
-// adm wraps an admin handler with session, CSRF and role enforcement.
-func (s *Server) adm(minRole string, h adminFn) fiber.Handler {
+// adm gives every authenticated user the same operator access and enforces CSRF.
+func (s *Server) adm(h adminFn) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		tok, err := cookieVal(c, adminCookie)
 		if err != nil {
@@ -249,9 +249,6 @@ func (s *Server) adm(minRole string, h adminFn) fiber.Handler {
 			if subtleMismatch(c.Get(csrfHeader), u.CSRF) {
 				return writeErr(c, &service.Error{Status: 403, Code: "csrf_token_invalid"})
 			}
-		}
-		if !u.Can(minRole) {
-			return writeErr(c, forbidden())
 		}
 		out, err := h(c, u)
 		if err != nil {

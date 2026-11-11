@@ -136,3 +136,12 @@ any endpoint scoped to a project **and** environment.
 | X4 | Times use `toLocaleString()` with no UTC value | `<Time>` shows local time, UTC on hover |
 | X5 | No Live marker anywhere | Live badge in the header on every page |
 | X6 | No copy buttons for IDs, DNS values or code | Copy buttons |
+
+## Status after the rebuild (11 November 2026)
+
+Every item above is **fixed** as described in its Fix column, or **removed** (R31: example pages deleted; R12–R14, R18, R22: replaced by Inbox, Mailboxes, Complaints and domain pages; old flat URLs redirect to the workspace). Checked by `test/workspace_test.go` and a headless walk of all workspace pages at four widths in both themes.
+
+Known limits, not open defects:
+
+- P6: the last-used workspace is remembered in the browser, not per user on the server; a new browser lands on the only project, or on the project chooser.
+- New workspace text is translated to Kiswahili for navigation, titles, common actions and empty states; longer help paragraphs still show in English.

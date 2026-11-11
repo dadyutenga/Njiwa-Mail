@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/njiwa-tz/mail/internal/secure"
-	"github.com/njiwa-tz/mail/internal/service"
 )
 
 // TestAuthorizationBoundaries checks the cases the UI cannot enforce:
@@ -59,8 +58,8 @@ func TestAuthorizationBoundaries(t *testing.T) {
 		if r.Code != 200 || str(r.JSON, "role") != "admin" {
 			t.Fatalf("login role: %d %s", r.Code, r.Raw)
 		}
-		if r := e.adm(admin, "GET", "/admin/v1/users", nil); r.Code != 403 {
-			t.Fatalf("admin listed users: %d", r.Code)
+		if r := e.adm(admin, "GET", "/admin/v1/users", nil); r.Code != 200 {
+			t.Fatalf("admin cannot list users: %d", r.Code)
 		}
 		if r := e.adm(admin, "GET", "/admin/v1/overview", nil); r.Code != 200 {
 			t.Fatalf("admin cannot view overview: %d %s", r.Code, r.Raw)
@@ -70,11 +69,11 @@ func TestAuthorizationBoundaries(t *testing.T) {
 		}
 		var ownerID string
 		e.must(e.pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email='owner@njiwa.co.tz'`).Scan(&ownerID))
-		if r := e.adm(admin, "PATCH", "/admin/v1/users/"+ownerID, map[string]any{"role": "admin", "password": "not-the-owner-password"}); r.Code != 403 {
-			t.Fatalf("admin updated the owner: %d %s", r.Code, r.Raw)
+		if r := e.adm(admin, "PATCH", "/admin/v1/users/"+ownerID, map[string]any{"disabled": false}); r.Code != 200 {
+			t.Fatalf("admin cannot update another user: %d %s", r.Code, r.Raw)
 		}
-		if r := e.adm(owner, "GET", "/admin/v1/auth/me", nil); str(r.JSON, "role") != "owner" {
-			t.Fatalf("owner role changed: %s", r.Raw)
+		if r := e.adm(owner, "GET", "/admin/v1/auth/me", nil); str(r.JSON, "role") != "admin" {
+			t.Fatalf("legacy owner did not become admin: %s", r.Raw)
 		}
 	})
 
@@ -162,7 +161,7 @@ func TestAuthorizationBoundaries(t *testing.T) {
 		if r := e.raw("POST", "/admin/v1/auth/reset", nil, map[string]any{"token": token, "password": newPass}); r.Code == 200 {
 			t.Fatal("reset token reused")
 		}
-		if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "owner@njiwa.co.tz", "password": newPass}); r.Code != 200 || str(r.JSON, "role") != "owner" {
+		if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "owner@njiwa.co.tz", "password": newPass}); r.Code != 200 || str(r.JSON, "role") != "admin" {
 			t.Fatalf("owner login after reset: %d %s", r.Code, r.Raw)
 		}
 		if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "admin@njiwa.co.tz", "password": newPass}); r.Code == 200 {
@@ -216,6 +215,3 @@ func resetToken(body string) string {
 	}
 	return rest[:end]
 }
-
-// Keep the service import used if a future assertion needs a typed error.
-var _ = service.RoleOwner

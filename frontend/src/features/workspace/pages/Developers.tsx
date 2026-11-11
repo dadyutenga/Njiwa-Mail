@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
-import { useWorkspace, useWsKey } from "../context";
+import { useWorkspace, useWsKey, useSendingEnvironment, type Env } from "../context";
 import {
   ConfirmButton,
   CopyButton,
@@ -47,12 +47,15 @@ const EVENTS = [
   "inbound.received",
 ];
 
+import { SendingMode, useSendingModeParam } from "../SendingMode";
+
 // ---------------------------------------------------------------- API keys
 
 export function ApiKeys() {
   const phrase = usePhrase();
-  const { api, to, env } = useWorkspace();
-  const key = useWsKey();
+  const { to } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const { api, key } = useSendingEnvironment(env);
   const client = useQueryClient();
   const [secret, setSecret] = useState("");
   const [open, setOpen] = useState(false);
@@ -72,6 +75,15 @@ export function ApiKeys() {
           </Button>
         }
       />
+      <div className="mb-4">
+        <SendingMode
+          value={env}
+          onChange={(mode) => {
+            setEnv(mode);
+            setSecret("");
+          }}
+        />
+      </div>
       {secret && (
         <SecretOnce
           title={phrase("Your new API key")}
@@ -181,12 +193,13 @@ export function ApiKeys() {
           />
         )}
       </DataState>
-      <KeyDialog open={open} onOpenChange={setOpen} onCreated={(k) => setSecret(k)} />
+      <KeyDialog mode={env} open={open} onOpenChange={setOpen} onCreated={(k) => setSecret(k)} />
     </>
   );
 }
 
 function KeyDialog({
+  mode,
   open,
   onOpenChange,
   onCreated,
@@ -194,10 +207,10 @@ function KeyDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onCreated: (key: string) => void;
+  mode: Env;
 }) {
   const phrase = usePhrase();
-  const { api } = useWorkspace();
-  const key = useWsKey();
+  const { api, key } = useSendingEnvironment(mode);
   const client = useQueryClient();
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<string[]>(["emails:send", "emails:read"]);
@@ -621,7 +634,9 @@ export function WebhookDetail() {
 
 export function ApiDocs() {
   const phrase = usePhrase();
-  const { info, env, to } = useWorkspace();
+  const { to } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const { info } = useSendingEnvironment(env);
   const ops = useQuery({
     queryKey: ["api-docs"],
     queryFn: () =>
@@ -647,6 +662,9 @@ export function ApiDocs() {
           "Applications send through the /v1 API with an API key of this project and environment.",
         )}
       />
+      <div className="mb-4">
+        <SendingMode value={env} onChange={setEnv} />
+      </div>
       <Section title={phrase("Quick start")}>
         <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm">
           <li>

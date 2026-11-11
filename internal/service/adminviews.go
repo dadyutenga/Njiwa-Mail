@@ -250,7 +250,7 @@ func (s *Service) KeyUnsuppress(ctx context.Context, p *Principal, idOrEmail str
 	return nil
 }
 
-// ---- sandbox captures (admin and owner only; enforced by the API layer)
+// ---- sandbox captures (admins only; enforced by the API layer)
 
 func (s *Service) AdminCaptures(ctx context.Context, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT m.id::text AS id, m.template, m.template_version, m.locale, p.name AS project, m.created_at, c.expires_at
