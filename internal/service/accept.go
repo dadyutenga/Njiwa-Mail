@@ -704,24 +704,9 @@ func nullableTime(t time.Time) *time.Time {
 	return &t
 }
 
-// domainAllowsLive blocks live mail from a sending domain that has been added
-// but is not yet verified with SPF, DKIM and DMARC all passing. A domain that
-// has never been added is unchanged, so existing projects keep sending.
+// domainAllowsLive is the Live sending gate; see requireLiveDomain.
 func (s *Service) domainAllowsLive(ctx context.Context, tx *db.Tx, projectID, from string) error {
-	domain := from[strings.LastIndexByte(from, '@')+1:]
-	var verified, spf, dkim, dmarc bool
-	err := tx.QueryRow(ctx, `SELECT verified_at IS NOT NULL, spf_ok, dkim_ok, dmarc_ok FROM domains
-WHERE project_id=$1 AND name=$2 AND purpose IN ('sending','both') ORDER BY verified_at IS NULL LIMIT 1`, projectID, domain).Scan(&verified, &spf, &dkim, &dmarc)
-	if errors.Is(err, db.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return unavailable("domain_lookup", err)
-	}
-	if !verified || !spf || !dkim || !dmarc {
-		return newErr(403, "domain_not_ready")
-	}
-	return nil
+	return s.requireLiveDomain(ctx, tx, projectID, from[strings.LastIndexByte(from, '@')+1:], true)
 }
 
 func hexOf(b []byte) []byte {

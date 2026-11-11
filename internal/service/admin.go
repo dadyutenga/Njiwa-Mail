@@ -151,6 +151,13 @@ func (s *Service) AddSender(ctx context.Context, project, mode, email, display s
 		return err
 	}
 	domain := e[strings.LastIndexByte(e, '@')+1:]
+	if mode == "live" {
+		// Ownership and the claim are required to create a Live sender; DNS
+		// (SPF/DKIM/DMARC) is enforced when mail is accepted.
+		if err := s.requireLiveDomain(ctx, s.Pool, pid, domain, false); err != nil {
+			return err
+		}
+	}
 	var n int
 	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM sender_identities WHERE project_id=$1 AND split_part(email,'@',2)=$2 AND email <> $3`, pid, domain, e).Scan(&n); err != nil {
 		return err
