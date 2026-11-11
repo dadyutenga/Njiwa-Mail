@@ -440,87 +440,122 @@ export function DomainDetail() {
                 ))}
               </ul>
             </Section>
-            <Section className="mt-4" title={phrase("Mailcow")}>
-              {d.mailcow_api ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    {phrase(
-                      "Add this domain to Mailcow, create its DKIM key and (for receiving) the relay transport, through the Mailcow API.",
+            {d.provider_type === "mailcow" ? (
+              <Section className="mt-4" title={phrase("Mailcow")}>
+                {d.mailcow_api ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      {phrase(
+                        "Add this domain to Mailcow, create its DKIM key and (for receiving) the relay transport, through the Mailcow API.",
+                      )}
+                      {d.mailcow_provisioned_at ? (
+                        <>
+                          {" "}
+                          {phrase("Done")} <Time value={d.mailcow_provisioned_at} />.
+                        </>
+                      ) : null}
+                    </p>
+                    <Button
+                      className="mt-3"
+                      variant="outline"
+                      onClick={async () => {
+                        const r = await run(
+                          () => api.send<{ steps: Row[] }>(`/domains/${id}/mailcow`, "POST"),
+                          "",
+                        );
+                        if (r) setSteps(r.steps);
+                        client.invalidateQueries({ queryKey: key("domain", id) });
+                      }}
+                    >
+                      {phrase("Set up in Mailcow")}
+                    </Button>
+                    {steps && (
+                      <ul className="mt-3 space-y-1 text-sm">
+                        {steps.map((st) => (
+                          <li key={s(st.key)} className="flex items-center gap-2">
+                            {st.ok ? (
+                              <CheckCircle2 size={15} className="text-success" />
+                            ) : (
+                              <XCircle size={15} className="text-destructive" />
+                            )}
+                            {s(st.title)}{" "}
+                            {st.detail ? (
+                              <span className="text-muted-foreground">— {s(st.detail)}</span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
                     )}
-                    {d.mailcow_provisioned_at ? (
-                      <>
-                        {" "}
-                        {phrase("Done")} <Time value={d.mailcow_provisioned_at} />.
-                      </>
-                    ) : null}
-                  </p>
-                  <Button
-                    className="mt-3"
-                    variant="outline"
-                    onClick={async () => {
-                      const r = await run(
-                        () => api.send<{ steps: Row[] }>(`/domains/${id}/mailcow`, "POST"),
-                        "",
-                      );
-                      if (r) setSteps(r.steps);
-                      client.invalidateQueries({ queryKey: key("domain", id) });
-                    }}
-                  >
-                    {phrase("Set up in Mailcow")}
-                  </Button>
-                  {steps && (
-                    <ul className="mt-3 space-y-1 text-sm">
-                      {steps.map((st) => (
-                        <li key={s(st.key)} className="flex items-center gap-2">
-                          {st.ok ? (
-                            <CheckCircle2 size={15} className="text-success" />
-                          ) : (
-                            <XCircle size={15} className="text-destructive" />
-                          )}
-                          {s(st.title)}{" "}
-                          {st.detail ? (
-                            <span className="text-muted-foreground">— {s(st.detail)}</span>
-                          ) : null}
+                  </>
+                ) : (
+                  <div className="text-sm">
+                    <p className="text-muted-foreground">
+                      {phrase(
+                        "The Mailcow API is not configured, so do these steps in the Mailcow admin panel:",
+                      )}
+                    </p>
+                    <ol className="mt-2 list-decimal space-y-1 pl-5">
+                      <li>
+                        {phrase("Configuration → Mail setup → Domains → Add domain:")}{" "}
+                        <code>{s(d.name)}</code>
+                        {d.purpose === "receiving" && ` ${phrase("(tick “Relay all recipients”)")}`}
+                      </li>
+                      {d.purpose !== "receiving" && (
+                        <li>
+                          {phrase("Configuration → ARC/DKIM keys → add a 2048-bit key for")}{" "}
+                          <code>{s(d.name)}</code> {phrase("with selector")}{" "}
+                          <code>{s(d.dkim_selector)}</code>
+                          {phrase(", then publish the key as the DKIM record above.")}
                         </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              ) : (
+                      )}
+                      {d.purpose !== "sending" && (
+                        <li>
+                          {phrase("Configuration → Routing → Transport maps → add destination")}{" "}
+                          <code>{s(d.name)}</code>{" "}
+                          {phrase("with the Njiwa-Mail inbound listener as next hop.")}
+                        </li>
+                      )}
+                    </ol>
+                    <Link className="mt-2 inline-block text-primary" to={to("mail-server")}>
+                      {phrase("Configure the Mailcow API on the Mail server page")}
+                    </Link>
+                  </div>
+                )}
+              </Section>
+            ) : (
+              <Section className="mt-4" title={phrase("Your mail server")}>
                 <div className="text-sm">
                   <p className="text-muted-foreground">
                     {phrase(
-                      "The Mailcow API is not configured, so do these steps in the Mailcow admin panel:",
+                      "Njiwa-Mail checks DNS. Your mail server must also be set up for this domain:",
                     )}
                   </p>
                   <ol className="mt-2 list-decimal space-y-1 pl-5">
-                    <li>
-                      {phrase("Configuration → Mail setup → Domains → Add domain:")}{" "}
-                      <code>{s(d.name)}</code>
-                      {d.purpose === "receiving" && ` ${phrase("(tick “Relay all recipients”)")}`}
-                    </li>
                     {d.purpose !== "receiving" && (
                       <li>
-                        {phrase("Configuration → ARC/DKIM keys → add a 2048-bit key for")}{" "}
-                        <code>{s(d.name)}</code> {phrase("with selector")}{" "}
-                        <code>{s(d.dkim_selector)}</code>
-                        {phrase(", then publish the key as the DKIM record above.")}
+                        {phrase(
+                          "Allow the SMTP login to send as addresses on this domain, and have it sign them with DKIM. Publish the DKIM key your mail server gives you as the DKIM record above.",
+                        )}
+                      </li>
+                    )}
+                    {d.purpose !== "receiving" && (
+                      <li>
+                        {phrase(
+                          "The SPF record must list the server that actually sends the mail (your mail server), not the server Njiwa-Mail runs on, unless they are the same.",
+                        )}
                       </li>
                     )}
                     {d.purpose !== "sending" && (
                       <li>
-                        {phrase("Configuration → Routing → Transport maps → add destination")}{" "}
-                        <code>{s(d.name)}</code>{" "}
-                        {phrase("with the Njiwa-Mail inbound listener as next hop.")}
+                        {phrase(
+                          "For receiving, have your mail server relay this domain's mail to the Njiwa-Mail inbound listener.",
+                        )}
                       </li>
                     )}
                   </ol>
-                  <Link className="mt-2 inline-block text-primary" to={to("mail-server")}>
-                    {phrase("Configure the Mailcow API on the Mail server page")}
-                  </Link>
                 </div>
-              )}
-            </Section>
+              </Section>
+            )}
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
               <Section
                 title={phrase("Senders")}
@@ -616,7 +651,7 @@ export function DnsGuide() {
       "DKIM",
       [
         "A public key that lets receivers check that mail really came from your server and was not changed on the way.",
-        "Mailcow creates the key (Configuration → ARC/DKIM keys). Publish it as a TXT record at selector._domainkey under your domain.",
+        "The server that signs your mail creates the key (with Mailcow: Configuration → ARC/DKIM keys). Publish it as a TXT record at selector._domainkey under your domain.",
         "Paste the whole value. If your DNS panel splits it into several quoted pieces, that is fine; if it cuts it off, the check fails.",
       ],
     ],
@@ -625,7 +660,7 @@ export function DnsGuide() {
       "SPF",
       [
         "Lists which servers may send mail for the domain. It is a TXT record that starts with v=spf1.",
-        "A domain must have only one SPF record. If one exists already (for example for Google Workspace), edit it and add your Mailcow server, such as “mx” or “ip4:203.0.113.10”, before the final -all. Never publish a second one.",
+        "A domain must have only one SPF record. If one exists already (for example for Google Workspace), edit it and add the server that sends your mail, such as “mx” or “ip4:203.0.113.10”, before the final -all. Never publish a second one.",
       ],
     ],
     [
@@ -640,7 +675,7 @@ export function DnsGuide() {
       "mx",
       "MX (receiving)",
       [
-        "Tells the world which server receives mail for the domain. For a receiving domain, point it at your Mailcow host with priority 10.",
+        "Tells the world which server receives mail for the domain. For a receiving domain, point it at the mail server that receives for it, with priority 10.",
         "Only add MX to a domain you want to receive on. Changing the MX of your main domain moves all of its mail.",
       ],
     ],
@@ -648,7 +683,7 @@ export function DnsGuide() {
       "return_path",
       "Return path",
       [
-        "Bounces come back to the bounce address Njiwa-Mail uses as the envelope sender. Its domain needs an MX record pointing at Mailcow, and Mailcow routes bounces@ and fbl@ to Njiwa-Mail.",
+        "Bounces come back to the bounce address Njiwa-Mail uses as the envelope sender. Its domain needs an MX record pointing at a mail server that relays bounces@ and fbl@ to Njiwa-Mail. Do not change your main domain’s MX for this.",
       ],
     ],
   ];

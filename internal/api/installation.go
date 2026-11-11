@@ -25,6 +25,21 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		st["environment_override"] = s.EnvSMTP != nil
 		return st, nil
 	})
+	// The operator's confirmed delivery-mode choice, persisted server-side.
+	h("PUT", "/wizard", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct {
+			SelectedMode string `json:"selected_mode"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		st, err := svc.ChooseDeliveryMode(reqCtx(c), u.Actor(), in.SelectedMode)
+		if err != nil {
+			return nil, err
+		}
+		st["environment_override"] = s.EnvSMTP != nil
+		return st, nil
+	})
 	h("GET", "/transport-profiles", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		l, err := svc.ListTransportProfiles(reqCtx(c))
 		if err != nil {

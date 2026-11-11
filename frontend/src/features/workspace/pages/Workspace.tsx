@@ -539,7 +539,7 @@ function SenderDialog({
           </Field>
           <p className="text-xs text-muted-foreground">
             {phrase(
-              "Mailcow must also allow the submission login to send as this address (sender ACL). See the Mail server page.",
+              "Your mail server must also allow the SMTP login to send as this address. See Delivery infrastructure.",
             )}
           </p>
           <Button type="submit" disabled={busy || !local}>

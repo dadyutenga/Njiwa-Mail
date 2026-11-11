@@ -54,11 +54,18 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		return svc.WorkspaceContext(ctx(c), sc)
 	})
 	h("GET", "/checklist", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
-		steps, complete, err := svc.Checklist(ctx(c), sc, s.EnvSMTP != nil)
+		o, err := svc.Checklist(ctx(c), sc)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"steps": steps, "complete": complete}, nil
+		// Installation readiness is reported beside, never inside, the project
+		// list: a summary only, the details live on the operator page.
+		inst, err := svc.InstallationSummary(ctx(c))
+		if err != nil {
+			return nil, err
+		}
+		inst["environment_override"] = s.EnvSMTP != nil
+		return map[string]any{"scope": o.Scope, "steps": o.Steps, "complete": o.Complete, "progress": o.Progress, "installation": inst}, nil
 	})
 	h("GET", "/search", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.Search(ctx(c), sc, c.Query("q"))

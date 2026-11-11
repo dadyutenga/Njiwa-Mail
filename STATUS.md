@@ -18,9 +18,18 @@ Baseline: `cd129e2` — `go test ./...` green on PostgreSQL 16 (throwaway DB; th
 | A08 | Switch plan + gates: unknown jobs always block; pending jobs need explicit `migrate_pending`; unverified/incomplete/uninstalled target blocked; previous profile kept for rollback | `TestProfileActivationPlanAndGates` |
 | C02 (part) | Secrets never echoed; blank password keeps stored one; rotation bumps revision | tests above |
 
-| B05 (part) | Project checklist's mail-server step follows the active profile's current revision; project step scoped to the project | `TestChecklistMailServerStepFollowsActiveRevision` |
+| A02 (part) | Frontend CI called `npm run typecheck`, which did not exist (the job failed on the baseline); script added | `npm run typecheck` |
+| B01 | `DeliveryModeCard`: exactly `managed_mta` / `existing_smtp`, accessible radio group; choice saved only on Continue | `Installation.test.tsx` |
+| B02 | `PUT /admin/v1/installation/wizard` persists the confirmed mode in `installation_settings.wizard`; resumes after refresh/redeploy; never switches an active transport (`mode_switch_requires_plan`); audited | `TestDeliveryModeWizardPersistsAndNeverSwitches` |
+| B03 | Readiness steps show plain status text, stable problem code, the fix for each code, last checked time and "Run checks again"; welcome states `ready_to_configure` / `legacy_detected` / `in_progress` / `degraded` / `completed` | `Installation.test.tsx`, `TestLegacyInstallIsDetectedThenConfirmed` |
+| B04 | Mailcow wording removed from the generic screens (Delivery infrastructure, Domains, Senders, temporary inboxes, DNS guide); Mailcow panel and API fields only when the operator picks provider Mailcow; `provider_type` stored on the profile; choosing generic deletes stored Mailcow API settings | `TestProviderTypeIsOptIn`, `Installation.test.tsx` |
+| C05 (part) | Mailcow provider works with no Mailcow API key | `TestProviderTypeIsOptIn` |
+| B05 | `/checklist` returns project-only steps (`scope: project`) plus a separate installation summary; mail-server and global "project exists" steps removed from the project list; no profile config leaks into workspaces | `TestChecklistSeparatesProjectFromInstallation` |
+| B06 | Step count and progress computed by the backend; frontend uses `progress.required` (no `/7`); mailbox optional and never blocks | same + `Installation.test.tsx` |
+| B07 (part) | Kiswahili strings for the new installation UI; status text not colour-only; `aria-live`, labelled progress bars | — |
+| B09 (part) | Installation health banner on the project dashboard and Getting started page when delivery is not ready | `Installation.test.tsx` |
 
-New admin routes (operator-only): `GET /admin/v1/installation`, `GET|POST /admin/v1/installation/transport-profiles`, `GET|PUT|DELETE .../{id}` (DELETE retires), `POST .../{id}/test`, `GET .../{id}/activation-plan`, `POST .../{id}/activate`.
+New admin routes (operator-only): `GET /admin/v1/installation`, `PUT /admin/v1/installation/wizard`, `GET|POST /admin/v1/installation/transport-profiles`, `GET|PUT|DELETE .../{id}` (DELETE retires), `POST .../{id}/test`, `GET .../{id}/activation-plan`, `POST .../{id}/activate`.
 
 ## Review pass (gaps found and fixed)
 
@@ -34,6 +43,11 @@ New admin routes (operator-only): `GET /admin/v1/installation`, `GET|POST /admin
 | Profiles could not be edited or retired | `PUT` / `DELETE` routes; retire drops secrets, refuses the active profile | `TestProfileUpdateRetireAndLegacyMirror` |
 | Problem codes doubled the prefix (`SMTP_SMTP_…`) | Normalised | `TestStatusIsTiedToProfileRevision` |
 
+## API contract changes
+
+- `GET /admin/v1/w/{project}/{mode}/checklist` now returns `{scope, steps, complete, progress, installation}`. Steps no longer include `mail_server` or `project`; each step has `required`. Clients must use `progress.required` instead of counting steps.
+- `GET|PUT /admin/v1/mail-server` gained `provider_type` (`generic` default, `mailcow`). Older clients that omit it keep the current provider.
+
 ## Compatibility / rollback notes
 
 - The Mail server page keeps working: `SaveMailServer` dual-writes `mail_server` and the active existing-SMTP profile in one transaction; the worker reads the active profile and falls back to the legacy row only when no profile exists.
@@ -46,11 +60,13 @@ New admin routes (operator-only): `GET /admin/v1/installation`, `GET|POST /admin
 
 ## Not done / blockers
 
-- B-series UI (wizard, mode card, Mailcow copy removal, dynamic step count). B05 remainder: the checklist still mixes the installation step into the project list and the frontend still hard-codes the step count.
+- B07 remainder (full keyboard/screen-reader pass, responsive DNS table, Kiswahili for all older strings), B08 (recovery/migration UX), B09 remainder (unified health summary with queue metrics).
+- Managed mode is selectable and honest (it shows "installer not available" and cannot become ready or active) but the installer itself (E-series) does not exist yet.
+- `docs/MAILCOW_SETUP.md` and `docs/openapi.yaml` still describe Mailcow as the default path (G08).
 - A01 endpoint/schema map doc, A02 container smoke CI.
 - C01 full cutover of `StoredTransport` to `transport.Transport`, C03–C08.
 - D, E (managed MTA installer — managed profiles can be created but can never activate without a verified installer receipt), F, G.
 
 ## Next task
 
-B01/B02 + rest of B05/B06: persisted wizard API, mode-choice card, and a checklist response that separates installation from project steps with a computed count.
+C01/C03/C04: route the worker through `transport.Transport`, typed provider-neutral diagnostics, and a controlled test send through the real queue; then D01–D03 (installation-wide domain claims and the strict Live sender gate).
