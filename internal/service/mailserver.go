@@ -184,10 +184,17 @@ func (s *Service) LoadActiveSMTP(ctx context.Context) (ActiveSMTP, error) {
 	if err != nil {
 		return a, err
 	}
-	if mode != "existing_smtp" {
-		return a, nil
+	switch mode {
+	case "existing_smtp":
+		a.Cfg, a.Sender, _, a.OK, err = s.openSMTPProfile(cj, pwEnc, a.Updated)
+	case "managed_mta":
+		a.Cfg, a.OK, err = s.openManagedProfile(cj, pwEnc)
+		var c struct {
+			Sender string `json:"test_sender"`
+		}
+		_ = json.Unmarshal(cj, &c)
+		a.Sender = c.Sender
 	}
-	a.Cfg, a.Sender, _, a.OK, err = s.openSMTPProfile(cj, pwEnc, a.Updated)
 	return a, err
 }
 

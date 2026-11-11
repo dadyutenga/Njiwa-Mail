@@ -86,7 +86,7 @@ export const problemFixes: Record<string, string> = {
   CHECK_STALE: "The settings changed or the result is old. Run the check again.",
   CHECK_FAILED: "Fix the problem shown in the test result, then run the check again.",
   INSTALLER_NOT_AVAILABLE:
-    "Run the Njiwa-Mail host installer on this server. Until then, mail cannot be sent directly from this VPS.",
+    "Run the host installer on this server as root: njiwa-mail installer plan, then installer apply -approve <digest> -record. Until then, mail cannot be sent directly from this VPS.",
   SMTP_EGRESS_BLOCKED:
     "Outbound port 25 is blocked. Ask your VPS provider to open it, or connect an existing mail server instead.",
   SMTP_DNS_FAILED: "The host name does not resolve. Check the spelling, or its DNS record.",

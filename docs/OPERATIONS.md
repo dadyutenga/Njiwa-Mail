@@ -76,6 +76,38 @@ A check it cannot verify is reported as `CANNOT_CONFIRM`, never as ready. It exi
 With the database configured, `njiwa-mail preflight -record` stores the result; the Delivery infrastructure page shows it as the
 "Check this server can send directly" step. Managed mode still cannot become ready until the host installer has run.
 
+## Managed delivery: installing the mail service
+
+The installer is a root-only command on the mail host; the Njiwa web process never changes host configuration. Install the packages
+first (`apt-get install postfix opendkim`, choosing "No configuration" for Postfix), then:
+
+```
+njiwa-mail installer plan  -hostname mailout.example.com -domains notify.example.com -bounce-domain bounce.example.com
+njiwa-mail installer apply -hostname mailout.example.com -domains notify.example.com -bounce-domain bounce.example.com -approve <digest> -record
+```
+
+- `plan` prints every file it will create or change, the keys it will generate, and a digest. `apply` runs only when `-approve`
+  matches the digest of the plan recomputed at that moment, so nothing changes that was not reviewed.
+- What it configures: Postfix delivers directly to recipient MX servers; port 25 accepts only mail for the bounce domain and relays
+  it to the Njiwa inbound listener (no open relay); the Njiwa worker submits on a private listener (default `127.0.0.1:10587`,
+  never `0.0.0.0`) that requires the client certificate the installer issued to it (mutual TLS) and accepts only the signing
+  domains and the bounce domain as envelope senders. OpenDKIM signs mail from that listener only; if the signer is down the listener
+  refuses mail (fail closed) rather than sending it unsigned.
+- Keys: a 2048-bit DKIM key per domain under `/etc/opendkim/keys/<domain>/<selector>.private` (0600, opendkim); a private CA, the
+  server certificate and the worker's client certificate. Existing keys are never replaced by a re-run. Publish the DKIM records
+  `apply` prints.
+- Safety: existing files are backed up to `/var/lib/njiwa-mail/installer/backups/<receipt>`; `postfix check` and `opendkim -n`
+  validate the result, and any failure restores every file automatically. A Postfix configuration the installer did not write, Exim
+  or Mailcow on the host is refused unless `-adopt` is given (Mailcow and Exim: never).
+- `-record` stores the receipt, the worker's credentials (sealed) and the DKIM records in the database. Then run the connection test
+  on the Delivery infrastructure page; managed mode can be activated only after it passes.
+- `njiwa-mail installer status` shows the latest receipt; `njiwa-mail installer rollback [-receipt ID] -record` restores the files
+  from that apply's backup.
+- When projects add sending domains later, run `plan`/`apply` again (with `-record` the domain list defaults to the installation's
+  claimed domains).
+- Verification on a host: `go test -tags managed_e2e ./internal/installer/managed -run E2E -v` (as root, after apply with the test
+  domains in that file) checks no open relay, mTLS-only submission, sender restrictions and DKIM signing end to end.
+
 ## Sending domains and claims
 
 Live mail and Live sender addresses require a sending domain that the project added on the Domains page, verified with its

@@ -122,7 +122,12 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 	if recs, ok := d["records"].([]any); !ok || len(recs) == 0 {
 		var token, purpose string
 		_ = s.Pool.QueryRow(ctx, `SELECT verify_token, purpose FROM domains WHERE id=$1`, id).Scan(&token, &purpose)
-		d["records"] = s.expectedRecords(s.senderKind(ctx), name, purpose, token, "")
+		kind := s.senderKind(ctx)
+		known := ""
+		if kind == senderManaged {
+			known = s.managedDKIM(ctx, name)
+		}
+		d["records"] = s.expectedRecords(kind, name, purpose, token, known)
 	}
 	if d["senders"], err = s.maps(ctx, `SELECT si.id::text AS id, si.email, e.mode FROM sender_identities si JOIN environments e ON e.id=si.environment_id
 WHERE si.project_id=$1 AND split_part(si.email,'@',2)=$2 ORDER BY si.email`, sc.ProjectID, name); err != nil {
@@ -230,11 +235,13 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	kind := s.senderKind(ctx)
 	dkimKnown := ""
-	if pk, err := s.mailcowDKIM(ctx, name); err == nil && pk != "" {
+	if kind == senderManaged {
+		dkimKnown = s.managedDKIM(ctx, name)
+	} else if pk, err := s.mailcowDKIM(ctx, name); err == nil && pk != "" {
 		dkimKnown = pk
 	}
-	kind := s.senderKind(ctx)
 	recs := s.expectedRecords(kind, name, purpose, token, dkimKnown)
 	sip := s.senderIP(kind)
 	envDomain := name // the SMTP MAIL FROM domain that SPF authenticates

@@ -148,13 +148,19 @@ func Diagnose(ctx context.Context, cfg SMTPConfig, sender string) []Step {
 		steps[2].Detail += ", certificate for " + strings.Join(cert.DNSNames, ", ") + ", valid until " + cert.NotAfter.UTC().Format("2006-01-02")
 	}
 
-	if cfg.Username == "" {
+	switch {
+	case cfg.Username == "" && cfg.ClientCert != nil:
+		// Mutual TLS: the server verified the client certificate during the
+		// handshake; whether it grants relaying shows in the sender step.
+		steps[3].OK, steps[3].Detail = true, "authenticated with the client certificate"
+	case cfg.Username == "":
 		return stop(3, CodeAuthMissing, "no username is set")
+	default:
+		if err := cl.Auth(smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)); err != nil {
+			return stop(3, CodeAuthRejected, "the server refused the username or password ("+replyCode(err)+")")
+		}
+		steps[3].OK, steps[3].Detail = true, "logged in as "+cfg.Username
 	}
-	if err := cl.Auth(smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)); err != nil {
-		return stop(3, CodeAuthRejected, "the server refused the username or password ("+replyCode(err)+")")
-	}
-	steps[3].OK, steps[3].Detail = true, "logged in as "+cfg.Username
 
 	if sender == "" {
 		steps[4].Skipped, steps[4].Detail = true, "no test sender address is set"
