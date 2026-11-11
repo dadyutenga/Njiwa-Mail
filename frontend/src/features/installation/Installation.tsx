@@ -1,0 +1,366 @@
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, Circle, Clock, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { usePhrase } from "@/features/i18n/i18n";
+import { admin } from "@/lib/admin-api";
+import { DataState, run, Section, Time } from "@/features/workspace/ui";
+
+// Installation-level delivery setup (backlog B01-B03). Everything shown here
+// comes from GET /admin/v1/installation: the client never guesses readiness
+// and never hard-codes a step count.
+
+export type DeliveryMode = "managed_mta" | "existing_smtp";
+
+export type StepStatus =
+  | "not_started"
+  | "checking"
+  | "ready"
+  | "needs_action"
+  | "blocked_external_action"
+  | "error"
+  | "skipped_optional"
+  | "stale";
+
+export type ReadinessStep = {
+  id: string;
+  title: string;
+  status: StepStatus;
+  required: boolean;
+  checked_at?: string;
+  problem_code?: string;
+  message?: string;
+};
+
+export type Readiness = {
+  scope: "installation";
+  mode?: DeliveryMode;
+  status: StepStatus;
+  progress: { complete: number; required: number };
+  steps: ReadinessStep[];
+};
+
+export type InstallationState = {
+  readiness: Readiness;
+  welcome_state:
+    | "ready_to_configure"
+    | "legacy_detected"
+    | "in_progress"
+    | "degraded"
+    | "completed";
+  wizard: { selected_mode?: DeliveryMode; confirmed_at?: string };
+  active_profile: { id: string; mode: DeliveryMode; config_revision: number } | null;
+  profile: { id: string; mode: DeliveryMode; config_revision: number } | null;
+  environment_override?: boolean;
+};
+
+export const installationKey = ["installation"] as const;
+
+export function useInstallation() {
+  return useQuery({
+    queryKey: installationKey,
+    queryFn: () => admin.get<InstallationState>("/installation"),
+    refetchInterval: 60_000,
+  });
+}
+
+// Plain-text status labels: colour and icons are never the only signal.
+export const statusLabels: Record<StepStatus, string> = {
+  not_started: "Not started",
+  checking: "Checking",
+  ready: "Ready",
+  needs_action: "Needs action",
+  blocked_external_action: "Action needed outside Njiwa-Mail",
+  error: "Error",
+  skipped_optional: "Optional, skipped",
+  stale: "Out of date",
+};
+
+// What to do about each stable problem code. Unknown codes fall back to the
+// server's safe message.
+export const problemFixes: Record<string, string> = {
+  TRANSPORT_NOT_SELECTED: "Choose how this installation sends mail.",
+  SMTP_CONFIG_INCOMPLETE:
+    "Enter the SMTP host, port, encryption, username and password, then save.",
+  CHECK_NOT_RUN: "Run the check.",
+  CHECK_STALE: "The settings changed or the result is old. Run the check again.",
+  CHECK_FAILED: "Fix the problem shown in the test result, then run the check again.",
+  INSTALLER_NOT_AVAILABLE:
+    "Run the Njiwa-Mail host installer on this server. Until then, mail cannot be sent directly from this VPS.",
+  SMTP_EGRESS_BLOCKED:
+    "Outbound port 25 is blocked. Ask your VPS provider to open it, or connect an existing mail server instead.",
+  SMTP_DNS_FAILED: "The host name does not resolve. Check the spelling, or its DNS record.",
+  SMTP_TCP_FAILED:
+    "Could not connect. Check the port, and that a firewall allows this server to reach it.",
+  SMTP_TLS_FAILED:
+    "TLS failed. Use port 587 with STARTTLS or port 465 with TLS, and check the server's certificate matches its host name.",
+  SMTP_LOGIN_FAILED: "The login was rejected. Check the username and enter the password again.",
+  SMTP_AUTH_FAILED: "The login was rejected. Check the username and enter the password again.",
+  SMTP_SENDER_FAILED:
+    "This login may not send as the test sender. Allow it on your mail server, or use another sender.",
+  SMTP_TLS_VERIFICATION_FAILED:
+    "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
+};
+
+function StatusIcon({ status }: { status: StepStatus }) {
+  const cls = "mt-0.5 shrink-0";
+  if (status === "ready")
+    return <CheckCircle2 size={18} className={cls + " text-success"} aria-hidden />;
+  if (status === "stale" || status === "checking")
+    return <Clock size={18} className={cls + " text-warning"} aria-hidden />;
+  if (status === "error" || status === "blocked_external_action")
+    return <XCircle size={18} className={cls + " text-destructive"} aria-hidden />;
+  if (status === "needs_action")
+    return <AlertTriangle size={18} className={cls + " text-warning"} aria-hidden />;
+  return <Circle size={18} className={cls + " text-muted-foreground"} aria-hidden />;
+}
+
+/** Exactly two delivery modes, as an accessible radio group. */
+export function DeliveryModeCard({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: DeliveryMode | "";
+  onChange: (m: DeliveryMode) => void;
+  disabled?: boolean;
+}) {
+  const phrase = usePhrase();
+  const options: { mode: DeliveryMode; title: string; body: string }[] = [
+    {
+      mode: "managed_mta",
+      title: "Send from my VPS",
+      body: "Njiwa-Mail helps configure a local mail delivery service on this server. Needs outbound port 25, a public IP, DNS and PTR (reverse DNS) access.",
+    },
+    {
+      mode: "existing_smtp",
+      title: "Connect an existing mail server",
+      body: "Use a mail server you already run, such as Postfix, Exim or Mailcow, over authenticated SMTP. No new mail server is installed.",
+    },
+  ];
+  return (
+    <fieldset className="grid gap-3 sm:grid-cols-2" disabled={disabled}>
+      <legend className="mb-2 text-sm font-semibold">{phrase("How will you send email?")}</legend>
+      {options.map((o) => (
+        <label
+          key={o.mode}
+          className={
+            "flex cursor-pointer gap-3 rounded-xl border bg-card p-4 transition focus-within:ring-2 focus-within:ring-ring " +
+            (value === o.mode ? "border-primary" : "hover:border-primary/60")
+          }
+        >
+          <input
+            type="radio"
+            name="delivery-mode"
+            value={o.mode}
+            checked={value === o.mode}
+            onChange={() => onChange(o.mode)}
+            className="mt-1"
+          />
+          <span>
+            <span className="block font-semibold">{phrase(o.title)}</span>
+            <span className="mt-1 block text-sm text-muted-foreground">{phrase(o.body)}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/** Steps with plain status text, the fix for each problem and when it was checked. */
+export function ReadinessSteps({
+  readiness,
+  onRecheck,
+  rechecking,
+}: {
+  readiness: Readiness;
+  onRecheck?: () => void;
+  rechecking?: boolean;
+}) {
+  const phrase = usePhrase();
+  const { complete, required } = readiness.progress;
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-3">
+        <div
+          className="h-2 flex-1 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label={phrase("Installation setup")}
+          aria-valuemin={0}
+          aria-valuemax={required}
+          aria-valuenow={complete}
+        >
+          <div
+            className="h-full bg-primary transition-all"
+            style={{ width: required ? `${(complete / required) * 100}%` : "0%" }}
+          />
+        </div>
+        <span className="text-sm text-muted-foreground">
+          {complete}/{required} {phrase("required steps")}
+        </span>
+      </div>
+      <ol className="space-y-2" aria-live="polite">
+        {readiness.steps.map((st) => {
+          const fix = st.problem_code ? problemFixes[st.problem_code] : undefined;
+          return (
+            <li
+              key={st.id}
+              className="flex items-start gap-3 rounded-lg border p-3"
+              data-step={st.id}
+            >
+              <StatusIcon status={st.status} />
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="font-medium">
+                  {phrase(st.title)}{" "}
+                  <span
+                    className="text-xs font-normal text-muted-foreground"
+                    data-status={st.status}
+                  >
+                    — {phrase(statusLabels[st.status] ?? st.status)}
+                  </span>
+                </p>
+                {st.status !== "ready" && (fix || st.message) && (
+                  <p className="mt-1 text-xs">{phrase(fix ?? st.message ?? "")}</p>
+                )}
+                {st.problem_code && st.status !== "ready" && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {phrase("Code")}: <code>{st.problem_code}</code>
+                  </p>
+                )}
+                {st.checked_at && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {phrase("Last checked")} <Time value={st.checked_at} relative />
+                  </p>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {onRecheck && (
+        <Button
+          className="mt-3"
+          variant="outline"
+          size="sm"
+          disabled={rechecking}
+          onClick={onRecheck}
+        >
+          {rechecking ? phrase("Checking…") : phrase("Run checks again")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+const welcomeText: Record<InstallationState["welcome_state"], string> = {
+  ready_to_configure: "Choose how this installation will send email to get started.",
+  legacy_detected:
+    "Existing SMTP settings were found from an earlier version. Review them and continue with the existing installation; nothing changes until you save.",
+  in_progress: "Setup is under way. Complete the steps below.",
+  degraded:
+    "Mail delivery was working but is not ready now. Live mail stays queued; fix the step below and check again.",
+  completed:
+    "Mail delivery is ready. Each project still needs its own sending domain and sender before it can send live mail.",
+};
+
+/**
+ * The installation panel for Settings › Delivery infrastructure: welcome
+ * state, mode choice (only when nothing is active) and readiness steps.
+ */
+export function DeliveryInfrastructure({
+  onRecheck,
+  rechecking,
+}: {
+  onRecheck?: () => void;
+  rechecking?: boolean;
+}) {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const q = useInstallation();
+  const [choice, setChoice] = useState<DeliveryMode | "">("");
+  const [saving, setSaving] = useState(false);
+  const confirm = async (mode: DeliveryMode) => {
+    setSaving(true);
+    const r = await run(
+      () => admin.send<InstallationState>("/installation/wizard", "PUT", { selected_mode: mode }),
+      phrase("Delivery mode saved."),
+    );
+    setSaving(false);
+    if (r) {
+      client.setQueryData(installationKey, r);
+      client.invalidateQueries({ queryKey: ["ws"] });
+    }
+  };
+  return (
+    <DataState q={q} rows={3}>
+      {(st) => {
+        const mode = st.readiness.mode;
+        const chosen = choice || st.wizard.selected_mode || "";
+        const canChoose = !st.active_profile;
+        return (
+          <Section title={phrase("Delivery infrastructure")}>
+            <p
+              role="status"
+              className={
+                "mb-4 rounded-lg border p-3 text-sm " +
+                (st.welcome_state === "degraded"
+                  ? "border-destructive/40 bg-destructive/10"
+                  : st.welcome_state === "completed"
+                    ? "border-success/40 bg-success/10"
+                    : "border-primary/40 bg-primary/10")
+              }
+            >
+              {phrase(welcomeText[st.welcome_state])}
+            </p>
+            {st.welcome_state === "legacy_detected" && (
+              <Button className="mb-4" disabled={saving} onClick={() => confirm("existing_smtp")}>
+                {phrase("Continue existing installation")}
+              </Button>
+            )}
+            {canChoose && (
+              <div className="mb-4 space-y-3">
+                <DeliveryModeCard value={chosen} onChange={setChoice} disabled={saving} />
+                <Button
+                  disabled={saving || !chosen || chosen === st.wizard.selected_mode}
+                  onClick={() => chosen && confirm(chosen)}
+                >
+                  {phrase("Continue")}
+                </Button>
+              </div>
+            )}
+            {!canChoose && st.active_profile && (
+              <p className="mb-3 text-sm text-muted-foreground">
+                {phrase("Active mode")}:{" "}
+                <span className="font-medium text-foreground">
+                  {phrase(
+                    st.active_profile.mode === "managed_mta"
+                      ? "Send from my VPS"
+                      : "Connect an existing mail server",
+                  )}
+                </span>{" "}
+                · {phrase("settings revision")} {st.active_profile.config_revision}.{" "}
+                {phrase(
+                  "Changing mode can affect queued messages; it goes through a planned switch, not this page.",
+                )}
+              </p>
+            )}
+            {st.environment_override && (
+              <p className="mb-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
+                {phrase(
+                  "SMTP_HOST is set in the server environment and takes precedence over the saved settings. A test only counts for the saved settings when both are identical.",
+                )}
+              </p>
+            )}
+            {mode && (
+              <ReadinessSteps
+                readiness={st.readiness}
+                onRecheck={mode === "existing_smtp" ? onRecheck : undefined}
+                rechecking={rechecking}
+              />
+            )}
+          </Section>
+        );
+      }}
+    </DataState>
+  );
+}

@@ -137,9 +137,9 @@ func TestWorkspaceDomainsSendersAndChecklist(t *testing.T) {
 	e.admOK(admin, "DELETE", wsBase+"/senders/"+str(s.JSON, "id"), nil)
 	e.admOK(admin, "DELETE", wsBase+"/domains/"+domainID, nil)
 
-	steps := e.admOK(admin, "GET", wsBase+"/checklist", nil).JSON["steps"].([]any)
-	if steps[1].(map[string]any)["done"] != true || steps[2].(map[string]any)["done"] != false {
-		t.Fatalf("checklist after delete: %v", steps)
+	cl := e.admOK(admin, "GET", wsBase+"/checklist", nil).JSON
+	if st := stepByKey(cl, "domain"); st["done"] != false {
+		t.Fatalf("checklist after delete: %v", cl["steps"])
 	}
 }
 

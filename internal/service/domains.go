@@ -110,6 +110,7 @@ FROM messages WHERE environment_id=$1 AND split_part(sender,'@',2)=$2 ORDER BY c
 		return nil, err
 	}
 	d["mailcow_api"] = s.MailcowConfigured(ctx)
+	d["provider_type"] = s.activeProvider(ctx)
 	d["dkim_selector"] = s.Opts.DKIMSelector
 	d["mail_host"] = s.Opts.MailHost
 	return d, nil
