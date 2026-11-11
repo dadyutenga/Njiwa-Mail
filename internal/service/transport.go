@@ -115,7 +115,7 @@ func problemCodeFor(kind string, detail any) string {
 		}
 	case map[string]any:
 		if r, _ := d["reason"].(string); r != "" {
-			return "SMTP_" + strings.ToUpper(r)
+			return "SMTP_" + strings.TrimPrefix(strings.ToUpper(r), "SMTP_")
 		}
 		return "SMTP_SEND_FAILED"
 	}
@@ -330,6 +330,7 @@ type SwitchPlan struct {
 	CurrentID       string   `json:"current_id,omitempty"`
 	AlreadyActive   bool     `json:"already_active"`
 	Queued          int      `json:"queued"`
+	Scheduled       int      `json:"scheduled"`
 	Submitting      int      `json:"submitting"`
 	RetryWait       int      `json:"retry_wait"`
 	Unknown         int      `json:"unknown"`
@@ -358,10 +359,12 @@ func (s *Service) planSwitch(ctx context.Context, q queryer, targetID string) (S
 	}
 	_ = q.QueryRow(ctx, `SELECT COALESCE((SELECT id::text FROM transport_profiles WHERE is_active),'')`).Scan(&p.CurrentID)
 	_ = q.QueryRow(ctx, `SELECT COALESCE(previous_profile_id::text,'') FROM installation_settings WHERE id=1`).Scan(&p.RollbackProfile)
+	// Only live mail uses a transport; sandbox messages are captured locally.
 	if err := q.QueryRow(ctx, `SELECT
- count(*) FILTER (WHERE state='queued'), count(*) FILTER (WHERE state='submitting'),
- count(*) FILTER (WHERE state='retry_wait'), count(*) FILTER (WHERE state='unknown')
-FROM messages WHERE state IN ('queued','submitting','retry_wait','unknown')`).Scan(&p.Queued, &p.Submitting, &p.RetryWait, &p.Unknown); err != nil {
+ count(*) FILTER (WHERE m.state='queued'), count(*) FILTER (WHERE m.state='scheduled'), count(*) FILTER (WHERE m.state='submitting'),
+ count(*) FILTER (WHERE m.state='retry_wait'), count(*) FILTER (WHERE m.state='unknown')
+FROM messages m JOIN environments e ON e.id=m.environment_id
+WHERE e.mode='live' AND m.state IN ('queued','scheduled','submitting','retry_wait','unknown')`).Scan(&p.Queued, &p.Scheduled, &p.Submitting, &p.RetryWait, &p.Unknown); err != nil {
 		return p, unavailable("switch_plan", err)
 	}
 	// The target must have a fresh passing connection check for its current revision.
@@ -392,7 +395,7 @@ FROM messages WHERE state IN ('queued','submitting','retry_wait','unknown')`).Sc
 	if p.Unknown > 0 {
 		p.Blockers = append(p.Blockers, "unknown_jobs_require_reconciliation")
 	}
-	p.NeedsDecision = p.Queued+p.Submitting+p.RetryWait > 0
+	p.NeedsDecision = p.Queued+p.Scheduled+p.Submitting+p.RetryWait > 0
 	return p, nil
 }
 
@@ -433,8 +436,8 @@ func (s *Service) ActivateTransport(ctx context.Context, a Actor, targetID strin
 	}
 	if plan.NeedsDecision && !migratePending {
 		return plan, &Error{Status: 409, Code: "pending_jobs_require_decision",
-			Message: fmt.Sprintf("%d queued, %d sending and %d waiting to retry. Let the queue drain, or confirm that these messages may be sent through the new profile.",
-				plan.Queued, plan.Submitting, plan.RetryWait)}
+			Message: fmt.Sprintf("%d queued, %d scheduled, %d sending and %d waiting to retry. Let the queue drain, or confirm that these messages may be sent through the new profile.",
+				plan.Queued, plan.Scheduled, plan.Submitting, plan.RetryWait)}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE transport_profiles SET is_active=false, updated_at=now() WHERE is_active`); err != nil {
 		return plan, unavailable("transport_activate", err)
@@ -445,8 +448,11 @@ func (s *Service) ActivateTransport(ctx context.Context, a Actor, targetID strin
 	if _, err := tx.Exec(ctx, `UPDATE installation_settings SET previous_profile_id=NULLIF($1,'')::uuid, lock_version=lock_version+1, updated_at=now() WHERE id=1`, plan.CurrentID); err != nil {
 		return plan, unavailable("transport_activate", err)
 	}
+	if err := mirrorProfileToLegacy(ctx, tx, targetID); err != nil {
+		return plan, unavailable("transport_activate", err)
+	}
 	if err := audit(ctx, tx, a, "transport.activate", "transport_profile", targetID, map[string]any{
-		"from": plan.CurrentID, "to": targetID, "mode": plan.TargetMode, "queued": plan.Queued, "submitting": plan.Submitting,
+		"from": plan.CurrentID, "to": targetID, "mode": plan.TargetMode, "queued": plan.Queued, "scheduled": plan.Scheduled, "submitting": plan.Submitting,
 		"retry_wait": plan.RetryWait, "migrate_pending": migratePending}); err != nil {
 		return plan, unavailable("audit", err)
 	}
@@ -455,6 +461,127 @@ func (s *Service) ActivateTransport(ctx context.Context, a Actor, targetID strin
 	}
 	plan.AlreadyActive = true
 	return plan, nil
+}
+
+// mirrorProfileToLegacy copies an existing_smtp profile into the mail_server
+// singleton so the Mail server page (and an older binary after a rollback)
+// shows and uses the same settings as the active profile. The inbound
+// listener is installation-level: it is kept when the profile has none.
+// last_test is cleared because it described the previous settings.
+func mirrorProfileToLegacy(ctx context.Context, tx *db.Tx, id string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO mail_server(id, smtp_host, smtp_port, smtp_tls_mode, smtp_username, smtp_password_enc, test_sender, inbound_listener, mailcow_api_url, mailcow_api_key_enc)
+SELECT 1, COALESCE(config_json->>'host',''), COALESCE((config_json->>'port')::int, 587),
+  CASE WHEN config_json->>'tls_mode'='implicit' THEN 'implicit' ELSE 'starttls' END,
+  COALESCE(config_json->>'username',''), encrypted_secret, COALESCE(config_json->>'test_sender',''),
+  COALESCE(config_json->>'inbound_listener',''), COALESCE(config_json->>'mailcow_api_url',''), encrypted_provider_secret
+FROM transport_profiles WHERE id=$1::uuid AND mode='existing_smtp'
+ON CONFLICT (id) DO UPDATE SET smtp_host=EXCLUDED.smtp_host, smtp_port=EXCLUDED.smtp_port, smtp_tls_mode=EXCLUDED.smtp_tls_mode,
+  smtp_username=EXCLUDED.smtp_username, smtp_password_enc=EXCLUDED.smtp_password_enc, test_sender=EXCLUDED.test_sender,
+  inbound_listener=CASE WHEN EXCLUDED.inbound_listener='' THEN mail_server.inbound_listener ELSE EXCLUDED.inbound_listener END,
+  mailcow_api_url=EXCLUDED.mailcow_api_url, mailcow_api_key_enc=EXCLUDED.mailcow_api_key_enc,
+  last_test=NULL, last_test_at=NULL, updated_at=now()`, id)
+	return err
+}
+
+// UpdateTransportProfile edits an existing_smtp profile's label and SMTP
+// settings. A blank password keeps the stored one. The revision is bumped only
+// when settings or the secret really change, which makes earlier checks stale.
+func (s *Service) UpdateTransportProfile(ctx context.Context, a Actor, id string, in TransportProfileInput) (map[string]any, error) {
+	if !isUUID(id) {
+		return nil, newErr(404, "not_found")
+	}
+	in.Label = strings.TrimSpace(in.Label)
+	if in.Label == "" || len(in.Label) > 80 {
+		return nil, badRequest("give the profile a short label")
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return nil, unavailable("transport_profile_update", err)
+	}
+	defer tx.Rollback(ctx)
+	var mode string
+	var active bool
+	if err := tx.QueryRow(ctx, `SELECT mode, is_active FROM transport_profiles WHERE id=$1::uuid AND status <> 'retired' FOR UPDATE`, id).Scan(&mode, &active); err != nil {
+		return nil, notFound(err)
+	}
+	if in.Mode != "" && in.Mode != mode {
+		return nil, badRequest("a profile's mode cannot be changed; create a new profile")
+	}
+	patch := map[string]any{}
+	var pw []byte
+	if mode == "existing_smtp" {
+		if in.SMTP == nil {
+			return nil, badRequest("smtp settings are required for existing_smtp")
+		}
+		v := MailServerInput{SMTPHost: in.SMTP.Host, SMTPPort: in.SMTP.Port, TLSMode: in.SMTP.TLSMode, Username: in.SMTP.Username, TestSender: in.SMTP.Sender}
+		if err := validateSMTPInput(&v); err != nil {
+			return nil, err
+		}
+		if v.SMTPHost == "" {
+			return nil, badRequest("SMTP host is required")
+		}
+		patch = map[string]any{"host": v.SMTPHost, "port": v.SMTPPort, "tls_mode": v.TLSMode, "username": strings.TrimSpace(v.Username), "test_sender": v.TestSender}
+		if in.SMTP.Password != nil && *in.SMTP.Password != "" {
+			if pw, err = s.Box.Seal([]byte(*in.SMTP.Password), []byte(smtpPasswordAAD)); err != nil {
+				return nil, unavailable("seal", err)
+			}
+		}
+	}
+	pj, _ := json.Marshal(patch)
+	var rev int64
+	var changed bool
+	if err := tx.QueryRow(ctx, `UPDATE transport_profiles p SET
+  config_revision = p.config_revision + CASE WHEN (p.config_json || $2::jsonb) IS DISTINCT FROM p.config_json OR $3::bytea IS NOT NULL THEN 1 ELSE 0 END,
+  status = CASE WHEN (p.config_json || $2::jsonb) IS DISTINCT FROM p.config_json OR $3::bytea IS NOT NULL THEN 'needs_action' ELSE p.status END,
+  config_json = p.config_json || $2::jsonb,
+  encrypted_secret = COALESCE($3::bytea, p.encrypted_secret),
+  label = $4, updated_at = now()
+FROM transport_profiles old WHERE p.id=$1::uuid AND old.id=p.id
+RETURNING p.config_revision, p.config_revision <> old.config_revision`, id, pj, pw, in.Label).Scan(&rev, &changed); err != nil {
+		return nil, unavailable("transport_profile_update", err)
+	}
+	if active && changed {
+		if err := mirrorProfileToLegacy(ctx, tx, id); err != nil {
+			return nil, unavailable("transport_profile_update", err)
+		}
+	}
+	if err := audit(ctx, tx, a, "transport.profile_update", "transport_profile", id, map[string]any{"revision": rev, "config_changed": changed, "password_changed": pw != nil}); err != nil {
+		return nil, unavailable("audit", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, unavailable("transport_profile_update", err)
+	}
+	return s.TransportProfile(ctx, id)
+}
+
+// RetireTransportProfile hides an inactive profile. The row is kept because
+// messages and audit records refer to it; the active profile cannot be retired.
+func (s *Service) RetireTransportProfile(ctx context.Context, a Actor, id string) error {
+	if !isUUID(id) {
+		return newErr(404, "not_found")
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return unavailable("transport_profile_retire", err)
+	}
+	defer tx.Rollback(ctx)
+	var active bool
+	if err := tx.QueryRow(ctx, `SELECT is_active FROM transport_profiles WHERE id=$1::uuid AND status <> 'retired' FOR UPDATE`, id).Scan(&active); err != nil {
+		return notFound(err)
+	}
+	if active {
+		return &Error{Status: 409, Code: "profile_active", Message: "activate another profile before retiring this one"}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE transport_profiles SET status='retired', encrypted_secret=NULL, encrypted_provider_secret=NULL, updated_at=now() WHERE id=$1::uuid`, id); err != nil {
+		return unavailable("transport_profile_retire", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE installation_settings SET previous_profile_id=NULL WHERE previous_profile_id=$1::uuid`, id); err != nil {
+		return unavailable("transport_profile_retire", err)
+	}
+	if err := audit(ctx, tx, a, "transport.profile_retire", "transport_profile", id, nil); err != nil {
+		return unavailable("audit", err)
+	}
+	return tx.Commit(ctx)
 }
 
 func isUUID(v string) bool {

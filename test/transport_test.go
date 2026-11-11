@@ -4,18 +4,30 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/installation"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/worker"
 )
 
 var okSteps = []mailer.Step{{Key: "dns", OK: true}, {Key: "tcp", OK: true}, {Key: "tls", OK: true}, {Key: "login", OK: true}, {Key: "sender", OK: true}}
 
-func (e *env) saveSMTP(host, password string) {
+func (e *env) saveSMTP(host, password string) { e.saveSMTPPort(host, 587, password) }
+
+// pin is the active profile revision, as a test of its settings would name it.
+func (e *env) pin() service.TransportPin {
 	e.t.Helper()
-	in := service.MailServerInput{SMTPHost: host, SMTPPort: 587, TLSMode: "starttls", Username: "njiwa@example.com", TestSender: "hello@notify.example.com"}
+	a, err := e.svc.LoadActiveSMTP(context.Background())
+	e.must(err)
+	return a.Pin()
+}
+
+func (e *env) saveSMTPPort(host string, port int, password string) {
+	e.t.Helper()
+	in := service.MailServerInput{SMTPHost: host, SMTPPort: port, TLSMode: "starttls", Username: "njiwa@example.com", TestSender: "hello@notify.example.com"}
 	if password != "" {
 		in.Password = &password
 	}
@@ -104,8 +116,8 @@ func TestStatusIsTiedToProfileRevision(t *testing.T) {
 	if p == nil || p["config_revision"].(int64) != 1 {
 		t.Fatalf("%v", p)
 	}
-	e.must(e.svc.RecordMailTest(ctx, "connection", true, okSteps))
-	e.must(e.svc.RecordMailTest(ctx, "test_send", true, map[string]any{"state": "submitted"}))
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "connection", true, okSteps))
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "test_send", true, map[string]any{"state": "submitted"}))
 	if r := e.readiness(); r.Status != installation.Ready || r.Progress.Complete != r.Progress.Required {
 		t.Fatalf("want ready: %+v", r)
 	}
@@ -130,8 +142,8 @@ func TestStatusIsTiedToProfileRevision(t *testing.T) {
 		t.Fatal("rotated password not used")
 	}
 	// A host change likewise.
-	e.must(e.svc.RecordMailTest(ctx, "connection", true, okSteps))
-	e.must(e.svc.RecordMailTest(ctx, "test_send", true, map[string]any{"state": "submitted"}))
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "connection", true, okSteps))
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "test_send", true, map[string]any{"state": "submitted"}))
 	e.saveSMTP("other.example.com", "")
 	if r := e.readiness(); r.Status != installation.Stale {
 		t.Fatalf("want stale after host change: %+v", r)
@@ -141,7 +153,7 @@ func TestStatusIsTiedToProfileRevision(t *testing.T) {
 		t.Fatalf("password must be retained across edits: %+v", cfg)
 	}
 	// A failing test is reported as needs_action with a stable code.
-	e.must(e.svc.RecordMailTest(ctx, "connection", false, []mailer.Step{{Key: "tls", OK: false}}))
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "connection", false, []mailer.Step{{Key: "tls", OK: false}}))
 	r := e.readiness()
 	var code string
 	for _, s := range r.Steps {
@@ -151,6 +163,9 @@ func TestStatusIsTiedToProfileRevision(t *testing.T) {
 	}
 	if r.Status == installation.Ready || code != "SMTP_TLS_FAILED" {
 		t.Fatalf("code=%q %+v", code, r)
+	}
+	if c := service.ProblemCode("test_send", map[string]any{"reason": "smtp_auth_failed"}); c != "SMTP_AUTH_FAILED" {
+		t.Fatalf("problem code %q", c)
 	}
 }
 
@@ -207,11 +222,24 @@ func TestProfileActivationPlanAndGates(t *testing.T) {
 	if r.Code != 202 {
 		t.Fatalf("%d %s", r.Code, r.Raw)
 	}
+	// Sandbox mail never touches a transport, so it is not part of the plan;
+	// scheduled live mail is.
+	if sr := e.post(k.sbx, idem("sbx"), otpBody(testRcpt)); sr.Code != 202 {
+		t.Fatalf("%d %s", sr.Code, sr.Raw)
+	}
+	sched := otpBody(testRcpt)
+	sched["send_at"] = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	sr := e.post(k.live, idem("sched"), sched)
+	if sr.Code != 202 {
+		t.Fatalf("%d %s", sr.Code, sr.Raw)
+	}
 	plan, err = e.svc.PlanTransportSwitch(ctx, b)
 	e.must(err)
-	if plan.Queued != 1 || !plan.NeedsDecision || len(plan.Blockers) != 0 {
+	if plan.Queued != 1 || plan.Scheduled != 1 || !plan.NeedsDecision || len(plan.Blockers) != 0 {
 		t.Fatalf("plan: %+v", plan)
 	}
+	_, err = e.pool.Exec(ctx, `DELETE FROM messages WHERE id=$1`, str(sr.JSON, "id"))
+	e.must(err)
 	if _, err := e.svc.ActivateTransport(ctx, actor, b, false); errCodeOf(err) != "pending_jobs_require_decision" {
 		t.Fatalf("silent re-route allowed: %v", err)
 	}
@@ -262,16 +290,14 @@ func TestProfileActivationPlanAndGates(t *testing.T) {
 	}
 }
 
-// Old SMTP stays functional through the worker after migration, and each
-// submitted message records the profile revision that accepted it.
+// Old SMTP stays functional through the worker after the migration: the stored
+// transport reads the active profile, really submits over verified TLS, and
+// each submitted message records the profile revision that sent it.
 func TestWorkerUsesActiveProfileAndPinsMessages(t *testing.T) {
 	e := setup(t)
-	ctx := context.Background()
-	e.saveSMTP("mail.example.com", "pw")
-	cfg, _, _, ok, err := e.svc.StoredSMTP(ctx)
-	if err != nil || !ok || cfg.Host != "mail.example.com" {
-		t.Fatalf("%v %v %+v", ok, err, cfg)
-	}
+	srv, pool, port := startSMTP(t, scenario{})
+	e.saveSMTPPort("127.0.0.1", port, "pw")
+	e.w.SMTP = &worker.StoredTransport{Svc: e.svc, Timeout: 3 * time.Second, RootCAs: pool}
 	k := e.provision("proj")
 	r := e.post(k.live, idem("pin"), otpBody(testRcpt))
 	if r.Code != 202 {
@@ -279,12 +305,200 @@ func TestWorkerUsesActiveProfileAndPinsMessages(t *testing.T) {
 	}
 	e.runWorker()
 	id := str(r.JSON, "id")
-	if e.state(id) != "submitted" {
-		t.Fatalf("state %s", e.state(id))
+	if e.state(id) != "submitted" || !srv.saw("DATA") {
+		t.Fatalf("state %s, data sent=%v", e.state(id), srv.saw("DATA"))
 	}
 	if e.count(`SELECT count(*) FROM messages m JOIN transport_profiles p ON p.id=m.transport_profile_id
- WHERE m.id=$1 AND m.transport_revision=p.config_revision`, id) != 1 {
-		t.Fatal("submitted message not pinned to the active profile revision")
+ WHERE m.id=$1 AND p.is_active AND m.transport_revision=p.config_revision`, id) != 1 {
+		t.Fatal("submitted message not pinned to the profile revision that sent it")
+	}
+	// A transport that cannot name a profile (environment SMTP, test fakes)
+	// leaves the pin NULL instead of guessing the active profile.
+	e.w.SMTP = e.tr
+	r = e.post(k.live, idem("nopin"), otpBody(testRcpt))
+	e.runWorker()
+	if e.count(`SELECT count(*) FROM messages WHERE id=$1 AND state='submitted' AND transport_profile_id IS NULL`, str(r.JSON, "id")) != 1 {
+		t.Fatal("unattributable submission must not be pinned")
+	}
+}
+
+// An ambiguous outcome is the case reconciliation needs the pin for most.
+func TestUnknownOutcomeIsPinnedAndNotResent(t *testing.T) {
+	e := setup(t)
+	srv, pool, port := startSMTP(t, scenario{dropAfterData: true})
+	e.saveSMTPPort("127.0.0.1", port, "pw")
+	e.w.SMTP = &worker.StoredTransport{Svc: e.svc, Timeout: 3 * time.Second, RootCAs: pool}
+	k := e.provision("proj")
+	r := e.post(k.live, idem("unk"), otpBody(testRcpt))
+	e.runWorker()
+	id := str(r.JSON, "id")
+	if e.state(id) != "unknown" {
+		t.Fatalf("state %s", e.state(id))
+	}
+	if e.count(`SELECT count(*) FROM messages m JOIN transport_profiles p ON p.id=m.transport_profile_id WHERE m.id=$1 AND m.transport_revision=p.config_revision`, id) != 1 {
+		t.Fatal("unknown outcome not pinned")
+	}
+	e.runWorker()
+	srv.mu.Lock()
+	n := 0
+	for _, c := range srv.cmds {
+		if c == "DATA" {
+			n++
+		}
+	}
+	srv.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("unknown outcome was resent: %d DATA commands", n)
+	}
+}
+
+// A pass on environment SMTP must not vouch for different saved settings; when
+// both are identical the result is attributed to the profile revision.
+func TestEnvironmentTestBindsOnlyToIdenticalProfile(t *testing.T) {
+	e := setup(t)
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	_, pool, port := startSMTP(t, scenario{})
+	envCfg := mailer.SMTPConfig{Host: "127.0.0.1", Port: port, Username: "njiwa@example.com", Password: "env-pw", RootCAs: pool, Timeout: 3 * time.Second}
+	e.srv.EnvSMTP = &envCfg
+	t.Cleanup(func() { e.srv.EnvSMTP = nil })
+
+	e.saveSMTP("saved.example.com", "other-pw") // differs from the environment
+	if r := e.admOK(admin, "POST", "/admin/v1/mail-server/test", nil); r.JSON["ok"] != true {
+		t.Fatalf("env test: %s", r.Raw)
+	}
+	if n := e.count(`SELECT count(*) FROM installation_checks`); n != 0 {
+		t.Fatalf("a pass on environment SMTP was attached to a different saved profile (%d checks)", n)
+	}
+	if r := e.readiness(); r.Status == installation.Ready {
+		t.Fatalf("%+v", r)
+	}
+	st := e.admOK(admin, "GET", "/admin/v1/installation", nil)
+	if st.JSON["environment_override"] != true {
+		t.Fatalf("override not reported: %s", st.Raw)
+	}
+
+	e.saveSMTPPort("127.0.0.1", port, "env-pw") // now identical
+	if r := e.admOK(admin, "POST", "/admin/v1/mail-server/test", nil); r.JSON["ok"] != true {
+		t.Fatalf("env test: %s", r.Raw)
+	}
+	if n := e.count(`SELECT count(*) FROM installation_checks c JOIN transport_profiles p ON p.id=c.profile_id AND p.config_revision=c.config_revision WHERE c.result='pass'`); n != 1 {
+		t.Fatalf("identical env/profile test not bound: %d", n)
+	}
+}
+
+// The project checklist's mail-server step follows the active revision.
+func TestChecklistMailServerStepFollowsActiveRevision(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.provision("proj")
+	sc, err := e.svc.ResolveScope(ctx, "proj", "live")
+	e.must(err)
+	done := func() bool {
+		steps, _, err := e.svc.Checklist(ctx, sc, false)
+		e.must(err)
+		for _, s := range steps {
+			if s.Key == "mail_server" {
+				return s.Done
+			}
+		}
+		t.Fatal("no mail_server step")
+		return false
+	}
+	e.saveSMTP("mail.example.com", "pw")
+	if done() {
+		t.Fatal("done before any test")
+	}
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "connection", true, okSteps))
+	if !done() {
+		t.Fatal("not done after a pass for the active revision")
+	}
+	e.saveSMTP("mail.example.com", "rotated") // revision 2: the old pass no longer applies
+	if done() {
+		t.Fatal("still done after the settings changed")
+	}
+	// A pass on a different (inactive) profile does not count either.
+	b := e.newProfile("second.example.com")
+	_, _, rev, _ := e.svc.ProfileSMTP(ctx, b)
+	e.must(e.svc.RecordInstallationCheck(ctx, b, rev, "connection", true, "", nil, false))
+	if done() {
+		t.Fatal("another profile's pass completed the step")
+	}
+}
+
+// Editing and retiring profiles; activation keeps the Mail server page in step.
+func TestProfileUpdateRetireAndLegacyMirror(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	actor := service.Actor{Name: "test"}
+	in := service.MailServerInput{SMTPHost: "mail.example.com", SMTPPort: 587, TLSMode: "starttls", Username: "a", InboundListener: "njiwa-inbound:2525"}
+	pw := "pw-a"
+	in.Password = &pw
+	e.must(e.svc.SaveMailServer(ctx, in))
+	a := str(e.activeProfile(), "id")
+	b := e.newProfile("second.example.com")
+	base := "/admin/v1/installation/transport-profiles/"
+	body := func(host string, password any) map[string]any {
+		sm := map[string]any{"host": host, "port": 465, "tls_mode": "implicit", "username": "u"}
+		if password != nil {
+			sm["password"] = password
+		}
+		return map[string]any{"label": "Second", "smtp": sm}
+	}
+	r := e.admOK(owner, "PUT", base+b, body("second.example.com", nil))
+	if r.JSON["config_revision"].(float64) != 2 || r.JSON["label"] != "Second" { // port and TLS mode changed
+		t.Fatalf("update: %s", r.Raw)
+	}
+	r = e.admOK(owner, "PUT", base+b, body("second.example.com", nil))
+	if r.JSON["config_revision"].(float64) != 2 {
+		t.Fatalf("identical update bumped the revision: %s", r.Raw)
+	}
+	r = e.admOK(owner, "PUT", base+b, body("second.example.com", "rotated-secret-123"))
+	if r.JSON["config_revision"].(float64) != 3 || strings.Contains(r.Raw, "rotated-secret-123") {
+		t.Fatalf("rotation: %s", r.Raw)
+	}
+	if r := e.adm(owner, "PUT", base+b, map[string]any{"label": "x", "smtp": map[string]any{"host": "bad host", "port": 587}}); r.Code != 400 {
+		t.Fatalf("invalid host accepted: %d", r.Code)
+	}
+	if r := e.adm(owner, "DELETE", base+a, nil); r.Code != 409 || errCode(r) != "profile_active" {
+		t.Fatalf("active profile retired: %d %s", r.Code, r.Raw)
+	}
+
+	// Activate B: the legacy page and StoredSMTP now show B, with B's secret,
+	// and the installation-level inbound listener survives.
+	_, _, rev, err := e.svc.ProfileSMTP(ctx, b)
+	e.must(err)
+	e.must(e.svc.RecordInstallationCheck(ctx, b, rev, "connection", true, "", nil, false))
+	if _, err := e.svc.ActivateTransport(ctx, actor, b, false); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := e.svc.GetMailServer(ctx)
+	e.must(err)
+	if ms["smtp_host"] != "second.example.com" || ms["smtp_tls_mode"] != "implicit" || ms["inbound_listener"] != "njiwa-inbound:2525" || ms["last_test"] != nil {
+		t.Fatalf("legacy row not mirrored: %v", ms)
+	}
+	cfg, _, _, ok, err := e.svc.StoredSMTP(ctx)
+	if err != nil || !ok || cfg.Host != "second.example.com" || cfg.Password != "rotated-secret-123" || !cfg.Implicit {
+		t.Fatalf("%+v %v %v", cfg, ok, err)
+	}
+	// Saving the Mail server page now edits B (the active profile), not A.
+	e.saveSMTP("third.example.com", "")
+	if p := e.activeProfile(); str(p, "id") != b || p["config"].(map[string]any)["host"] != "third.example.com" {
+		t.Fatalf("page save went to the wrong profile: %v", p)
+	}
+
+	// Retire A: hidden, cannot be activated, secrets dropped, rollback pointer cleared.
+	e.admOK(owner, "DELETE", base+a, nil)
+	l, _ := e.svc.ListTransportProfiles(ctx)
+	if len(l) != 1 {
+		t.Fatalf("retired profile still listed: %d", len(l))
+	}
+	if _, err := e.svc.ActivateTransport(ctx, actor, a, true); errCodeOf(err) != "not_found" {
+		t.Fatalf("retired profile activated: %v", err)
+	}
+	if e.count(`SELECT count(*) FROM transport_profiles WHERE id=$1::uuid AND encrypted_secret IS NULL`, a) != 1 ||
+		e.count(`SELECT count(*) FROM installation_settings WHERE previous_profile_id IS NOT NULL`) != 0 {
+		t.Fatal("retire did not drop the secret or clear the rollback pointer")
 	}
 }
 

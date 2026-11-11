@@ -127,25 +127,58 @@ ON CONFLICT (id) DO UPDATE SET smtp_host=EXCLUDED.smtp_host, smtp_port=EXCLUDED.
 	return nil
 }
 
-// StoredSMTP returns the active existing-SMTP profile with the password
-// decrypted. ok is false when no usable host is stored, or when the active
-// profile is a different mode. With no profile at all (an installation that
-// has not run migration 0010's backfill, or was rolled back and edited by an
-// older binary) it falls back to the legacy singleton row.
-func (s *Service) StoredSMTP(ctx context.Context) (cfg mailer.SMTPConfig, sender string, updated time.Time, ok bool, err error) {
+// ActiveSMTP is the SMTP configuration the worker should use, with the exact
+// profile revision it came from. ProfileID is empty when it came from the
+// legacy singleton row (no profile exists).
+type ActiveSMTP struct {
+	Cfg       mailer.SMTPConfig
+	Sender    string
+	ProfileID string
+	Revision  int64
+	Updated   time.Time
+	OK        bool // false: no usable host, or the active profile is another mode
+}
+
+// Pin is the profile revision a message was handed to.
+func (a ActiveSMTP) Pin() TransportPin {
+	return TransportPin{ProfileID: a.ProfileID, Revision: a.Revision}
+}
+
+// TransportPin identifies the profile revision that performed a submission.
+// The zero value means "not attributable to a profile" (environment SMTP or
+// the legacy row) and is stored as NULL rather than guessed.
+type TransportPin struct {
+	ProfileID string
+	Revision  int64
+}
+
+// LoadActiveSMTP reads the active existing-SMTP profile with the password
+// decrypted. With no profile at all (an installation that has not run
+// migration 0010's backfill) it falls back to the legacy singleton row.
+func (s *Service) LoadActiveSMTP(ctx context.Context) (ActiveSMTP, error) {
+	var a ActiveSMTP
 	var mode string
 	var cj, pwEnc []byte
-	err = s.Pool.QueryRow(ctx, `SELECT mode, config_json, encrypted_secret, updated_at FROM transport_profiles WHERE is_active`).Scan(&mode, &cj, &pwEnc, &updated)
+	err := s.Pool.QueryRow(ctx, `SELECT id::text, config_revision, mode, config_json, encrypted_secret, updated_at FROM transport_profiles WHERE is_active`).
+		Scan(&a.ProfileID, &a.Revision, &mode, &cj, &pwEnc, &a.Updated)
 	if errors.Is(err, db.ErrNoRows) {
-		return s.legacyStoredSMTP(ctx)
+		a.Cfg, a.Sender, a.Updated, a.OK, err = s.legacyStoredSMTP(ctx)
+		return a, err
 	}
 	if err != nil {
-		return cfg, "", updated, false, err
+		return a, err
 	}
 	if mode != "existing_smtp" {
-		return cfg, "", updated, false, nil
+		return a, nil
 	}
-	return s.openSMTPProfile(cj, pwEnc, updated)
+	a.Cfg, a.Sender, _, a.OK, err = s.openSMTPProfile(cj, pwEnc, a.Updated)
+	return a, err
+}
+
+// StoredSMTP is LoadActiveSMTP in the older tuple form.
+func (s *Service) StoredSMTP(ctx context.Context) (cfg mailer.SMTPConfig, sender string, updated time.Time, ok bool, err error) {
+	a, err := s.LoadActiveSMTP(ctx)
+	return a.Cfg, a.Sender, a.Updated, a.OK, err
 }
 
 func (s *Service) openSMTPProfile(cj, pwEnc []byte, updated time.Time) (cfg mailer.SMTPConfig, sender string, _ time.Time, ok bool, err error) {
@@ -199,25 +232,27 @@ func (s *Service) legacyStoredSMTP(ctx context.Context) (cfg mailer.SMTPConfig, 
 }
 
 // RecordMailTest stores the outcome of a connection test or test send. The
-// legacy last_test column is kept for the old screens; the authoritative
-// record is an installation check bound to the active profile's revision.
-func (s *Service) RecordMailTest(ctx context.Context, kind string, ok bool, detail any) error {
+// legacy last_test column is kept for the old screens. When pin names the
+// profile revision whose settings were actually tested, the result is also
+// stored as an installation check bound to that revision. Callers must pass a
+// zero pin when they tested anything else (for example environment SMTP that
+// differs from the saved profile), so a pass can never attach to settings it
+// did not exercise.
+func (s *Service) RecordMailTest(ctx context.Context, pin TransportPin, kind string, ok bool, detail any) error {
 	b, _ := json.Marshal(map[string]any{"kind": kind, "ok": ok, "detail": detail})
 	if _, err := s.Pool.Exec(ctx, `INSERT INTO mail_server(id, last_test, last_test_at) VALUES (1,$1,now())
 ON CONFLICT (id) DO UPDATE SET last_test=EXCLUDED.last_test, last_test_at=now()`, b); err != nil {
 		return err
 	}
-	var id string
-	var rev int64
-	if err := s.Pool.QueryRow(ctx, `SELECT id::text, config_revision FROM transport_profiles WHERE is_active AND mode='existing_smtp'`).Scan(&id, &rev); err != nil {
-		return nil // no active SMTP profile: nothing to bind the result to
+	if pin.ProfileID == "" {
+		return nil
 	}
-	return s.RecordInstallationCheck(ctx, id, rev, kind, ok, problemCodeFor(kind, detail), nil, false)
+	return s.RecordInstallationCheck(ctx, pin.ProfileID, pin.Revision, kind, ok, problemCodeFor(kind, detail), nil, false)
 }
 
 // TestSendDirect sends one message straight to the mail server (not through
 // the queue) and reports the honest outcome.
-func (s *Service) TestSendDirect(ctx context.Context, cfg mailer.SMTPConfig, from, to string) (map[string]any, error) {
+func (s *Service) TestSendDirect(ctx context.Context, cfg mailer.SMTPConfig, pin TransportPin, from, to string) (map[string]any, error) {
 	f, ok := NormalizeEmail(strings.ToLower(strings.TrimSpace(from)))
 	if !ok {
 		return nil, badRequest("set a test sender address first")
@@ -242,7 +277,7 @@ func (s *Service) TestSendDirect(ctx context.Context, cfg mailer.SMTPConfig, fro
 	res := mailer.NewSMTP(cfg).Send(sctx, mailer.Envelope{From: envFrom, To: t, Raw: raw})
 	state := map[mailer.Outcome]string{mailer.Accepted: "submitted", mailer.TempFailure: "failed", mailer.PermFailure: "failed", mailer.Unknown: "unknown"}[res.Outcome]
 	out := map[string]any{"state": state, "reason": res.Reason, "reply": res.Reply, "to": maskEmail(t)}
-	_ = s.RecordMailTest(ctx, "test_send", res.Outcome == mailer.Accepted, out)
+	_ = s.RecordMailTest(ctx, pin, "test_send", res.Outcome == mailer.Accepted, out)
 	return out, nil
 }
 

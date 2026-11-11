@@ -90,9 +90,22 @@ type ChecklistStep struct {
 // sandbox message and a submitted live message in this project.
 func (s *Service) Checklist(ctx context.Context, sc *Scope, smtpEnv bool) ([]ChecklistStep, bool, error) {
 	var serverOK, projects, domains, dnsOK, senders, keys, captured, submitted, mailboxes bool
+	// Mail server step. Two records exist: a check bound to the ACTIVE profile
+	// at its CURRENT revision, and the legacy last_test (cleared whenever the
+	// active settings change; the only record for environment SMTP that is not
+	// attributable to a profile, and for installs migrated from the singleton
+	// row). The newer of the two decides, so a pass for other settings, another
+	// profile or an older revision never counts.
+	var result string
+	var checkedAt, legacyAt *time.Time
 	var lastTest []byte
-	_ = s.Pool.QueryRow(ctx, `SELECT last_test FROM mail_server WHERE id=1`).Scan(&lastTest)
-	if lastTest != nil {
+	_ = s.Pool.QueryRow(ctx, `SELECT c.result, c.checked_at FROM installation_checks c JOIN transport_profiles p ON p.id=c.profile_id
+WHERE p.is_active AND c.config_revision=p.config_revision AND c.check_key IN ('connection','test_send')
+ORDER BY c.checked_at DESC LIMIT 1`).Scan(&result, &checkedAt)
+	_ = s.Pool.QueryRow(ctx, `SELECT last_test, last_test_at FROM mail_server WHERE id=1`).Scan(&lastTest, &legacyAt)
+	if checkedAt != nil && (legacyAt == nil || lastTest == nil || !legacyAt.After(*checkedAt)) {
+		serverOK = result == "pass"
+	} else if lastTest != nil {
 		var t struct {
 			OK bool `json:"ok"`
 		}
@@ -100,7 +113,7 @@ func (s *Service) Checklist(ctx context.Context, sc *Scope, smtpEnv bool) ([]Che
 		serverOK = t.OK
 	}
 	err := s.Pool.QueryRow(ctx, `SELECT
-  EXISTS (SELECT 1 FROM projects),
+  EXISTS (SELECT 1 FROM projects WHERE id=$1),
   EXISTS (SELECT 1 FROM domains WHERE project_id=$1),
   EXISTS (SELECT 1 FROM domains WHERE project_id=$1 AND verified_at IS NOT NULL AND spf_ok AND dkim_ok AND dmarc_ok
           AND (purpose='sending' OR mx_ok)),
