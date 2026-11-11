@@ -1,11 +1,18 @@
 # Njiwa Mail: standalone stack (own PostgreSQL, API, worker, scheduler, inbound).
-# Independent of any client application and of Mailcow's Compose project.
+# Independent of any client application and of any mail server's Compose project.
 # Usage: cp .env.example .env && edit .env && docker compose up -d --build
 #
-# The inbound SMTP listener is in the "inbound" profile because it joins
-# Mailcow's Docker network, which must already exist:
+# Both delivery modes use this file unchanged:
+# - Existing SMTP: the worker connects out to your mail server.
+# - Send from my VPS (managed): Postfix runs on the host (njiwa-mail installer).
+#   The worker reaches its private submission listener at the network gateway
+#   (172.30.0.1 by default: installer -submission 172.30.0.1:10587), and host
+#   Postfix relays bounces to the inbound listener on 127.0.0.1:2525.
+#
+# The inbound listener (bounces, receiving) is the "inbound" profile:
 #   docker compose --profile inbound up -d --build
-# See docs/MAILCOW_SETUP.md before enabling it.
+# Mailcow users who want Mailcow to relay to it on Mailcow's Docker network add
+# the override: -f compose.yaml -f compose.mailcow.yaml (see docs/MAILCOW_SETUP.md).
 name: njiwa-mail
 
 x-app: &app
@@ -93,9 +100,10 @@ services:
       retries: 3
     deploy: { resources: { limits: { memory: 128m } } }
 
-  # Private SMTP listener for mail relayed by Mailcow. NO published ports: it
-  # is reachable only on Mailcow's Docker network, at a fixed address that the
-  # Mailcow transport map points to.
+  # Private SMTP listener for bounces and received mail relayed by your mail
+  # server. Published on the host's loopback only (for host Postfix in managed
+  # mode); never on a public interface. Set INBOUND_ALLOWED_SOURCES to the
+  # address the relay connects from (172.30.0.1 for host Postfix).
   inbound:
     <<: *app
     profiles: [inbound]
@@ -104,10 +112,7 @@ services:
       <<: *app-env
       INBOUND_LISTEN_ADDR: 0.0.0.0:2525
     volumes: ["maildata:/var/lib/njiwa-mail"]
-    networks:
-      internal: {}
-      mailcow:
-        ipv4_address: ${INBOUND_IPV4:-172.22.1.200}
+    ports: ["127.0.0.1:2525:2525"]
     depends_on:
       migrate: { condition: service_completed_successfully }
     healthcheck:
@@ -125,10 +130,12 @@ services:
     networks: [internal]
 
 networks:
-  internal: {}
-  mailcow:
-    external: true
-    name: ${MAILCOW_NETWORK:-mailcowdockerized_mailcow-network}
+  internal:
+    # A fixed subnet gives the host a stable address on this network (the
+    # gateway, .1), where a managed-mode Postfix listens for the worker.
+    ipam:
+      config:
+        - subnet: ${NJIWA_SUBNET:-172.30.0.0/24}
 
 volumes:
   pgdata: {}

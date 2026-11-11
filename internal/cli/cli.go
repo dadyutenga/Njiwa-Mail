@@ -8,8 +8,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -19,6 +21,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/config"
 	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/inbound"
+	"github.com/njiwa-tz/mail/internal/installer/managed"
 	"github.com/njiwa-tz/mail/internal/installer/preflight"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/secure"
@@ -38,10 +41,18 @@ Runtime:
   worker-health [-max 60s]    exit non-zero if no worker heartbeat (for container healthchecks)
   role-health -role R [-max 60s]   same, for worker | inbound | scheduler
   dns-check                   run the read-only DNS health check now and print the results
+  mta-log [-file /var/log/mail.log|-] [-follow]
+                              record delivery evidence (sent, deferred, bounced) from Postfix log lines,
+                              correlated to messages by queue ID; "-" reads stdin (journalctl -fu postfix | ...)
   smtp-check                  verify TLS + auth against the SMTP server (sends nothing)
   preflight [-hostname H -ip IP -spool DIR -probe DOMAIN -json -record]
                               read-only host checks for "Send from my VPS" (managed mode); changes nothing.
                               -record stores the result for the Delivery infrastructure page (needs the database)
+  installer plan|apply|rollback|status   (root, on the mail host; managed mode only)
+       [-hostname H -domains a.example,b.example -bounce-domain D -selector S
+        -submission 127.0.0.1:10587 -inbound 127.0.0.1:2525 -adopt -approve DIGEST -record]
+                              plan prints the exact changes and a digest; apply needs -approve with that digest,
+                              backs up, validates (postfix check, opendkim -n) and rolls back on failure
   retention                   run the retention job once
 
 Provisioning (operator CLI only):
@@ -89,6 +100,10 @@ func Run(args []string) {
 		runPreflight(context.Background(), nil, args[1:])
 		return
 	}
+	if args[0] == "installer" && !hasFlag(args[1:], "record") {
+		runInstaller(context.Background(), nil, args[1:])
+		return
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		die(err)
@@ -115,7 +130,9 @@ func Run(args []string) {
 		UnknownPurge: cfg.UnknownPurge, MaxAttempts: cfg.MaxAttempts,
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
-		PublicURL: cfg.PublicURL, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains})
+		PublicURL: cfg.PublicURL, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
+		LiveDomainPerMinute: cfg.LiveDomainPerMinute, LiveDomainPerHour: cfg.LiveDomainPerHour})
 	if cfg.AllowUnregisteredLiveDomains {
 		slog.Warn("ALLOW_UNREGISTERED_LIVE_DOMAINS is on: Live mail may use sending domains that no project has registered. Register and verify every sending domain, then turn this off.")
 	}
@@ -156,8 +173,12 @@ func Run(args []string) {
 			os.Exit(1)
 		}
 		fmt.Println(*role, "healthy")
+	case "installer":
+		runInstaller(ctx, &installerDeps{svc: svc, cfg: cfg}, args)
 	case "preflight":
 		runPreflight(ctx, &preflightDeps{svc: svc, hostname: cfg.MailHostname, ip: cfg.OutboundIP, spool: cfg.DataDir}, args)
+	case "mta-log":
+		runMTALog(ctx, svc, args)
 	case "dns-check":
 		res, err := svc.RunDNSChecks(ctx, nil)
 		if err != nil {
@@ -642,4 +663,207 @@ func firstNonEmpty(v ...string) string {
 		}
 	}
 	return ""
+}
+
+type installerDeps struct {
+	svc *service.Service
+	cfg *config.Config
+}
+
+type execRunner struct{}
+
+func (execRunner) Run(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// runInstaller is the privileged, operator-run managed-mode installer. It is
+// never reachable from the HTTP API.
+func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
+	if len(args) == 0 {
+		die(errors.New("usage: njiwa-mail installer plan|apply|rollback|status [flags]"))
+	}
+	sub, args := args[0], args[1:]
+	fs := flag.NewFlagSet("installer "+sub, flag.ExitOnError)
+	def := func(env, fallback string) string { return firstNonEmpty(os.Getenv(env), fallback) }
+	bounceDomain := ""
+	if _, d, ok := strings.Cut(os.Getenv("BOUNCE_ADDRESS"), "@"); ok {
+		bounceDomain = d
+	}
+	hostname := fs.String("hostname", def("MAIL_HOSTNAME", ""), "public mail hostname (HELO, PTR, certificate)")
+	domains := fs.String("domains", "", "comma-separated sending domains to sign (default with -record: the installation's claimed domains)")
+	bounce := fs.String("bounce-domain", bounceDomain, "domain of BOUNCE_ADDRESS; DSNs to it are relayed to Njiwa")
+	selector := fs.String("selector", def("DKIM_SELECTOR", "dkim"), "DKIM selector")
+	submission := fs.String("submission", "127.0.0.1:10587", "private listener for the Njiwa worker (ip:port, never 0.0.0.0)")
+	inbound := fs.String("inbound", "127.0.0.1:2525", "Njiwa inbound listener that receives DSNs (host:port)")
+	adopt := fs.Bool("adopt", false, "replace an existing Postfix configuration not written by Njiwa-Mail (backed up first)")
+	approve := fs.String("approve", "", "apply only if the plan digest equals this value")
+	receipt := fs.String("receipt", "", "rollback: receipt id (default: the latest)")
+	record := fs.Bool("record", false, "store the result in the database for the Delivery infrastructure page")
+	asJSON := fs.Bool("json", false, "print JSON")
+	fs.Parse(args)
+
+	var ds []string
+	for _, d := range strings.Split(*domains, ",") {
+		if d = strings.TrimSpace(d); d != "" {
+			ds = append(ds, d)
+		}
+	}
+	if len(ds) == 0 && deps != nil {
+		var err error
+		if ds, err = deps.svc.ClaimedDomains(ctx); err != nil {
+			die(err)
+		}
+	}
+	p := managed.Params{Hostname: *hostname, BounceDomain: *bounce, Domains: ds, Selector: *selector,
+		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt}
+	show := func(v any, text string) {
+		if *asJSON {
+			_ = json.NewEncoder(os.Stdout).Encode(v)
+			return
+		}
+		fmt.Print(text)
+	}
+	switch sub {
+	case "plan":
+		pl, err := managed.BuildPlan(p)
+		if err != nil {
+			die(err)
+		}
+		show(pl, pl.Summary()+"\nReview the changes, then run:\n  njiwa-mail installer apply -approve "+pl.Digest+" (same flags)\n")
+	case "apply":
+		if os.Geteuid() != 0 {
+			die(errors.New("the installer must run as root on the mail host"))
+		}
+		rc, err := managed.Apply(p, *approve, execRunner{}, time.Now())
+		if rc != nil {
+			var b strings.Builder
+			for _, s := range rc.Steps {
+				st := "ok  "
+				if !s.OK {
+					st = "FAIL"
+				}
+				fmt.Fprintf(&b, "%s %s %s\n", st, s.Name, s.Detail)
+			}
+			fmt.Fprintf(&b, "\nResult: %s (receipt %s)\n", rc.Result, rc.ID)
+			if rc.Result == "ok" {
+				b.WriteString("\nPublish these DKIM records, then check each domain on the Domains page:\n")
+				for d, txt := range rc.DKIMRecords {
+					fmt.Fprintf(&b, "  %s._domainkey.%s TXT \"%s\"\n", rc.Params.Selector, d, txt)
+				}
+			}
+			show(rc, b.String())
+		}
+		if err != nil {
+			die(err)
+		}
+		if *record {
+			if deps == nil {
+				die(errors.New("-record needs the database configuration"))
+			}
+			read := func(path string) []byte {
+				b, err := os.ReadFile(path)
+				if err != nil {
+					die(err)
+				}
+				return b
+			}
+			host, _, _ := strings.Cut(rc.Params.SubmissionBind, ":")
+			portN := managed.SubmissionPort(rc.Params.SubmissionBind)
+			if err := deps.svc.RecordManagedInstall(ctx, service.CLIActor, service.ManagedInstall{ReceiptID: rc.ID, PlanDigest: rc.PlanDigest,
+				ApprovedBy: "cli", BackupRef: rc.BackupDir, PostfixVersion: rc.PostfixVersion, SubmissionHost: host, SubmissionPort: portN,
+				ServerName: rc.Params.Hostname, Selector: rc.Params.Selector, DKIMRecords: rc.DKIMRecords,
+				ClientCertPEM: read("/etc/njiwa-mail/submission/client.crt"), ClientKeyPEM: read("/etc/njiwa-mail/submission/client.key"),
+				CAPEM: read("/etc/njiwa-mail/submission/ca.crt")}); err != nil {
+				die(err)
+			}
+			fmt.Println("Recorded. Run the connection test on the Delivery infrastructure page next.")
+		}
+	case "rollback":
+		if os.Geteuid() != 0 {
+			die(errors.New("the installer must run as root on the mail host"))
+		}
+		rc, err := managed.Rollback(p, *receipt, execRunner{})
+		if err != nil {
+			die(err)
+		}
+		if *record && deps != nil {
+			if err := deps.svc.RecordManagedRollback(ctx, service.CLIActor, rc.PlanDigest); err != nil {
+				die(err)
+			}
+		}
+		show(rc, "Rolled back receipt "+rc.ID+".\n")
+	case "status":
+		rc, err := managed.LoadReceipt(p, *receipt)
+		if err != nil {
+			die(err)
+		}
+		show(rc, fmt.Sprintf("Latest receipt %s: %s, rollback %s, digest %s, Postfix %s\n", rc.ID, rc.Result, rc.RollbackState, rc.PlanDigest, rc.PostfixVersion))
+	default:
+		die(errors.New("usage: njiwa-mail installer plan|apply|rollback|status [flags]"))
+	}
+}
+
+// runMTALog feeds Postfix log lines to the delivery-evidence collector. With
+// -follow it keeps reading new lines and reopens the file after rotation.
+func runMTALog(ctx context.Context, svc *service.Service, args []string) {
+	fs := flag.NewFlagSet("mta-log", flag.ExitOnError)
+	file := fs.String("file", "/var/log/mail.log", `Postfix log file, or "-" for stdin`)
+	follow := fs.Bool("follow", false, "keep reading new lines (like tail -F)")
+	fs.Parse(args)
+	if *file == "-" {
+		n, err := svc.IngestMTALog(ctx, os.Stdin)
+		if err != nil {
+			die(err)
+		}
+		fmt.Printf("%d delivery events recorded\n", n)
+		return
+	}
+	f, err := os.Open(*file)
+	if err != nil {
+		die(err)
+	}
+	if !*follow {
+		defer f.Close()
+		n, err := svc.IngestMTALog(ctx, f)
+		if err != nil {
+			die(err)
+		}
+		fmt.Printf("%d delivery events recorded\n", n)
+		return
+	}
+	_, _ = f.Seek(0, io.SeekEnd) // only new lines; run once without -follow to backfill
+	r := bufio.NewReader(f)
+	var pending strings.Builder
+	for ctx.Err() == nil {
+		line, err := r.ReadString('\n')
+		pending.WriteString(line)
+		if err == nil {
+			if _, err := svc.IngestMTALog(ctx, strings.NewReader(pending.String())); err != nil {
+				slog.Error("mta-log ingest failed", "err", err)
+			}
+			pending.Reset()
+			continue
+		}
+		// End of file: wait, and reopen if the file was rotated or truncated.
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
+		if st, err := os.Stat(*file); err == nil {
+			if cur, _ := f.Stat(); cur != nil && (!os.SameFile(st, cur) || st.Size() < offset(f)) {
+				f.Close()
+				if f, err = os.Open(*file); err != nil {
+					die(err)
+				}
+				r.Reset(f)
+			}
+		}
+	}
+	f.Close()
+}
+
+func offset(f *os.File) int64 {
+	o, _ := f.Seek(0, io.SeekCurrent)
+	return o
 }
