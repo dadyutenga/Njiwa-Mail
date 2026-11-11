@@ -1,152 +1,164 @@
-# Frontend Application Template
+# Frontend Template
 
-A modern, production-ready, domain-neutral frontend template built with **React 18 + Vite + TypeScript**. Designed to be cloned, customized with your own pages and APIs, and shipped in minutes.
+A production-ready, domain-neutral React + Vite + TypeScript application template with Tailwind CSS v4, Radix UI primitives, React Router 7, TanStack Query, React Hook Form, Zod, and Recharts.
 
----
-
-## ⚡ Tech Stack
-
-- **Core**: React 18.3, TypeScript 5.8 (Strict Mode), Vite 5.4 (SWC Fast Compiler)
-- **Routing**: React Router 6.30 Data Router (`createBrowserRouter`), code-split lazy routes, custom ErrorBoundary
-- **State & Server Cache**: TanStack React Query v5 (queries & mutations), React Context (Auth, Theme, Language)
-- **Styling & Design System**: Tailwind CSS 3.4, Radix UI Primitives, Lucide Icons, HSL CSS design tokens (light/dark/system mode)
-- **Forms & Validation**: React Hook Form v7, Zod v3, `@hookform/resolvers`
-- **Data Visualization**: Recharts v2 (Area, Bar, Line, Pie charts)
-- **Feedback & Alerts**: Sonner toasts, accessible confirmation dialogs, cmdk command palette
-- **Testing**: Vitest v2, React Testing Library, Jest DOM matchers, JSDOM
-- **CI / Deployment**: Multi-stage Dockerfile (Nginx Alpine), GitHub Actions CI workflow, Netlify SPA routing
+Designed to be cloned, customized, and shipped in minutes.
 
 ---
 
-## 🚀 Quick Start
+## Tech Stack
 
-### Prerequisites
-- Node.js 18+ (Node 20 or 22 recommended)
-- npm 9+
+- **Runtime & Language**: React 19, TypeScript (strict mode).
+- **Build System**: Vite 8 with `@vitejs/plugin-react`.
+- **Routing**: React Router 7 (`react-router-dom`) with `createBrowserRouter`, lazy route splitting, and error boundaries.
+- **Styling**: Tailwind CSS v4 with centralized OKLCH design tokens.
+- **UI Components**: Radix UI primitives, Lucide React icons, Vaul drawer, Sonner toasts.
+- **Server State**: TanStack Query v5 (`@tanstack/react-query`).
+- **Form Management**: React Hook Form with Zod schema validation.
+- **Data Visualization**: Recharts 2 with responsive wrappers.
+- **Localization**: Built-in optional bilingual support (English & Swahili) with live language switching.
+- **Testing**: Vitest + React Testing Library + jsdom.
+- **Quality**: ESLint 9 (flat config) + Prettier.
+- **Deployment**: Multi-stage `Dockerfile` (Node 24 build & Nginx alpine) and GitHub Actions CI.
 
-### 1. Install Dependencies
+---
+
+## Quickstart & How to Run
+
+Requirements: **Node.js >= 24** and **npm**.
+
 ```bash
+# 1. Install dependencies
 npm install
-```
 
-### 2. Configure Environment
-```bash
-cp .env.example .env
-```
-
-### 3. Start Development Server
-```bash
+# 2. Start local development server
 npm run dev
-```
-The application will launch at `http://localhost:3000` (or `http://localhost:8093`).
 
-### 4. Run Verification Suite
-```bash
-npm run typecheck    # TypeScript strict type checking
-npm run lint         # ESLint checking
-npm run test         # Unit & component test runner (Vitest)
-npm run build        # Production build with chunking
+# 3. Run test suite
+npm test
+
+# 4. Check linting and formatting
+npm run lint
+
+# 5. Build production bundle
+npm run build
 ```
+
+Once running, visit `http://localhost:5173`. Any email address and a password of at least 8 characters will log you into the local demo session.
 
 ---
 
-## 📁 Folder Structure
+## Folder Structure
 
 ```
 src/
-├── app/                  # Application initialization & routing
-│   ├── App.tsx           # Root provider wrapper
-│   ├── providers.tsx     # TanStack Query, Theme, Language, Auth providers
-│   ├── router.tsx        # createBrowserRouter data router
-│   └── routes.config.tsx # UNIFIED route & navigation config array
-├── assets/               # Static images and icons
-├── components/
-│   ├── layout/           # AppShell, Collapsible Sidebar, Topbar, Breadcrumbs, Footer
-│   ├── shared/           # DataTable, StatCard, ChartCard, ActivityFeed, ConfirmDialog, etc.
-│   └── ui/               # Radix & shadcn UI primitives (Button, Input, Modal, Select, etc.)
-├── contexts/             # Client state contexts (AuthContext, ThemeContext, LanguageContext)
-├── features/             # Feature slices (CRUD example, auth, dashboard, reports, settings)
-│   └── example-crud/     # CrudForm, TanStack Query hooks (crudApi.ts)
-├── hooks/                # Custom hooks (useDebounce, useLocalStorage, usePagination, etc.)
-├── lib/                  # Utilities (cn, formatters), API client (Axios), translations, constants
-├── pages/                # Screen components (Dashboard, List, Detail, Reports, Settings, Auth)
-├── test/                 # Test suites (DataTable, CrudForm, Modal, ProtectedRoute)
-├── types/                # TypeScript interfaces (auth, api, crud, navigation, dashboard)
-└── index.css             # Tailwind directives & HSL CSS design tokens
+├── app/                  # Application bootstrap & shell config
+│   ├── App.tsx           # Top-level root component
+│   ├── providers.tsx     # Consolidated context providers
+│   ├── router.tsx        # React Router createBrowserRouter config
+│   ├── routes.tsx        # Single navigation & route declaration array
+│   └── ThemeProvider.tsx # Dark/Light/System theme provider
+├── assets/               # Brand & SVG vector assets
+├── components/           # Reusable UI component library
+│   ├── layout/           # AppShell, DashboardLayout, AuthLayout
+│   ├── shared/           # Composed components (DataTable, Charts, Display cards)
+│   └── ui/               # Radix primitives (Button, Dialog, Input, Select, etc.)
+├── features/             # Modular feature slices
+│   ├── auth/             # AuthProvider, ProtectedRoute, AuthForm
+│   ├── dashboard/        # Dashboard view, stat cards, activity feed
+│   ├── example-crud/     # Records list, modal create/edit dialog, mock store
+│   ├── i18n/             # English/Swahili translation provider & switcher
+│   ├── reports/          # Analytics metrics, date-range picker, CSV export
+│   └── settings/         # Account, appearance, and notification settings
+├── hooks/                # Reusable custom React hooks
+├── lib/                  # Helpers, API client, formatters, validators
+├── pages/                # Lazy-loaded route target components
+├── styles/               # Centralized Tailwind CSS design tokens & global CSS
+└── types/                # Domain-neutral TypeScript interfaces
 ```
 
 ---
 
-## 🛠️ How-To Guides
+## How to Add a Page
 
-### How to Add a New Page (2 Steps)
+Adding a new page requires only **two simple steps**:
 
-#### Step 1: Create your page component
-Create a file at `src/pages/MyNewPage.tsx`:
+### Step 1: Create the Page Component
+
+Create your page component in `src/pages/Analytics.tsx`:
+
 ```tsx
-import * as React from "react";
-import { StatCard } from "@/components/shared/StatCard";
-
-export function MyNewPage() {
+// src/pages/Analytics.tsx
+export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">My New Feature</h1>
-      <StatCard title="Active Items" value="256" change={5.2} />
+      <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
+      <p className="text-muted-foreground">My new custom dashboard view.</p>
     </div>
   );
 }
-
-export default MyNewPage;
 ```
 
-#### Step 2: Register in `src/app/routes.config.tsx`
-Add one entry to the `routesConfig` array:
+### Step 2: Register in `src/app/routes.tsx`
+
+Add a lazy import and one entry to the `routes` array:
+
 ```tsx
-import { Sparkles } from "lucide-react";
-const MyNewPage = lazy(() => import("@/pages/MyNewPage"));
+// src/app/routes.tsx
+import { LineChart } from "lucide-react";
+const AnalyticsPage = lazy(() => import("@/pages/Analytics"));
 
-// In routesConfig array:
-{
-  path: "/my-feature",
-  title: "My Feature",
-  icon: Sparkles,
-  element: <MyNewPage />,
-  layout: "dashboard",
-  inNav: true,
-  navSection: "main",
-},
+export const routes = [
+  // ... existing routes
+  {
+    path: "/analytics",
+    label: "Analytics",
+    icon: LineChart,
+    component: AnalyticsPage,
+    navigation: true, // set to false for parameterized routes like /records/:id
+  },
+];
 ```
-*That's it!* The collapsible sidebar, mobile drawer, breadcrumbs, and router will automatically detect and render your new page.
+
+The route is now automatically mounted in React Router and added to the sidebar navigation and search command palette (`Ctrl+K`).
 
 ---
 
-### How to Make an API Call
+## How to Add an API Call
 
-Use the configured `apiClient` (`src/lib/api.ts`) with TanStack React Query:
+The template includes an interceptor-ready HTTP client in `src/lib/api.ts` and TanStack Query integration.
+
+### Example: Define a Query and Mutation Hook
 
 ```tsx
+// src/features/items/api.ts
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api";
+import { apiRequest } from "@/lib/api";
 
-// 1. Fetching data (Query)
-export function useItemsQuery() {
+interface Item {
+  id: string;
+  name: string;
+}
+
+// GET /items
+export function useItems() {
   return useQuery({
     queryKey: ["items"],
-    queryFn: async () => {
-      const response = await apiClient.get("/items");
-      return response.data;
-    },
+    queryFn: () => apiRequest<Item[]>("/items"),
   });
 }
 
-// 2. Creating data (Mutation)
-export function useCreateItemMutation() {
+// POST /items
+export function useCreateItem() {
   const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: async (newItem: { name: string }) => {
-      const response = await apiClient.post("/items", newItem);
-      return response.data;
-    },
+    mutationFn: (newItem: Omit<Item, "id">) =>
+      apiRequest<Item>("/items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newItem),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
     },
@@ -156,66 +168,75 @@ export function useCreateItemMutation() {
 
 ---
 
-### How to Create or Customize a Reusable Component
+## How to Add a Component
 
-1. Add primitive UI components to `src/components/ui/` (using Radix UI and Tailwind CSS).
-2. Add multi-component composite widgets to `src/components/shared/` and re-export in `src/components/shared/index.ts`.
-3. Use the `cn()` helper from `@/lib/utils` for conditional class merging.
+1. Place generic primitives in `src/components/ui/` (e.g. `src/components/ui/badge.tsx`).
+2. Place composed or multi-element widgets in `src/components/shared/` (e.g. `src/components/shared/MyCard.tsx`).
+3. Import using the `@/` path alias:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { StatCard } from "@/components/shared/Display";
+```
+
+All reusable components are indexed with code snippets in [COMPONENT_CATALOG.md](COMPONENT_CATALOG.md).
 
 ---
 
-### How to Change the Theme & Design Tokens
+## How to Change the Theme
 
-All theme tokens (primary colors, background, borders, radius) are defined as HSL variables in `src/index.css`. To re-theme the entire application:
+Design tokens are centralized in `src/styles/globals.css`.
 
-1. Open `src/index.css`.
-2. Update the `:root` (light) and `.dark` (dark) HSL values:
+- **Colors & Radii**: Adjust the CSS variables under `:root` (light mode) and `:root.dark` (dark mode).
+- **Primary Color**: Modify `--primary` and `--primary-foreground`.
+- **Border Radius**: Change `--radius` (defaults to `0.875rem`).
+- **Fonts**: Update `--font-sans` or `--font-display`.
+
 ```css
+/* src/styles/globals.css */
 :root {
-  /* Change primary color to Indigo: */
-  --primary: 240 5.9% 10%;
-  --primary-foreground: 0 0% 98%;
-
-  /* Change border radius: */
+  --primary: oklch(0.52 0.14 155); /* Custom brand color */
   --radius: 0.75rem;
 }
 ```
-The entire UI (buttons, active navigation items, charts, badges, focus rings) will automatically inherit the new theme.
+
+The app shell includes a theme toggle and persists preference (`light`, `dark`, `system`) to `localStorage`.
 
 ---
 
-## 🔒 Authentication & Role-Based Access Control
+## Environment Variables
 
-The template includes an out-of-the-box authentication scaffold (`src/contexts/AuthContext.tsx`):
-- **Preconfigured Demo Users**: Admin, Manager, and Standard User.
-- **Role Switcher**: Click the user menu in the top right to instantly toggle between roles and test role-based view permissions.
-- **Route Guards**: Protect any route or component by specifying `allowedRoles={['admin']}` in `ProtectedRoute`.
-
----
-
-## 🌐 Localization (i18n)
-
-Built-in multi-language context (`src/contexts/LanguageContext.tsx`) with English and Swahili (Kiswahili) dictionaries:
-- Switch language on-the-fly using the topbar language pill (`EN` / `SW`).
-- Add translation strings to `src/lib/translations.ts`.
-- Access translations in any component with `const { t } = useLanguage();`.
-
----
-
-## 🐳 Docker Deployment
-
-Build and run using the optimized multi-stage Dockerfile:
+Copy `.env.example` to `.env.local`:
 
 ```bash
-# Build the Docker image
-docker build -t frontend-template .
-
-# Run the container
-docker run -p 8080:80 frontend-template
+cp .env.example .env.local
 ```
-Open `http://localhost:8080` in your browser.
+
+| Variable            | Description                                | Default                |
+| :------------------ | :----------------------------------------- | :--------------------- |
+| `VITE_API_BASE_URL` | Base URL for remote API endpoints          | `""` (mock/local mode) |
+| `VITE_APP_TITLE`    | Brand title displayed in document & header | `"Your App"`           |
+
+> [!CAUTION]
+> Vite environment variables with the `VITE_` prefix are bundled into client code. **Never store secret keys, private tokens, or passwords in them.**
 
 ---
 
-## 📄 License
-Check `MIGRATION_NOTES.md` for license and migration history details. Ensure you apply your appropriate organization license (e.g. MIT, Apache 2.0, or proprietary) before distribution.
+## Container & CI Deployment
+
+### Multi-stage Docker
+
+Build and run with Docker:
+
+```bash
+docker build -t frontend-template .
+docker run -p 8080:80 frontend-template
+```
+
+### GitHub Actions
+
+The automated CI workflow is configured in `.github/workflows/ci.yml`. On every push and pull request, it runs:
+
+1. `npm run lint`
+2. `npm run build`
+3. `npm test`

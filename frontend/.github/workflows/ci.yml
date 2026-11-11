@@ -1,37 +1,15 @@
-name: CI Pipeline
-
-on:
-  push:
-    branches: [main, template-conversion]
-  pull_request:
-    branches: [main, template-conversion]
-
+name: CI
+on: [push, pull_request]
 jobs:
-  validate:
-    name: Lint, Test & Build
+  check:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check (TypeScript)
-        run: npm run typecheck
-
-      - name: Lint code (ESLint)
-        run: npm run lint
-
-      - name: Run unit tests (Vitest)
-        run: npm run test
-
-      - name: Build production bundle (Vite)
-        run: npm run build
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test

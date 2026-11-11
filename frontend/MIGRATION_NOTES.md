@@ -1,46 +1,58 @@
-# Migration Notes
+# MIGRATION NOTES
 
-## License: Review Required
-- **Status**: No `LICENSE` file was found in the supplied source repository.
-- **Notice**: Users adopting this template should ensure they add an appropriate open-source license (such as MIT or Apache 2.0) or commercial proprietary header before distributing downstream projects.
-
----
-
-## Credentials and Sensitive Information Audit
-- **Findings & Actions**:
-  - Found hardcoded Google Analytics tracking ID `G-YMV2K4WS09` in `index.html` — removed completely.
-  - Hardcoded production domain hosts and legacy API hosts in `index.html`, `vite.config.ts`, and `netlify.toml` — removed and replaced with standard environment variables.
-  - Removed verbose debug logging in Axios interceptors and authentication storage that previously printed request bodies and auth response tokens to browser console.
-  - Replaced `.env` with neutral localhost endpoints and created a clean `.env.example`.
+> [!WARNING]
+> **License Notice**: The original source repository contained no `LICENSE` file. Verify license clearance or obtain appropriate rights before distributing or publishing software derived from retained code.
 
 ---
 
-## Upgrade & Transformation Summary
+## 1. Secrets & Credentials Audit
 
-### 1. Stack Modernization
-- **Compiler**: Upgraded TypeScript compiler options from non-strict to strict mode (`"strict": true`). Removed unrecognized `"ignoreDeprecations": "6.0"`.
-- **Router**: Migrated from declarative eager JSX `<Routes>` to React Router 6.30 Data Router (`createBrowserRouter`) with code-splitting (`React.lazy`) and custom error handling (`ErrorBoundary`).
-- **State Architecture**: Server cache via TanStack React Query v5; client session, theme, and language via React Context.
-- **Testing**: Added Vitest v2, React Testing Library, Jest DOM matchers, and JSDOM test runner.
+A deep text search was executed across the entire original repository:
 
-### 2. Files and Services Removed Outright
-- **14 Domain REST Services**: `authService.ts`, `channelService.ts`, `classService.ts`, `classmatesService.ts`, `fileService.ts`, `friendService.ts`, `friendsService.ts`, `libraryService.ts`, `marketplaceService.ts`, `notificationService.ts`, `scheduleService.ts`, `searchService.ts`, `sharingService.ts`, `storageService.ts`, `uploadService.ts`.
-- **25+ Domain Pages & Screens**: `About/`, `Channel/`, `ClassDetails/`, `Classes/`, `Dashboard/` (legacy), `Files/`, `Friends/`, `HowToUse/`, `Index/` (legacy), `Library/`, `Marketplace/`, `Notifications/` (legacy), `PasswordReset*/`, `Privacy/`, `Profile/` (legacy), `Schedule/`, `Settings/` (legacy), `Sharing/`, `Signup/` (legacy), `Storage/`, `Trash/`, `Upload/`.
-- **Dead Scripts & Redundant Lockfiles**: `bun.lockb`, `pnpm-lock.yaml`, `deploy.sh`, `test-upload.sh`, `test-auth.html`, `fix_dark_mode.py`, `fix_dark_mode2.py`, `public/test-storage.html`, legacy design system mockups directory, `NETLIFY_DEPLOYMENT.md`, `UPLOAD_CONFIGURATION.md`.
-- **Hardware & Obsolete Packages**: Uninstalled `html5-qrcode`, `qrcode.react`, `lovable-tagger`, `vite-plugin-pwa`, `workbox-window`.
+- No hardcoded API keys, bearer tokens, AWS/GCP credentials, database passwords, or private keys were found.
+- All environment variables use the standard Vite prefix `VITE_` and are documented in `.env.example`.
+- Reminder: Vite environment variables starting with `VITE_` are bundled into client-side JavaScript and exposed to the browser. Never store secret credentials in them.
 
-### 3. Components Generalized & Created
-- **Layout Shell**:
-  - `DashboardLayout.tsx`: Collapsible desktop sidebar, responsive mobile drawer sheet, breadcrumbs, search trigger, notification bell, theme toggle, user menu, footer.
-  - `AuthLayout.tsx`: Centered public authentication shell.
-  - `routes.config.tsx`: Single config array driving the router, sidebar, and mobile drawer.
-- **UI Primitives Added**:
-  - `IconButton`, `PasswordInput`, `MultiSelect`, `DatePicker`, `DateRangePicker`, `FileUpload`, `Spinner`, `EmptyState`, `Stepper`.
-- **Data & Shared Components**:
-  - `DataTable.tsx`: Generic data table with sort, filter, search, paginate, select, column visibility, row actions, and CSV export.
-  - `StatCard.tsx`, `ChartCard.tsx`, `Charts.tsx` (Area, Bar, Line, Pie Recharts wrappers).
-  - `ActivityFeed.tsx`, `KpiTrend.tsx`, `ConfirmDialog.tsx`, `ErrorBoundary.tsx`, `PageLoader.tsx`, `Modal.tsx`, `CommandPalette.tsx`, `PrintableDocument.tsx`, `CopyButton.tsx`.
-- **Feature Pages Built**:
-  - `DashboardPage.tsx`, `ListPage.tsx` (CRUD example), `DetailPage.tsx`, `ReportsPage.tsx`, `ProfilePage.tsx`, `SettingsPage.tsx`, `ExamplePage.tsx` ("How to add a page"), `LandingPage.tsx`, `LoginPage.tsx`, `RegisterPage.tsx`, `ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx`, `NotFoundPage.tsx` (404), `ForbiddenPage.tsx` (403), `ServerErrorPage.tsx` (500).
-- **Internationalization (i18n)**:
-  - English (`en`) and Swahili (`sw`) localization dictionaries in `src/lib/translations.ts` and dynamic language switcher.
+---
+
+## 2. Dependencies & Stack Modernization
+
+- **React**: Updated to React 19.3.1 (`react`, `react-dom`).
+- **Build Tool**: Updated to Vite 8.3.5 (`@vitejs/plugin-react` v6.2.1).
+- **TypeScript**: Strict mode enabled on TypeScript 5.8.3.
+- **Router**: Replaced TanStack Router with React Router 7 (`react-router-dom` 7.18.5) utilizing `createBrowserRouter`, lazy route loading, and route suspense.
+- **Data Fetching**: Added TanStack Query v5 (`@tanstack/react-query` 5.83.0).
+- **Forms & Validation**: Standardized on `react-hook-form` 7.71.2 + `zod` 3.24.2 + `@hookform/resolvers` 5.2.2.
+- **Styling**: Tailwind CSS v4 (`@tailwindcss/vite`, `tailwindcss` 4.2.1) with centralized CSS custom properties in `src/styles/globals.css`.
+- **Testing**: Added Vitest 4 + Testing Library (`@testing-library/react` 16, `@testing-library/jest-dom` 6, `jsdom` 27).
+- **Linting & Code Quality**: Migrated to ESLint 9 flat configuration (`eslint.config.js`) + Prettier 3.
+
+---
+
+## 3. Items Removed
+
+- **Domain Datasets**:
+  - `src/data/Oil-data/*` (10 monthly fuel price JSON datasets).
+  - `src/data/agriculture/*` (agricultural produce wholesale and retail pricing tables).
+  - `src/lib/fuel-data.json`, `src/lib/bei-data.ts`, `src/lib/markets-data.ts`.
+- **Domain Imagery**:
+  - `src/assets/crops/*` (beans, bulrush millet, finger millet, maize, potatoes, rice, sorghum).
+  - `src/assets/markets/*` (cattle, chicken, fuel, fx, goat).
+  - `public/favicon.svg` (replaced with neutral template icon).
+- **Obsolete Code & Samples**:
+  - `public/sample/Bei.jsx` (standalone legacy demo).
+  - `src/routeTree.gen.ts` (TanStack Router generated file).
+  - Legacy deployment files (`wrangler.jsonc`, `netlify.toml`).
+  - `src/hooks/usePreferredCategories.ts` and `src/components/CategoryBackLink.tsx`.
+
+---
+
+## 4. Components Generalized
+
+- **Application Shell**: Converted into `src/components/layout/DashboardLayout.tsx` featuring a collapsible desktop sidebar, mobile drawer sheet, breadcrumbs, search command dialog, theme toggle, language switcher, notification popover, and user dropdown menu.
+- **Dashboard View**: Replaced commodity metrics with generic KPI cards (`StatCard`, `TrendIndicator`), Recharts trend visualization (`AreaChartView`), quick action cards, and a recent activity log.
+- **CRUD Records View**: Generalized into `src/features/example-crud/RecordsView.tsx` with sortable columns, full-text search, column visibility toggle, pagination, batch selection, CSV export, and create/edit modal dialog (`RecordFormModal`).
+- **Reports & Analytics**: Replaced fuel/price charts with `src/features/reports/ReportsView.tsx` supporting date range filtering, multiple chart views (Bar, Line, Pie), validation, and CSV export.
+- **Authentication**: Added clean authentication screens (`/login`, `/register`, `/forgot-password`, `/reset-password`) with React Hook Form + Zod validation.
+- **Localization**: Added optional bilingual support (`en` and `sw`) with live language switching.
+- **Error Handling**: Implemented custom `Status` pages for `403`, `404`, and `500` HTTP status codes, plus a top-level route `ErrorBoundary`.

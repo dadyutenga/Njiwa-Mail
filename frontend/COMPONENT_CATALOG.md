@@ -1,309 +1,124 @@
-# Component Catalog & API Reference
+# Component Catalog
 
-This catalog documents every reusable UI primitive, data presentation component, feedback dialog, and custom hook available in the template. Each entry contains property definitions and quick usage examples for rapid development.
-
----
-
-## 1. UI Primitives (`src/components/ui/`)
-
-### `Button`
-Standard polymorphic button supporting visual variants and loading/disabled states.
-- **Props**: `variant` ("default" | "destructive" | "outline" | "secondary" | "ghost" | "link"), `size` ("default" | "sm" | "lg" | "icon"), `asChild` (boolean).
-```tsx
-<Button variant="default" size="sm" onClick={() => save()}>Save Changes</Button>
-```
-
-### `IconButton`
-Accessible icon-only button requiring an explicit accessible label.
-- **Props**: `aria-label` (string, required), `size` ("default" | "sm" | "lg" | "icon"), `variant` (Button variants).
-```tsx
-<IconButton aria-label="Delete entry" variant="ghost" onClick={handleDelete}><Trash className="h-4 w-4" /></IconButton>
-```
-
-### `Input`
-Styled text input with full accessibility and focus ring styling.
-- **Props**: Standard HTML input attributes (`type`, `placeholder`, `disabled`, `value`, `onChange`).
-```tsx
-<Input type="text" placeholder="Search keywords..." value={query} onChange={(e) => setQuery(e.target.value)} />
-```
-
-### `PasswordInput`
-Secure password field with an integrated toggle button to show or hide plain text.
-- **Props**: Standard HTML input attributes.
-```tsx
-<PasswordInput placeholder="Enter your password" {...field} />
-```
-
-### `Select`
-Radix-based accessible dropdown select menu.
-- **Props**: `value` (string), `onValueChange` ((val: string) => void), `defaultValue` (string).
-```tsx
-<Select value={role} onValueChange={setRole}><SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger><SelectContent><SelectItem value="admin">Admin</SelectItem></SelectContent></Select>
-```
-
-### `MultiSelect`
-Multi-selection dropdown with chip badges, search filter, and individual item removal.
-- **Props**: `options` ({ label: string; value: string }[]), `selected` (string[]), `onChange` ((val: string[]) => void), `placeholder` (string).
-```tsx
-<MultiSelect options={[{ label: "Tag A", value: "a" }]} selected={tags} onChange={setTags} placeholder="Select tags..." />
-```
-
-### `Textarea`
-Multi-line text area supporting form validation and flexible sizing.
-- **Props**: Standard HTML textarea attributes.
-```tsx
-<Textarea placeholder="Enter description..." rows={4} {...field} />
-```
-
-### `Checkbox`
-Radix checkbox with custom animated checkmark.
-- **Props**: `checked` (boolean), `onCheckedChange` ((checked: boolean) => void), `disabled` (boolean).
-```tsx
-<Checkbox checked={agreed} onCheckedChange={(val) => setAgreed(!!val)} id="terms" />
-```
-
-### `RadioGroup` & `RadioGroupItem`
-Accessible mutually exclusive radio group.
-- **Props**: `value` (string), `onValueChange` ((val: string) => void).
-```tsx
-<RadioGroup value={plan} onValueChange={setPlan}><RadioGroupItem value="pro" id="pro" /><Label htmlFor="pro">Pro</Label></RadioGroup>
-```
-
-### `Switch`
-Accessible boolean toggle switch with smooth transition animation.
-- **Props**: `checked` (boolean), `onCheckedChange` ((val: boolean) => void).
-```tsx
-<Switch checked={notificationsEnabled} onCheckedChange={setNotificationsEnabled} />
-```
-
-### `DatePicker`
-Single-date picker displaying formatted date with popover calendar.
-- **Props**: `date` (Date), `onSelect` ((date: Date | undefined) => void), `placeholder` (string).
-```tsx
-<DatePicker date={selectedDate} onSelect={setSelectedDate} placeholder="Select scheduled date" />
-```
-
-### `DateRangePicker`
-Date range selector with quick preset shortcuts (Last 7d, 30d, 90d) and dual-month calendar.
-- **Props**: `dateRange` ({ from?: Date; to?: Date }), `onSelect` ((range: DateRange | undefined) => void), `showPresets` (boolean).
-```tsx
-<DateRangePicker dateRange={range} onSelect={setRange} showPresets={true} />
-```
-
-### `FileUpload`
-Drag-and-drop file upload zone with file size formatting, previews, max limit check, and file removal.
-- **Props**: `onFilesSelected` ((files: File[]) => void), `maxFiles` (number), `maxSizeMB` (number), `accept` (string).
-```tsx
-<FileUpload onFilesSelected={(files) => handleUpload(files)} maxFiles={5} maxSizeMB={10} accept="image/*,.pdf" />
-```
-
-### `Badge`
-Compact label for statuses, categories, or counts.
-- **Props**: `variant` ("default" | "secondary" | "destructive" | "outline"), `children` (ReactNode).
-```tsx
-<Badge variant="outline" className="capitalize">Active</Badge>
-```
-
-### `Avatar`
-User profile avatar with image source and automatic initials fallback.
-- **Props**: `src` (string), `alt` (string), `fallback` (string).
-```tsx
-<Avatar><AvatarImage src={user.avatarUrl} /><AvatarFallback>{user.initials}</AvatarFallback></Avatar>
-```
-
-### `Tooltip`
-Accessible hover tooltip with customizable delay and positioning.
-- **Props**: `children` (ReactNode), `content` (ReactNode), `side` ("top" | "right" | "bottom" | "left").
-```tsx
-<Tooltip><TooltipTrigger asChild><Button size="icon"><Info /></Button></TooltipTrigger><TooltipContent>More info</TooltipContent></Tooltip>
-```
-
-### `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`
-Tabbed content manager for multi-section screens.
-- **Props**: `defaultValue` (string), `value` (string), `onValueChange` ((val: string) => void).
-```tsx
-<Tabs defaultValue="account"><TabsList><TabsTrigger value="account">Account</TabsTrigger></TabsList><TabsContent value="account">Content</TabsContent></Tabs>
-```
-
-### `Accordion`
-Collapsible multi-section disclosure container.
-- **Props**: `type` ("single" | "multiple"), `collapsible` (boolean).
-```tsx
-<Accordion type="single" collapsible><AccordionItem value="1"><AccordionTrigger>Q1?</AccordionTrigger><AccordionContent>A1.</AccordionContent></AccordionItem></Accordion>
-```
-
-### `Spinner`
-Accessible SVG loading spinner.
-- **Props**: `size` ("sm" | "md" | "lg"), `className` (string).
-```tsx
-<Spinner size="md" />
-```
-
-### `Progress`
-Horizontal percentage bar.
-- **Props**: `value` (number: 0 - 100), `className` (string).
-```tsx
-<Progress value={65} className="h-2" />
-```
-
-### `EmptyState`
-Placeholder view for empty tables, search results, or data collections.
-- **Props**: `icon` (LucideIcon), `title` (string), `description` (string), `actionLabel` (string), `onAction` (() => void).
-```tsx
-<EmptyState title="No records found" description="Try adjusting your filter" actionLabel="Create Record" onAction={openModal} />
-```
-
-### `Alert`
-Highlighted callout banner for notifications, errors, warnings, or tips.
-- **Props**: `variant` ("default" | "destructive"), `title` (string), `description` (string).
-```tsx
-<Alert variant="destructive"><AlertTitle>Error</AlertTitle><AlertDescription>Unable to reach server.</AlertDescription></Alert>
-```
-
-### `Stepper`
-Step progress tracker for multi-step wizards or checkout flows.
-- **Props**: `steps` ({ id: string | number; title: string; description?: string }[]), `currentStep` (number), `onStepClick` ((step: number) => void).
-```tsx
-<Stepper steps={[{ id: 1, title: "Account" }, { id: 2, title: "Review" }]} currentStep={currentStep} />
-```
+A quick-reference index of every reusable component in this template with its import path, props, and one-line usage example.
 
 ---
 
-## 2. Data & Analytics (`src/components/shared/`)
+## 1. UI Primitives (`@/components/ui/`)
 
-### `DataTable`
-Feature-complete data table with sorting, filtering, full-text search, multi-row selection, column visibility, row actions menu, and CSV export.
-- **Props**:
-  - `data`: `T[]` (items array)
-  - `columns`: `ColumnDef<T>[]` (column definitions)
-  - `isLoading`?: boolean
-  - `searchPlaceholder`?: string
-  - `filterOptions`?: FilterOption[]
-  - `onRowClick`?: (item: T) => void
-  - `onEdit`?: (item: T) => void
-  - `onDelete`?: (item: T) => void
-  - `exportFileName`?: string
-  - `pageSize`?: number
-```tsx
-<DataTable data={records} columns={columns} onEdit={handleEdit} onDelete={handleDelete} exportFileName="records.csv" />
-```
-
-### `StatCard`
-Executive KPI summary card displaying metric value, percentage trend change, and icon.
-- **Props**: `title` (string), `value` (string | number), `change` (number), `period` (string), `icon` (LucideIcon), `description` (string).
-```tsx
-<StatCard title="Total Volume" value="$124,500" change={14.2} period="vs. last month" icon={DollarSign} />
-```
-
-### `ChartCard`
-Card wrapper for charts with title, subtitle, header action slots, and loading skeletons.
-- **Props**: `title` (string), `description` (string), `action` (ReactNode), `isLoading` (boolean), `children` (ReactNode).
-```tsx
-<ChartCard title="Revenue Growth" description="Monthly comparison" action={<Button size="sm">Export</Button>}><AreaChartWrapper data={data} categories={cats} /></ChartCard>
-```
-
-### `AreaChartWrapper`, `BarChartWrapper`, `LineChartWrapper`, `PieChartWrapper`
-Pre-styled, responsive Recharts wrappers adhering to the template's color palette and dark mode tokens.
-```tsx
-<AreaChartWrapper data={revenueData} categories={[{ key: "rev", name: "Revenue", color: "hsl(var(--primary))" }]} height={300} />
-<BarChartWrapper data={categoryData} bars={[{ key: "count", name: "Records" }]} height={280} />
-<PieChartWrapper data={statusDistribution} innerRadius={60} outerRadius={90} height={260} />
-```
-
-### `ActivityFeed`
-Chronological activity timeline featuring user avatar, action badge, and relative timestamps.
-- **Props**: `items` (ActivityItem[]), `emptyMessage` (string).
-```tsx
-<ActivityFeed items={activityItems} />
-```
-
-### `KpiTrend`
-Badge displaying positive/negative/neutral percentage indicators with up/down arrows.
-- **Props**: `value` (number), `suffix` (string, default: "%"), `showIcon` (boolean).
-```tsx
-<KpiTrend value={12.8} />
-```
+| Module and Exports                                                                                                                                                                                                                                 | Props / Usage Example                                                                                                                                                                                                                                       |
+| :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`accordion`](src/components/ui/accordion.tsx) — `Accordion`, `AccordionItem`, `AccordionTrigger`, `AccordionContent`                                                                                                                              | `<Accordion type="single" collapsible><AccordionItem value="1"><AccordionTrigger>Q?</AccordionTrigger><AccordionContent>A.</AccordionContent></AccordionItem></Accordion>`                                                                                  |
+| [`alert-dialog`](src/components/ui/alert-dialog.tsx) — `AlertDialog`, `AlertDialogTrigger`, `AlertDialogContent`, `AlertDialogHeader`, `AlertDialogFooter`, `AlertDialogTitle`, `AlertDialogDescription`, `AlertDialogAction`, `AlertDialogCancel` | `<AlertDialog open={open} onOpenChange={setOpen}><AlertDialogContent><AlertDialogTitle>Title</AlertDialogTitle><AlertDialogAction>OK</AlertDialogAction></AlertDialogContent></AlertDialog>`                                                                |
+| [`alert`](src/components/ui/alert.tsx) — `Alert`, `AlertTitle`, `AlertDescription`                                                                                                                                                                 | `<Alert variant="destructive"><AlertTitle>Error</AlertTitle><AlertDescription>Something failed</AlertDescription></Alert>`                                                                                                                                  |
+| [`aspect-ratio`](src/components/ui/aspect-ratio.tsx) — `AspectRatio`                                                                                                                                                                               | `<AspectRatio ratio={16 / 9}><img src="..." alt="" /></AspectRatio>`                                                                                                                                                                                        |
+| [`avatar`](src/components/ui/avatar.tsx) — `Avatar`, `AvatarImage`, `AvatarFallback`                                                                                                                                                               | `<Avatar><AvatarImage src={url} /><AvatarFallback>JD</AvatarFallback></Avatar>`                                                                                                                                                                             |
+| [`badge`](src/components/ui/badge.tsx) — `Badge`, `badgeVariants`                                                                                                                                                                                  | `<Badge variant="default">Active</Badge>` (variants: `default`, `secondary`, `destructive`, `outline`)                                                                                                                                                      |
+| [`breadcrumb`](src/components/ui/breadcrumb.tsx) — `Breadcrumb`, `BreadcrumbList`, `BreadcrumbItem`, `BreadcrumbLink`, `BreadcrumbPage`, `BreadcrumbSeparator`                                                                                     | `<Breadcrumb><BreadcrumbList><BreadcrumbItem><BreadcrumbLink asChild><Link to="/">Home</Link></BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage>Page</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>` |
+| [`button`](src/components/ui/button.tsx) — `Button`, `buttonVariants`                                                                                                                                                                              | `<Button variant="default" size="default" onClick={handleClick}>Click me</Button>`                                                                                                                                                                          |
+| [`calendar`](src/components/ui/calendar.tsx) — `Calendar`                                                                                                                                                                                          | `<Calendar mode="single" selected={date} onSelect={setDate} />`                                                                                                                                                                                             |
+| [`card`](src/components/ui/card.tsx) — `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`                                                                                                                           | `<Card><CardHeader><CardTitle>Card Title</CardTitle></CardHeader><CardContent>Body</CardContent></Card>`                                                                                                                                                    |
+| [`carousel`](src/components/ui/carousel.tsx) — `Carousel`, `CarouselContent`, `CarouselItem`, `CarouselPrevious`, `CarouselNext`                                                                                                                   | `<Carousel><CarouselContent><CarouselItem>Slide 1</CarouselItem></CarouselContent><CarouselPrevious /><CarouselNext /></Carousel>`                                                                                                                          |
+| [`chart`](src/components/ui/chart.tsx) — `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`                                                                                                                                    | `<ChartContainer config={chartConfig}><BarChart data={data}>...</BarChart></ChartContainer>`                                                                                                                                                                |
+| [`checkbox`](src/components/ui/checkbox.tsx) — `Checkbox`                                                                                                                                                                                          | `<Checkbox id="terms" checked={checked} onCheckedChange={setChecked} />`                                                                                                                                                                                    |
+| [`collapsible`](src/components/ui/collapsible.tsx) — `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent`                                                                                                                                     | `<Collapsible open={open} onOpenChange={setOpen}><CollapsibleTrigger>Toggle</CollapsibleTrigger><CollapsibleContent>Secret</CollapsibleContent></Collapsible>`                                                                                              |
+| [`command`](src/components/ui/command.tsx) — `Command`, `CommandInput`, `CommandList`, `CommandEmpty`, `CommandGroup`, `CommandItem`                                                                                                               | `<Command><CommandInput placeholder="Search..." /><CommandList><CommandItem>Item 1</CommandItem></CommandList></Command>`                                                                                                                                   |
+| [`context-menu`](src/components/ui/context-menu.tsx) — `ContextMenu`, `ContextMenuTrigger`, `ContextMenuContent`, `ContextMenuItem`                                                                                                                | `<ContextMenu><ContextMenuTrigger>Right click here</ContextMenuTrigger><ContextMenuContent><ContextMenuItem>Action</ContextMenuItem></ContextMenuContent></ContextMenu>`                                                                                    |
+| [`dialog`](src/components/ui/dialog.tsx) — `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`                                                                                          | `<Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>Title</DialogTitle></DialogHeader></DialogContent></Dialog>`                                                                                                          |
+| [`drawer`](src/components/ui/drawer.tsx) — `Drawer`, `DrawerTrigger`, `DrawerContent`, `DrawerHeader`, `DrawerTitle`                                                                                                                               | `<Drawer open={open} onOpenChange={setOpen}><DrawerTrigger asChild><Button>Open</Button></DrawerTrigger><DrawerContent>Content</DrawerContent></Drawer>`                                                                                                    |
+| [`dropdown-menu`](src/components/ui/dropdown-menu.tsx) — `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`, `DropdownMenuItem`                                                                                                          | `<DropdownMenu><DropdownMenuTrigger asChild><Button>Menu</Button></DropdownMenuTrigger><DropdownMenuContent><DropdownMenuItem>Item</DropdownMenuItem></DropdownMenuContent></DropdownMenu>`                                                                 |
+| [`extra-inputs`](src/components/ui/extra-inputs.tsx) — `IconButton`, `PasswordInput`, `DatePicker`, `DateRangePicker`, `MultiSelect`, `FileUpload`                                                                                                 | See extended input entries below                                                                                                                                                                                                                            |
+| [`form`](src/components/ui/form.tsx) — `Form`, `FormField`, `FormItem`, `FormLabel`, `FormControl`, `FormMessage`, `FormDescription`                                                                                                               | `<Form {...form}><FormField control={form.control} name="title" render={({ field }) => (<FormItem><FormLabel>Title</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} /></Form>`                                        |
+| [`hover-card`](src/components/ui/hover-card.tsx) — `HoverCard`, `HoverCardTrigger`, `HoverCardContent`                                                                                                                                             | `<HoverCard><HoverCardTrigger>Hover me</HoverCardTrigger><HoverCardContent>Tooltip text</HoverCardContent></HoverCard>`                                                                                                                                     |
+| [`input-otp`](src/components/ui/input-otp.tsx) — `InputOTP`, `InputOTPGroup`, `InputOTPSlot`                                                                                                                                                       | `<InputOTP maxLength={6}><InputOTPGroup><InputOTPSlot index={0} /><InputOTPSlot index={1} /></InputOTPGroup></InputOTP>`                                                                                                                                    |
+| [`input`](src/components/ui/input.tsx) — `Input`                                                                                                                                                                                                   | `<Input id="name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />`                                                                                                                                                             |
+| [`label`](src/components/ui/label.tsx) — `Label`                                                                                                                                                                                                   | `<Label htmlFor="email">Email address</Label>`                                                                                                                                                                                                              |
+| [`menubar`](src/components/ui/menubar.tsx) — `Menubar`, `MenubarMenu`, `MenubarTrigger`, `MenubarContent`, `MenubarItem`                                                                                                                           | `<Menubar><MenubarMenu><MenubarTrigger>File</MenubarTrigger><MenubarContent><MenubarItem>New</MenubarItem></MenubarContent></MenubarMenu></Menubar>`                                                                                                        |
+| [`navigation-menu`](src/components/ui/navigation-menu.tsx) — `NavigationMenu`, `NavigationMenuList`, `NavigationMenuItem`, `NavigationMenuTrigger`, `NavigationMenuContent`                                                                        | `<NavigationMenu><NavigationMenuList><NavigationMenuItem><NavigationMenuTrigger>Docs</NavigationMenuTrigger></NavigationMenuItem></NavigationMenuList></NavigationMenu>`                                                                                    |
+| [`pagination`](src/components/ui/pagination.tsx) — `Pagination`, `PaginationContent`, `PaginationItem`, `PaginationLink`, `PaginationPrevious`, `PaginationNext`                                                                                   | `<Pagination><PaginationContent><PaginationItem><PaginationPrevious onClick={prev} /></PaginationItem></PaginationContent></Pagination>`                                                                                                                    |
+| [`popover`](src/components/ui/popover.tsx) — `Popover`, `PopoverTrigger`, `PopoverContent`                                                                                                                                                         | `<Popover><PopoverTrigger asChild><Button>Open</Button></PopoverTrigger><PopoverContent>Content</PopoverContent></Popover>`                                                                                                                                 |
+| [`progress`](src/components/ui/progress.tsx) — `Progress`                                                                                                                                                                                          | `<Progress value={65} className="w-full" />`                                                                                                                                                                                                                |
+| [`radio-group`](src/components/ui/radio-group.tsx) — `RadioGroup`, `RadioGroupItem`                                                                                                                                                                | `<RadioGroup value={val} onValueChange={setVal}><RadioGroupItem value="1" id="r1" /><Label htmlFor="r1">Option 1</Label></RadioGroup>`                                                                                                                      |
+| [`resizable`](src/components/ui/resizable.tsx) — `ResizablePanelGroup`, `ResizablePanel`, `ResizableHandle`                                                                                                                                        | `<ResizablePanelGroup orientation="horizontal"><ResizablePanel>Left</ResizablePanel><ResizableHandle /><ResizablePanel>Right</ResizablePanel></ResizablePanelGroup>`                                                                                        |
+| [`scroll-area`](src/components/ui/scroll-area.tsx) — `ScrollArea`, `ScrollBar`                                                                                                                                                                     | `<ScrollArea className="h-72 w-full">Long content...</ScrollArea>`                                                                                                                                                                                          |
+| [`select`](src/components/ui/select.tsx) — `Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`                                                                                                                                 | `<Select value={val} onValueChange={setVal}><SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger><SelectContent><SelectItem value="a">A</SelectItem></SelectContent></Select>`                                                             |
+| [`separator`](src/components/ui/separator.tsx) — `Separator`                                                                                                                                                                                       | `<Separator orientation="horizontal" className="my-4" />`                                                                                                                                                                                                   |
+| [`sheet`](src/components/ui/sheet.tsx) — `Sheet`, `SheetTrigger`, `SheetContent`, `SheetHeader`, `SheetTitle`                                                                                                                                      | `<Sheet open={open} onOpenChange={setOpen}><SheetTrigger asChild><Button>Open</Button></SheetTrigger><SheetContent side="right"><SheetTitle>Sheet</SheetTitle></SheetContent></Sheet>`                                                                      |
+| [`sidebar`](src/components/ui/sidebar.tsx) — `Sidebar`, `SidebarProvider`, `SidebarContent`, `SidebarHeader`, `SidebarMenu`                                                                                                                        | `<SidebarProvider><Sidebar><SidebarContent><SidebarMenu>...</SidebarMenu></SidebarContent></Sidebar></SidebarProvider>`                                                                                                                                     |
+| [`skeleton`](src/components/ui/skeleton.tsx) — `Skeleton`                                                                                                                                                                                          | `<Skeleton className="h-6 w-32 rounded-md" />`                                                                                                                                                                                                              |
+| [`slider`](src/components/ui/slider.tsx) — `Slider`                                                                                                                                                                                                | `<Slider value={[sliderVal]} onValueChange={([v]) => setSliderVal(v)} min={0} max={100} step={1} />`                                                                                                                                                        |
+| [`sonner`](src/components/ui/sonner.tsx) — `Toaster`, `toast`                                                                                                                                                                                      | `<Toaster />` (mounted in Providers); trigger anywhere via `toast.success("Saved!")` or `toast.error("Failed")`                                                                                                                                             |
+| [`switch`](src/components/ui/switch.tsx) — `Switch`                                                                                                                                                                                                | `<Switch id="active" checked={active} onCheckedChange={setActive} />`                                                                                                                                                                                       |
+| [`table`](src/components/ui/table.tsx) — `Table`, `TableHeader`, `TableBody`, `TableHead`, `TableRow`, `TableCell`                                                                                                                                 | `<Table><TableHeader><TableRow><TableHead>Name</TableHead></TableRow></TableHeader><TableBody><TableRow><TableCell>John</TableCell></TableRow></TableBody></Table>`                                                                                         |
+| [`tabs`](src/components/ui/tabs.tsx) — `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`                                                                                                                                                            | `<Tabs defaultValue="tab1"><TabsList><TabsTrigger value="tab1">One</TabsTrigger></TabsList><TabsContent value="tab1">Panel</TabsContent></Tabs>`                                                                                                            |
+| [`textarea`](src/components/ui/textarea.tsx) — `Textarea`                                                                                                                                                                                          | `<Textarea placeholder="Type notes here..." value={notes} onChange={(e) => setNotes(e.target.value)} />`                                                                                                                                                    |
+| [`toggle-group`](src/components/ui/toggle-group.tsx) — `ToggleGroup`, `ToggleGroupItem`                                                                                                                                                            | `<ToggleGroup type="single" value={val} onValueChange={setVal}><ToggleGroupItem value="bold">B</ToggleGroupItem></ToggleGroup>`                                                                                                                             |
+| [`toggle`](src/components/ui/toggle.tsx) — `Toggle`, `toggleVariants`                                                                                                                                                                              | `<Toggle pressed={pressed} onPressedChange={setPressed}>Bold</Toggle>`                                                                                                                                                                                      |
+| [`tooltip`](src/components/ui/tooltip.tsx) — `TooltipProvider`, `Tooltip`, `TooltipTrigger`, `TooltipContent`                                                                                                                                      | `<TooltipProvider><Tooltip><TooltipTrigger asChild><Button size="icon">?</Button></TooltipTrigger><TooltipContent>Helpful info</TooltipContent></Tooltip></TooltipProvider>`                                                                                |
 
 ---
 
-## 3. Feedback & Navigation (`src/components/shared/`)
+## 2. Extended Inputs (`@/components/ui/extra-inputs`)
 
-### `ConfirmDialog`
-Modal dialog for verifying destructive actions (e.g. deletion, cancellation).
-- **Props**: `open` (boolean), `onOpenChange` ((open: boolean) => void), `title` (string), `description` (string), `confirmLabel` (string), `variant` ("default" | "destructive"), `onConfirm` (() => void), `isLoading` (boolean).
-```tsx
-<ConfirmDialog open={isOpen} onOpenChange={setIsOpen} title="Delete Record?" description="This cannot be undone." variant="destructive" onConfirm={handleDelete} />
-```
-
-### `Modal`
-Declarative wrapper around Radix Dialog for forms, wizards, and previews.
-- **Props**: `open` (boolean), `onOpenChange` ((open: boolean) => void), `title` (string), `description` (string), `footer` (ReactNode), `children` (ReactNode).
-```tsx
-<Modal open={isOpen} onOpenChange={setIsOpen} title="Edit Record"><CrudForm onSubmit={save} /></Modal>
-```
-
-### `ErrorBoundary`
-Graceful error boundary component that catches runtime rendering failures and provides reset/reload buttons.
-```tsx
-<ErrorBoundary><DashboardContent /></ErrorBoundary>
-```
-
-### `PageLoader`
-Full-height loading spinner with optional customizable status message.
-- **Props**: `message` (string, default: "Loading...").
-```tsx
-<PageLoader message="Fetching account records..." />
-```
-
-### `CommandPalette`
-Global `Cmd+K` / `Ctrl+K` searchable modal command palette for rapid navigation and actions.
-```tsx
-<CommandPalette open={open} onOpenChange={setOpen} />
-```
-
-### `ThemeToggle`
-Dropdown button for switching between Light, Dark, and System theme modes.
-```tsx
-<ThemeToggle />
-```
-
-### `UserMenu`
-Topbar profile menu featuring user details, role badge, demo role-switching buttons, settings link, and sign-out action.
-```tsx
-<UserMenu />
-```
-
-### `NotificationBell`
-Topbar bell icon with live unread indicator and popover notifications dropdown.
-```tsx
-<NotificationBell />
-```
-
-### `PrintableDocument`
-Clean printable document template formatted with `@media print` rules for invoices, summaries, or reports.
-- **Props**: `title` (string), `documentNumber` (string), `date` (string), `author` (string), `status` (string), `children` (ReactNode).
-```tsx
-<PrintableDocument title="Audit Summary" documentNumber="DOC-102">{/* details */}</PrintableDocument>
-```
-
-### `CopyButton`
-One-click clipboard copy button with visual checkmark feedback.
-- **Props**: `value` (string), `label` (string).
-```tsx
-<CopyButton value="REC-1002" label="Copy Code" />
-```
+| Export            | Props                                                              | Usage Example                                                                                            |
+| :---------------- | :----------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------- |
+| `IconButton`      | Button props + `label: string`                                     | `<IconButton label="Close" onClick={handleClose}><X size={16} /></IconButton>`                           |
+| `PasswordInput`   | Native HTML input props                                            | `<PasswordInput id="pwd" value={pwd} onChange={(e) => setPwd(e.target.value)} />`                        |
+| `DatePicker`      | Native HTML date input props                                       | `<DatePicker id="date" value={date} onChange={(e) => setDate(e.target.value)} />`                        |
+| `DateRangePicker` | `start`, `end`, `onStartChange`, `onEndChange`                     | `<DateRangePicker start={start} end={end} onStartChange={setStart} onEndChange={setEnd} />`              |
+| `MultiSelect`     | `label`, `options: {value,label}[]`, `value: string[]`, `onChange` | `<MultiSelect label="Tags" options={[{value: "1", label: "Urgent"}]} value={tags} onChange={setTags} />` |
+| `FileUpload`      | Native HTML file input props + `label: string`                     | `<FileUpload label="Upload Avatar" onChange={handleFile} />`                                             |
 
 ---
 
-## 4. Custom Hooks (`src/hooks/`)
+## 3. Composed & Shared Components (`@/components/shared/`)
 
-| Hook | Return Type | Description & Usage Example |
-| :--- | :--- | :--- |
-| `useDebounce<T>(value, delay)` | `T` | Debounces rapidly changing values (e.g. search input). `const debounced = useDebounce(query, 300);` |
-| `useLocalStorage<T>(key, initial)` | `[T, (val) => void]` | Persists state in `localStorage` with JSON serialization. `const [pref, setPref] = useLocalStorage("pref", true);` |
-| `useMediaQuery(query)` | `boolean` | Listens to CSS media query changes. `const isDesktop = useMediaQuery("(min-width: 1024px)");` |
-| `useIsMobile()` | `boolean` | Returns `true` when viewport is smaller than 768px. `const isMobile = useIsMobile();` |
-| `useClickOutside(ref, handler)` | `void` | Triggers a callback when clicking outside an element ref. `useClickOutside(menuRef, () => close());` |
-| `usePagination(options)` | `UsePaginationResult` | Manages page state, total calculation, next/prev helpers. `const { page, totalPages, nextPage } = usePagination({ totalItems: 100 });` |
-| `useDisclosure(initialState)` | `UseDisclosureResult` | Boolean modal/drawer disclosure state helper. `const { isOpen, open, close, toggle } = useDisclosure();` |
-| `useToast()` / `toast` | `Toast` | Dispatches toast alerts via sonner or Radix. `toast.success("Saved successfully");` |
+| Export              | Props                                                            | Usage Example                                                                                                                               |
+| :------------------ | :--------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DataTable<T>`      | `rows: T[]`, `columns: Column<T>[]`, `onEdit?: (row: T) => void` | `<DataTable rows={records} columns={[{ key: "name", label: "Name" }]} onEdit={openEditModal} />`                                            |
+| `StatCard`          | `label: string`, `value: ReactNode`, `trend?: string`            | `<StatCard label="Total Records" value="1,240" trend="+12% from last period" />`                                                            |
+| `TrendIndicator`    | `value: string`                                                  | `<TrendIndicator value="+8% vs target" />`                                                                                                  |
+| `ChartCard`         | `title: string`, `description?: string`, `children: ReactNode`   | `<ChartCard title="Revenue Trend" description="Past 30 days"><LineChartView data={points} /></ChartCard>`                                   |
+| `LineChartView`     | `data: {name: string, value: number}[]`, `label?: string`        | `<LineChartView data={[{ name: "Jan", value: 30 }]} />`                                                                                     |
+| `BarChartView`      | `data: {name: string, value: number}[]`, `label?: string`        | `<BarChartView data={[{ name: "Q1", value: 45 }]} />`                                                                                       |
+| `AreaChartView`     | `data: {name: string, value: number}[]`, `label?: string`        | `<AreaChartView data={[{ name: "Mon", value: 20 }]} />`                                                                                     |
+| `PieChartView`      | `data: {name: string, value: number}[]`                          | `<PieChartView data={[{ name: "Active", value: 80 }]} />`                                                                                   |
+| `ActivityFeed`      | `items: {id: string, label: string, time: string}[]`             | `<ActivityFeed items={[{ id: "1", label: "User created", time: "5m ago" }]} />`                                                             |
+| `Spinner`           | `label?: string`                                                 | `<Spinner label="Fetching data" />`                                                                                                         |
+| `PageLoader`        | (none)                                                           | `<PageLoader />`                                                                                                                            |
+| `EmptyState`        | `title: string`, `description?: string`                          | `<EmptyState title="No items found" description="Try refining your query." />`                                                              |
+| `ConfirmDialog`     | `open`, `onOpenChange`, `onConfirm`, `title`, `description`      | `<ConfirmDialog open={open} onOpenChange={setOpen} onConfirm={handleDelete} title="Delete Record?" description="This cannot be undone." />` |
+| `CopyButton`        | `text: string`                                                   | `<CopyButton text="https://example.com/share" />`                                                                                           |
+| `Stepper`           | `steps: string[]`, `current: number` (0-indexed)                 | `<Stepper steps={["Profile", "Settings", "Confirm"]} current={1} />`                                                                        |
+| `PrintableDocument` | `title: string`, `children: ReactNode`                           | `<PrintableDocument title="Invoice #1024"><p>Billed to Acme Corp</p></PrintableDocument>`                                                   |
+| `ExampleForm`       | `onSubmit: (values: { name, email, notes }) => void`             | `<ExampleForm onSubmit={(data) => console.log(data)} />`                                                                                    |
+| `SearchPalette`     | (none)                                                           | `<SearchPalette />` (triggers via `Ctrl+K` or search button)                                                                                |
+| `ThemeToggle`       | (none)                                                           | `<ThemeToggle />` (switches light/dark/system mode)                                                                                         |
+| `NotificationBell`  | (none)                                                           | `<NotificationBell />` (popover notification panel)                                                                                         |
+| `UserMenu`          | (none)                                                           | `<UserMenu />` (profile, settings, and sign-out links)                                                                                      |
+| `LanguageSwitcher`  | (none)                                                           | `<LanguageSwitcher />` (English / Kiswahili toggle)                                                                                         |
+| `ErrorBoundary`     | (none)                                                           | `<ErrorBoundary />` (React Router error element)                                                                                            |
+| `NotFound`          | (none)                                                           | `<NotFound />` (404 fallback page)                                                                                                          |
+
+---
+
+## 4. Layouts (`@/components/layout/`)
+
+| Export            | Props                         | Usage Example                                        |
+| :---------------- | :---------------------------- | :--------------------------------------------------- |
+| `DashboardLayout` | (none - renders `<Outlet />`) | Top-level route element in `createBrowserRouter`     |
+| `AuthLayout`      | `children: ReactNode`         | `<AuthLayout><AuthForm mode="login" /></AuthLayout>` |
+
+---
+
+## 5. Feature Modules (`@/features/`)
+
+| Module and Export                           | Props / Description                                                              | Usage Example                                                                            |
+| :------------------------------------------ | :------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------- |
+| `AuthForm` (`features/auth`)                | `mode: "login" \| "register" \| "forgot-password" \| "reset-password"`           | `<AuthForm mode="login" />`                                                              |
+| `DashboardView` (`features/dashboard`)      | (none)                                                                           | `<DashboardView />`                                                                      |
+| `RecordsView` (`features/example-crud`)     | (none)                                                                           | `<RecordsView />`                                                                        |
+| `RecordFormModal` (`features/example-crud`) | `open`, `onOpenChange`, `record: RecordItem \| null`, `onSave: (record) => void` | `<RecordFormModal open={open} onOpenChange={setOpen} record={selected} onSave={save} />` |
+| `ReportsView` (`features/reports`)          | (none)                                                                           | `<ReportsView />`                                                                        |
+| `SettingsView` (`features/settings`)        | (none)                                                                           | `<SettingsView />`                                                                       |
+| `LanguageSwitcher` (`features/i18n`)        | (none)                                                                           | `<LanguageSwitcher />`                                                                   |

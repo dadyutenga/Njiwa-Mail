@@ -1,64 +1,47 @@
-import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
-import type { ApiError } from "@/types/api";
-import { csrfToken } from "@/lib/csrf";
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "/admin/v1";
-
-export const apiClient = axios.create({
-  baseURL: BASE_URL,
-  timeout: 30000,
-  withCredentials: true,
-  headers: {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  },
-});
-
-const mutating = new Set(["post", "put", "patch", "delete"]);
-
-apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const method = (config.method || "get").toLowerCase();
-  const url = config.url || "";
-  if (mutating.has(method) && !url.endsWith("/auth/login")) {
-    config.headers.set("X-CSRF-Token", csrfToken());
+/** Network calls are opt-in: configure VITE_API_BASE_URL for your own service. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
   }
-  return config;
-});
-
-function errorMessage(data: unknown, fallback: string): string {
-  if (data && typeof data === "object" && "error" in data) {
-    const err = (data as { error?: { code?: string; message?: string } }).error;
-    if (err?.message) return err.message;
-    if (err?.code) return err.code.split("_").join(" ");
-  }
-  if (data && typeof data === "object" && "message" in data) {
-    const message = (data as { message?: string }).message;
-    if (message) return message;
-  }
-  return fallback;
 }
-
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError<{ message?: string; error?: { code?: string; message?: string } }>) => {
-    const url = error.config?.url || "";
-    const sessionCall =
-      url.includes("/auth/me") || url.includes("/auth/login") || url.includes("/auth/logout");
-    if (
-      error.response?.status === 401 &&
-      !sessionCall &&
-      !window.location.pathname.startsWith("/login")
-    ) {
-      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-    }
-
-    const normalizedError: ApiError = {
-      statusCode: error.response?.status,
-      message: errorMessage(error.response?.data, error.message || "The request failed."),
-    };
-
-    return Promise.reject(normalizedError);
-  },
-);
-
-export default apiClient;
+type Interceptor = (request: RequestInit) => RequestInit;
+const interceptors: Interceptor[] = [];
+type ResponseInterceptor = (response: Response) => Response | Promise<Response>;
+const responseInterceptors: ResponseInterceptor[] = [];
+export function addResponseInterceptor(interceptor: ResponseInterceptor) {
+  responseInterceptors.push(interceptor);
+  return () => {
+    const index = responseInterceptors.indexOf(interceptor);
+    if (index >= 0) responseInterceptors.splice(index, 1);
+  };
+}
+export function addRequestInterceptor(interceptor: Interceptor) {
+  interceptors.push(interceptor);
+  return () => {
+    const index = interceptors.indexOf(interceptor);
+    if (index >= 0) interceptors.splice(index, 1);
+  };
+}
+export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const base = import.meta.env.VITE_API_BASE_URL;
+  if (!base) throw new ApiError("Configure VITE_API_BASE_URL before making requests", 0);
+  const request = interceptors.reduce((current, interceptor) => interceptor(current), options);
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, base), request);
+    for (const interceptor of responseInterceptors) response = await interceptor(response);
+  } catch {
+    throw new ApiError("Network request failed", 0);
+  }
+  if (!response.ok) throw new ApiError(response.statusText || "Request failed", response.status);
+  if (response.status === 204) return undefined as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new ApiError("The server returned invalid JSON", response.status);
+  }
+}
