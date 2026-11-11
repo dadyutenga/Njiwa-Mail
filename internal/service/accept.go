@@ -79,6 +79,10 @@ type Payload struct {
 	CC           []string          `json:"cc,omitempty"`
 	BCC          []string          `json:"bcc,omitempty"`
 	Headers      map[string]string `json:"headers,omitempty"`
+	// System headers set by Njiwa-Mail itself (threading, unsubscribe). Never caller input.
+	System map[string]string `json:"system,omitempty"`
+	// Personal marks mail an operator wrote by hand: no Auto-Submitted header.
+	Personal bool `json:"personal,omitempty"`
 }
 
 type storedAttachment struct {
@@ -112,6 +116,15 @@ type validated struct {
 	attachments                  []storedAttachment
 	recipients                   []string
 	headers                      map[string]string
+
+	// Set by workspace callers (compose, bulk, automations), never by API input.
+	source         string
+	system         map[string]string
+	personal       bool
+	campaignID     string
+	replyInboundID string
+	skipQuota      bool // bulk mail has its own rate; it never uses the transactional quota
+	copy           []byte
 }
 
 var customHeaderRe = regexp.MustCompile(`^X-[A-Za-z0-9-]{1,40}$`)
@@ -523,6 +536,15 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 		if !errors.Is(err, db.ErrNoRows) {
 			return nil, false, unavailable("suppression_lookup", err)
 		}
+		if v.source == "bulk" {
+			err = tx.QueryRow(ctx, `SELECT 1 FROM bulk_unsubscribes WHERE environment_id=$1 AND recipient_hash=$2`, p.EnvironmentID, s.Box.MAC("recipient", []byte(rcpt))).Scan(&one)
+			if err == nil {
+				return nil, false, invalid("recipient_unsubscribed")
+			}
+			if !errors.Is(err, db.ErrNoRows) {
+				return nil, false, unavailable("unsubscribe_lookup", err)
+			}
+		}
 	}
 	if p.Mode == "live" {
 		if err := s.domainAllowsLive(ctx, tx, p.ProjectID, v.from); err != nil {
@@ -534,7 +556,7 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 	// later failure releases the reservation deterministically.
 	scope := p.ProjectID + ":" + p.EnvironmentID
 	rk := scope + ":" + string(hexOf(rcptHash))
-	for _, b := range []struct {
+	quotas := []struct {
 		key    string
 		window time.Duration
 		limit  int
@@ -543,7 +565,11 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 		{"p:" + scope + ":day", 24 * time.Hour, p.PerDay},
 		{"r:" + rk + ":min", time.Minute, p.RcptPerMinute},
 		{"r:" + rk + ":hour", time.Hour, p.RcptPerHour},
-	} {
+	}
+	if v.skipQuota {
+		quotas = quotas[2:]
+	}
+	for _, b := range quotas {
 		wait, ok, err := hit(ctx, tx, b.key, b.window, b.limit)
 		if err != nil {
 			return nil, false, unavailable("rate_limit", err)
@@ -586,7 +612,7 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 	id := secure.NewUUID()
 	pl, _ := json.Marshal(Payload{From: v.from, FromName: v.fromName, To: v.to, Template: v.tpl.Slug, Version: v.tpl.Version,
 		VersionID: v.tpl.VersionID, Locale: v.locale, Vars: v.vars, Raw: v.raw, Subject: v.subject, HTML: v.html, Text: v.text,
-		ReplyTo: v.replyTo, CC: v.cc, BCC: v.bcc, Headers: v.headers})
+		ReplyTo: v.replyTo, CC: v.cc, BCC: v.bcc, Headers: v.headers, System: v.system, Personal: v.personal})
 	sealed, err := s.Box.Seal(pl, []byte(id))
 	if err != nil {
 		return nil, false, unavailable("seal", err)
@@ -611,12 +637,13 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 	tag, err := tx.Exec(ctx, `
 INSERT INTO messages (id, project_id, environment_id, api_key_id, template, template_version, state, payload_enc,
                       recipient_hash, request_hmac, idempotency_key, metadata, expires_at, next_attempt_at, locale, template_version_id,
-                      priority, send_at, reply_to, cc, bcc)
+                      priority, send_at, reply_to, cc, bcc, source, sender, recipient_masked, subject, campaign_id, reply_to_inbound_id)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, $13::timestamptz + make_interval(secs => $14::float8), $15, $16, NULLIF($17,'')::uuid,
-        $18, $19, $20, COALESCE($21::text[], '{}'), COALESCE($22::text[], '{}'))
+        $18, $19, $20, COALESCE($21::text[], '{}'), COALESCE($22::text[], '{}'), $23, $24, $25, $26, NULLIF($27,'')::uuid, NULLIF($28,'')::uuid)
 ON CONFLICT (project_id, environment_id, idempotency_key) DO NOTHING`,
 		id, p.ProjectID, p.EnvironmentID, nullable(p.KeyID), v.tpl.Slug, v.tpl.Version, state, sealed, rcptHash, reqMAC, idemKey, mj, ttlFrom, v.ttl.Seconds(), next,
-		v.locale, v.tpl.VersionID, v.priority, nullableTime(v.sendAt), v.replyTo, v.cc, v.bcc)
+		v.locale, v.tpl.VersionID, v.priority, nullableTime(v.sendAt), v.replyTo, v.cc, v.bcc,
+		sourceOf(v), v.from, maskEmail(v.to), operatorSubject(v), v.campaignID, v.replyInboundID)
 	if err != nil {
 		return nil, false, unavailable("insert", err)
 	}
@@ -625,6 +652,18 @@ ON CONFLICT (project_id, environment_id, idempotency_key) DO NOTHING`,
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO message_events(message_id, event_type) VALUES ($1,'accepted')`, id); err != nil {
 		return nil, false, unavailable("event", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sender_identities SET last_used_at=now() WHERE environment_id=$1 AND email=$2`, p.EnvironmentID, v.from); err != nil {
+		return nil, false, unavailable("sender_used", err)
+	}
+	if v.copy != nil {
+		sealedCopy, err := s.Box.Seal(v.copy, []byte("sent:"+id))
+		if err != nil {
+			return nil, false, unavailable("seal_copy", err)
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO sent_copies(message_id, data_enc) VALUES ($1,$2)`, id, sealedCopy); err != nil {
+			return nil, false, unavailable("sent_copy", err)
+		}
 	}
 	for _, a := range v.attachments {
 		sealedAtt, err := s.Box.Seal(a.Data, []byte("attachment:"+id+":"+a.Filename))
@@ -642,6 +681,22 @@ ON CONFLICT (project_id, environment_id, idempotency_key) DO NOTHING`,
 	return &Accepted{ID: id, Status: state}, false, nil
 }
 
+func sourceOf(v *validated) string {
+	if v.source == "" {
+		return "api"
+	}
+	return v.source
+}
+
+// operatorSubject keeps the subject only for mail an operator typed in the
+// workspace. Application mail may carry codes in its subject; it is not stored.
+func operatorSubject(v *validated) string {
+	if v.source == "ui" || v.source == "bulk" {
+		return clean(v.subject, 300)
+	}
+	return ""
+}
+
 func nullableTime(t time.Time) *time.Time {
 	if t.IsZero() {
 		return nil
@@ -656,7 +711,7 @@ func (s *Service) domainAllowsLive(ctx context.Context, tx *db.Tx, projectID, fr
 	domain := from[strings.LastIndexByte(from, '@')+1:]
 	var verified, spf, dkim, dmarc bool
 	err := tx.QueryRow(ctx, `SELECT verified_at IS NOT NULL, spf_ok, dkim_ok, dmarc_ok FROM domains
-WHERE project_id=$1 AND name=$2 AND purpose='sending'`, projectID, domain).Scan(&verified, &spf, &dkim, &dmarc)
+WHERE project_id=$1 AND name=$2 AND purpose IN ('sending','both') ORDER BY verified_at IS NULL LIMIT 1`, projectID, domain).Scan(&verified, &spf, &dkim, &dmarc)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil
 	}

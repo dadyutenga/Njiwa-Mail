@@ -185,6 +185,16 @@ func Run(args []string) {
 	}
 }
 
+// envSMTP is the SMTP configuration from the environment, for the Mail server
+// page's connection test; nil when SMTP_HOST is not set.
+func envSMTP(cfg *config.Config) *mailer.SMTPConfig {
+	if !cfg.SMTP.Configured() {
+		return nil
+	}
+	return &mailer.SMTPConfig{Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username, Password: cfg.SMTP.Password,
+		Implicit: cfg.SMTP.Implicit, HeloName: cfg.SMTP.HeloName, Timeout: cfg.SMTP.Timeout}
+}
+
 func smtpTransport(cfg *config.Config) *mailer.SMTP {
 	primary := mailer.NewSMTP(mailer.SMTPConfig{Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
 		Password: cfg.SMTP.Password, Implicit: cfg.SMTP.Implicit, HeloName: cfg.SMTP.HeloName, Timeout: cfg.SMTP.Timeout})
@@ -200,6 +210,7 @@ func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 		Svc: svc, MaxBodyBytes: cfg.MaxBodyBytes, EmailMaxBytes: 6 << 20,
 		ConsolePassword: cfg.ConsolePassword, SessionTTL: cfg.ConsoleSessionTTL,
 		SMTPConfigured: cfg.SMTP.Configured(),
+		EnvSMTP:        envSMTP(cfg),
 		TrustProxy:     cfg.TrustProxy, InsecureCookies: cfg.InsecureCookies, MetricsToken: cfg.MetricsToken,
 	}).App()
 	errCh := make(chan error, 1)
@@ -226,7 +237,8 @@ func runWorker(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	if cfg.SMTP.Configured() {
 		w.SMTP = smtpTransport(cfg)
 	} else {
-		slog.Warn("SMTP not configured: worker handles sandbox messages only; live messages stay queued until they expire")
+		w.SMTP = &worker.StoredTransport{Svc: svc, Timeout: cfg.SMTP.Timeout}
+		slog.Warn("SMTP_HOST not set: live mail uses the settings saved on the Mail server page; until they are saved, live messages stay queued")
 	}
 	w.Run(ctx)
 }
@@ -314,6 +326,15 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 		if err == nil {
 			slog.Info("retention run", "captures", r.Captures, "messages", r.Messages, "payloads", r.Payloads, "inbound", r.Inbound, "deliveries", r.Deliveries)
 		}
+		return err
+	})
+	every(15*time.Second, "bulk_campaigns", func() error {
+		_, err := svc.PumpCampaigns(ctx)
+		return err
+	})
+	every(5*time.Minute, "temporary_inboxes", func() error { return svc.ExpireTempInboxes(ctx) })
+	every(10*time.Minute, "domain_recheck", func() error {
+		_, err := svc.RecheckPendingDomains(ctx, nil)
 		return err
 	})
 	every(5*time.Minute, "bounce_rate_alerts", func() error { return svc.CheckBounceRates(ctx) })

@@ -3,7 +3,6 @@ import { Bell, Search, SunMoon, UserRound } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { admin, type Page } from "@/lib/admin-api";
-import { routes } from "@/app/routes";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useAuth } from "@/features/auth/auth";
 import { Button } from "@/components/ui/button";
@@ -22,68 +21,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-export function SearchPalette() {
-  const { user } = useAuth();
-  const phrase = usePhrase();
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const navigate = useNavigate();
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setOpen(true);
-      }
-    };
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="icon" variant="ghost" aria-label={phrase("Search pages")}>
-          <Search size={19} />
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogTitle>{phrase("Search pages")}</DialogTitle>
-        <DialogDescription>
-          {phrase("Find a page by name or press Control K to open search.")}
-        </DialogDescription>
-        <Input
-          autoFocus
-          aria-label={phrase("Search pages")}
-          placeholder={phrase("Search pages…")}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <ul className="max-h-64 overflow-auto">
-          {routes
-            .filter((route) => route.navigation && (!route.role || user?.role === route.role))
-            .filter((route) => {
-              const label = phrase(route.label).toLowerCase();
-              const q = query.toLowerCase();
-              return route.label.toLowerCase().includes(q) || label.includes(q);
-            })
-            .map((route) => (
-              <li key={route.path}>
-                <button
-                  className="w-full rounded p-3 text-left hover:bg-muted focus-visible:bg-muted"
-                  onClick={() => {
-                    setOpen(false);
-                    setQuery("");
-                    navigate(route.path);
-                  }}
-                >
-                  {phrase(route.label)}
-                </button>
-              </li>
-            ))}
-        </ul>
-      </DialogContent>
-    </Dialog>
-  );
-}
 export function NotificationBell() {
   const phrase = usePhrase();
   const q = useQuery({
@@ -151,10 +88,10 @@ export function UserMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem asChild>
-          <Link to="/profile">{phrase("Profile")}</Link>
+          <Link to="/app?next=profile">{phrase("Profile")}</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link to="/settings">{phrase("Settings")}</Link>
+          <Link to="/app?next=settings">{phrase("Settings")}</Link>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={logout}>{phrase("Sign out")}</DropdownMenuItem>
       </DropdownMenuContent>

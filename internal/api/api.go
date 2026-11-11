@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/service"
 )
 
@@ -26,6 +27,7 @@ type Server struct {
 	ConsolePassword string
 	SessionTTL      time.Duration
 	SMTPConfigured  bool
+	EnvSMTP         *mailer.SMTPConfig // SMTP from the environment (nil when unset); used by the Mail server test
 
 	// Admin API (/admin/v1).
 	TrustProxy      bool             // take the client IP from X-Forwarded-For (set by our own reverse proxy)
@@ -85,6 +87,7 @@ func (s *Server) App() *fiber.App {
 	s.appRoutes(app)
 	s.adminRoutes(app)
 	s.productRoutes(app)
+	s.workspaceRoutes(app)
 	return app
 }
 
@@ -323,6 +326,12 @@ func safeFilename(n string) string {
 		n = "attachment"
 	}
 	return n
+}
+
+func jsonDecoder(b []byte) *json.Decoder {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	return dec
 }
 
 func decode(c *fiber.Ctx, v any) error {

@@ -308,8 +308,7 @@ const swPhrases: Record<string, string> = {
   "DNS check failed": "Ukaguzi wa DNS umeshindikana",
   "Add this TXT challenge to DNS, then verify the domain.":
     "Ongeza changamoto hii ya TXT kwenye DNS, kisha thibitisha kikoa.",
-  "Copy this secret now. It will not be shown again.":
-    "Nakili siri hii sasa. Haitaonyeshwa tena.",
+  "Copy this secret now. It will not be shown again.": "Nakili siri hii sasa. Haitaonyeshwa tena.",
   Dismiss: "Funga",
   Create: "Unda",
   Actions: "Vitendo",

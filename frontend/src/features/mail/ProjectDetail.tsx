@@ -117,7 +117,7 @@ export default function ProjectDetail() {
   if (q.error) return <p role="alert">{q.error.message}</p>;
   return (
     <div className="space-y-6">
-      <Link to="/projects" className="text-primary">
+      <Link to="../.." relative="path" className="text-primary">
         {phrase("← Projects")}
       </Link>
       <h1 className="text-3xl font-bold">{q.data.name}</h1>

@@ -423,7 +423,7 @@ export default function Welcome() {
         Checking session…
       </div>
     );
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) return <Navigate to="/app" replace />;
   return (
     <div className="welcome-page">
       <Navigation />

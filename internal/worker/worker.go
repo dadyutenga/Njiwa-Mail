@@ -35,6 +35,20 @@ type Worker struct {
 
 func (w *Worker) defaults() { w.once.Do(w.setDefaults) }
 
+// Readiness is implemented by a transport whose configuration can be absent
+// (settings stored from the Mail server page). Live mail is not claimed
+// while it is not ready.
+type Readiness interface {
+	Ready(ctx context.Context) bool
+}
+
+func (w *Worker) liveReady(ctx context.Context) bool {
+	if r, ok := w.SMTP.(Readiness); ok {
+		return r.Ready(ctx)
+	}
+	return true
+}
+
 func (w *Worker) setDefaults() {
 	if w.Poll <= 0 {
 		w.Poll = time.Second
@@ -121,7 +135,7 @@ func (w *Worker) RunOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	modes := []string{"sandbox"}
-	if w.SMTP != nil {
+	if w.SMTP != nil && w.liveReady(ctx) {
 		modes = append(modes, "live")
 	}
 	claimed, err := w.Svc.Claim(ctx, w.Batch, w.Lease, modes)
@@ -198,7 +212,7 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	rcpts := append([]string{pl.To}, append(append([]string{}, pl.CC...), pl.BCC...)...)
 	raw, err := mailer.Build(mailer.Message{FromName: pl.FromName, FromEmail: pl.From, To: pl.To, Subject: subject,
 		Text: text, HTML: html, MessageID: msgID, DMMessageID: c.ID, Date: time.Now(),
-		ReplyTo: pl.ReplyTo, CC: pl.CC, BCC: pl.BCC, Attachments: atts, Extra: pl.Headers})
+		ReplyTo: pl.ReplyTo, CC: pl.CC, BCC: pl.BCC, Attachments: atts, Extra: pl.Headers, System: pl.System, Personal: pl.Personal})
 	if err != nil {
 		fail("build_failed")
 		return

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/mail"
 	"net/textproto"
 	"regexp"
 	"strconv"
@@ -171,6 +172,16 @@ func ParseDSN(raw []byte) []service.BounceReport {
 		}
 	}
 
+	if fb := env.Root.DepthMatchFirst(func(p *enmime.Part) bool { return ctypeIs(p, "message/feedback-report") }); fb != nil {
+		rd := textproto.NewReader(bufio.NewReader(bytes.NewReader(append(bytes.TrimLeft(fb.Content, "\r\n"), "\r\n\r\n"...))))
+		h, _ := rd.ReadMIMEHeader()
+		rcpt := strings.Trim(strings.TrimSpace(h.Get("Original-Rcpt-To")), "<>")
+		if _, err := mail.ParseAddress(rcpt); err != nil {
+			rcpt = "" // often redacted by the receiving provider
+		}
+		return []service.BounceReport{{MessageID: ourID, Recipient: cleanStr(rcpt, 320), DSNID: dsnID, Complaint: true,
+			Diagnostic: cleanStr("complaint: "+strings.ToLower(h.Get("Feedback-Type")), 100)}}
+	}
 	status := env.Root.DepthMatchFirst(func(p *enmime.Part) bool { return ctypeIs(p, "message/delivery-status") })
 	if status == nil {
 		return fallback("not_a_dsn", subject)

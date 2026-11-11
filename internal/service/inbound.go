@@ -65,7 +65,7 @@ func (s *Service) route(ctx context.Context, addr string) (*inboundRoute, error)
 	var r inboundRoute
 	err := s.Pool.QueryRow(ctx, `SELECT a.id::text, a.project_id::text, a.environment_id::text, a.webhook_endpoint_id::text, a.route, a.forward_to
 FROM inbound_addresses a JOIN environments e ON e.id=a.environment_id JOIN projects p ON p.id=a.project_id
-WHERE a.domain=$1 AND a.local_part IN ($2,'*') AND a.enabled AND e.enabled AND p.enabled
+WHERE a.domain=$1 AND a.local_part IN ($2,'*') AND a.enabled AND e.enabled AND p.enabled AND (a.expires_at IS NULL OR a.expires_at > now())
 ORDER BY (a.local_part='*') LIMIT 1`, domain, local).Scan(&r.AddressID, &r.ProjectID, &r.EnvironmentID, &r.EndpointID, &r.Route, &r.ForwardTo)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, nil
@@ -85,8 +85,20 @@ func (s *Service) ResolveRecipient(ctx context.Context, addr string) (string, er
 		return KindBounce, nil
 	}
 	local, domain, ok := splitAddr(a)
-	if !ok || s.Opts.InboundDomain == "" || domain != s.Opts.InboundDomain {
+	if !ok {
 		return "", nil
+	}
+	// Complaint (feedback loop) reports sent to fbl@ on the bounce domain.
+	if _, bd, bok := splitAddr(s.Opts.BounceAddress); bok && domain == bd && local == "fbl" {
+		return KindBounce, nil
+	}
+	if s.Opts.InboundDomain == "" || domain != s.Opts.InboundDomain {
+		// A project's own receiving domain, relayed by Mailcow to this listener.
+		r, err := s.route(ctx, a)
+		if err != nil || r == nil {
+			return "", err
+		}
+		return KindInbound, nil
 	}
 	// The bounce mailbox may reach us through a Mailcow alias onto the relayed
 	// inbound domain (bounces@notify.<domain> -> bounces@in.<domain>).
@@ -203,6 +215,11 @@ func (s *Service) StoreInbound(ctx context.Context, it SpoolItem, p *ParsedInbou
 		if r == nil {
 			continue // address was disabled between RCPT and parsing
 		}
+		if b, err := s.blocked(ctx, tx, r.EnvironmentID, it.From); err != nil {
+			return 0, err
+		} else if b {
+			continue // the operator blocked this sender in this environment
+		}
 		id := secure.NewUUID()
 		var textEnc, htmlEnc []byte
 		if p.Text != "" {
@@ -253,6 +270,11 @@ in_reply_to_message_id=(SELECT id FROM messages WHERE smtp_message_id=$3 OR id::
 		}
 		if _, err := tx.Exec(ctx, `SELECT dm_emit($1::uuid, 'inbound.received', jsonb_build_object('inbound_id', $2::text, 'address_id', $3::text,
   'attachment_count', $4::int, 'raw_size', $5::int), $6::uuid)`, r.EnvironmentID, id, r.AddressID, len(p.Attachments), it.Size, r.EndpointID); err != nil {
+			return 0, err
+		}
+		if err := s.runAutomations(ctx, tx, &inboundFacts{ID: id, AddressID: r.AddressID, ProjectID: r.ProjectID, EnvID: r.EnvironmentID,
+			EnvelopeFrom: it.From, HeaderFrom: p.HeaderFrom, Subject: p.Subject, Text: p.Text, HTML: p.HTML, Headers: p.Headers,
+			Attachments: len(p.Attachments), Recipient: strings.ToLower(rcpt)}); err != nil {
 			return 0, err
 		}
 		if r.Route == "forward" && r.ForwardTo != "" {
@@ -355,9 +377,9 @@ func (s *Service) queueForward(ctx context.Context, tx *db.Tx, r *inboundRoute, 
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO messages (id, project_id, environment_id, template, template_version, state, payload_enc,
-recipient_hash, request_hmac, idempotency_key, expires_at, locale, priority)
-VALUES ($1,$2,$3,'raw',0,'queued',$4,$5,$6,$7, now() + interval '1 day', 'en', 'normal')`,
-		id, r.ProjectID, r.EnvironmentID, sealed, s.Box.MAC("recipient", []byte(to)), s.Box.MAC("request", body), "fwd-"+id)
+recipient_hash, request_hmac, idempotency_key, expires_at, locale, priority, source, sender, recipient_masked)
+VALUES ($1,$2,$3,'raw',0,'queued',$4,$5,$6,$7, now() + interval '1 day', 'en', 'normal', 'forward', $8, $9)`,
+		id, r.ProjectID, r.EnvironmentID, sealed, s.Box.MAC("recipient", []byte(to)), s.Box.MAC("request", body), "fwd-"+id, from, maskEmail(to))
 	return err
 }
 

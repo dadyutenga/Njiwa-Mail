@@ -36,7 +36,14 @@ type Message struct {
 	Attachments []Attachment
 	// Extra headers are caller-supplied X- headers. Names are already checked.
 	Extra map[string]string
+	// System headers are set by Njiwa-Mail itself: In-Reply-To, References,
+	// List-Unsubscribe, List-Unsubscribe-Post. Other names are ignored.
+	System map[string]string
+	// Personal mail (written by an operator) is not marked Auto-Submitted.
+	Personal bool
 }
+
+var systemHeaders = map[string]bool{"In-Reply-To": true, "References": true, "List-Unsubscribe": true, "List-Unsubscribe-Post": true}
 
 type Attachment struct {
 	Filename, ContentType string
@@ -72,8 +79,19 @@ func Build(m Message) ([]byte, error) {
 		hdr("X-DM-Message-ID", m.DMMessageID)
 	}
 	hdr("MIME-Version", "1.0")
-	hdr("Auto-Submitted", "auto-generated")
-	hdr("X-Auto-Response-Suppress", "All")
+	if !m.Personal {
+		hdr("Auto-Submitted", "auto-generated")
+		hdr("X-Auto-Response-Suppress", "All")
+	}
+	for _, name := range headerNames(m.System) {
+		if !systemHeaders[name] {
+			continue
+		}
+		if !noCRLF(m.System[name]) {
+			return nil, errors.New("header injection rejected")
+		}
+		hdr(name, m.System[name])
+	}
 	for _, name := range headerNames(m.Extra) {
 		if !noCRLF(m.Extra[name]) || !noCRLF(name) {
 			return nil, errors.New("header injection rejected")

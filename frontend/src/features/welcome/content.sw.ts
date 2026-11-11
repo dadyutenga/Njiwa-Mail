@@ -125,7 +125,8 @@ export const contentSw = {
       },
       {
         question: "Naweza kujaribu bila kutuma barua pepe halisi?",
-        answer: "Ndiyo. Funguo za sandbox hunasa ujumbe hapa na haziwasiliani na seva halisi ya barua.",
+        answer:
+          "Ndiyo. Funguo za sandbox hunasa ujumbe hapa na haziwasiliani na seva halisi ya barua.",
       },
     ],
   },

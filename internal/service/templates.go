@@ -422,5 +422,6 @@ WHERE t.id=$1 AND v.version=$2 AND (t.project_id IS NULL OR t.project_id=$3)`, t
 	if err != nil {
 		return nil, err
 	}
+	v.source = "test"
 	return s.acceptValidated(ctx, p, v, "test-"+secure.NewUUID())
 }

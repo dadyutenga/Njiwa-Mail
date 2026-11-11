@@ -46,7 +46,7 @@ export function AuthForm({ mode }: { mode: string }) {
       } else {
         await login(email, password);
         const state = location.state as { from?: string } | null;
-        navigate(state?.from || "/dashboard", { replace: true });
+        navigate(state?.from || "/app", { replace: true });
       }
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : phrase("Request failed"));

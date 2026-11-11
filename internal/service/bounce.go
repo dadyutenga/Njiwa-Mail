@@ -21,6 +21,8 @@ type BounceReport struct {
 	// DSNID identifies the notification itself (its Message-ID, or a digest of
 	// the raw message) so that redelivery of the same DSN is recognised.
 	DSNID string
+	// Complaint marks a feedback-loop (ARF) report: the recipient marked our message as spam.
+	Complaint bool
 }
 
 // ClassifyBounce maps an enhanced status code to a bounce type.
@@ -74,6 +76,9 @@ func (s *Service) recordOne(ctx context.Context, tx *db.Tx, r BounceReport) erro
 	if r.Action == "delayed" && typ != "soft" {
 		typ = "unknown"
 	}
+	if r.Complaint {
+		typ = "complaint"
+	}
 	var rcptHash []byte
 	masked := ""
 	if e, ok := NormalizeEmail(strings.ToLower(strings.TrimSpace(r.Recipient))); ok {
@@ -81,14 +86,20 @@ func (s *Service) recordOne(ctx context.Context, tx *db.Tx, r BounceReport) erro
 	}
 
 	var msgID, pid, eid *string
+	var campaignID *string
 	verified := false
 	if uuidRe.MatchString(r.MessageID) {
-		var p, e string
+		var p, e, mm string
 		var mh []byte
-		err := tx.QueryRow(ctx, `SELECT project_id::text, environment_id::text, recipient_hash FROM messages WHERE id=$1 FOR UPDATE`, r.MessageID).Scan(&p, &e, &mh)
+		err := tx.QueryRow(ctx, `SELECT project_id::text, environment_id::text, recipient_hash, recipient_masked, campaign_id::text FROM messages WHERE id=$1 FOR UPDATE`, r.MessageID).Scan(&p, &e, &mh, &mm, &campaignID)
 		if err == nil {
 			msgID, pid, eid = &r.MessageID, &p, &e
 			verified = rcptHash != nil && bytes.Equal(mh, rcptHash)
+			if r.Complaint && rcptHash == nil {
+				// Feedback loops usually redact the recipient; the report is
+				// about this message, so it is about this message's recipient.
+				rcptHash, masked, verified = mh, mm, true
+			}
 		} else if !errors.Is(err, db.ErrNoRows) {
 			return err
 		}
@@ -120,6 +131,19 @@ VALUES ($1,$2,$3,$4,$5,'hard_bounce',$6) ON CONFLICT (environment_id, recipient_
 				return err
 			}
 			suppressed = tag.RowsAffected() > 0
+		}
+		if typ == "complaint" && verified {
+			tag, err := tx.Exec(ctx, `INSERT INTO suppressions(project_id, environment_id, recipient_hash, recipient_masked, reason, source, bounce_id)
+VALUES ($1,$2,$3,$4,'spam complaint','complaint',$5) ON CONFLICT (environment_id, recipient_hash) DO NOTHING`, *pid, *eid, rcptHash, masked, bounceID)
+			if err != nil {
+				return err
+			}
+			suppressed = tag.RowsAffected() > 0
+		}
+		if campaignID != nil && (typ == "hard" || typ == "complaint") {
+			if err := checkCampaignHealth(ctx, tx, *campaignID, typ); err != nil {
+				return err
+			}
 		}
 		if typ == "hard" || typ == "soft" {
 			// hard is final; soft never downgrades a hard state.

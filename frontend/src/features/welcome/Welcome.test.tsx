@@ -21,7 +21,7 @@ function renderPage() {
         <AuthProvider>
           <Routes>
             <Route path="/" element={<Welcome />} />
-            <Route path="/dashboard" element={<div>Dashboard destination</div>} />
+            <Route path="/app" element={<div>Dashboard destination</div>} />
           </Routes>
         </AuthProvider>
       </QueryClientProvider>
