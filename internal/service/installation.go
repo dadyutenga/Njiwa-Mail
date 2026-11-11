@@ -163,6 +163,24 @@ func (s *Service) InstallationSummary(ctx context.Context) (map[string]any, erro
 		"welcome_state": st["welcome_state"]}, nil
 }
 
+// RecordManagedPreflight stores a host preflight run as the "preflight" check
+// of the managed profile (the draft created when the operator chose "Send from
+// my VPS"). ok is true only when every required check passed; external marks a
+// failure the operator must fix outside Njiwa-Mail (PTR, provider port 25).
+func (s *Service) RecordManagedPreflight(ctx context.Context, ok bool, code string, external bool, summary map[string]any) error {
+	var id string
+	var rev int64
+	err := s.Pool.QueryRow(ctx, `SELECT id::text, config_revision FROM transport_profiles WHERE mode='managed_mta' AND status <> 'retired'
+ORDER BY is_active DESC, created_at LIMIT 1`).Scan(&id, &rev)
+	if errors.Is(err, db.ErrNoRows) {
+		return &Error{Status: 409, Code: "managed_mode_not_selected", Message: "choose \"Send from my VPS\" on the Delivery infrastructure page first"}
+	}
+	if err != nil {
+		return unavailable("preflight_record", err)
+	}
+	return s.RecordInstallationCheck(ctx, id, rev, "preflight", ok, code, summary, external)
+}
+
 // QueueTransportTest sends one controlled Live message through the normal
 // accept pipeline, queue and worker (backlog C04). Every Live rule applies:
 // approved sender, domain gate, suppressions, quotas. When the worker finishes
