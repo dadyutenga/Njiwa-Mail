@@ -19,7 +19,7 @@ func (e *env) addAndPublish(admin session, dns fakeDNS, project, name string) st
 	dns.txt[name] = append(dns.txt[name], str(d.JSON, "txt"))
 	if len(dns.txt["_dmarc."+name]) == 0 {
 		dns.txt[name] = append(dns.txt[name], "v=spf1 mx -all")
-		dns.txt["dkim._domainkey."+name] = []string{"v=DKIM1; k=rsa; p=MIIB"}
+		dns.txt["dkim._domainkey."+name] = []string{dkimRecord(e.t)}
 		dns.txt["_dmarc."+name] = []string{"v=DMARC1; p=none"}
 	}
 	return str(d.JSON, "id")
@@ -278,7 +278,7 @@ func TestDomainCheckEvaluatesSPFAndDMARC(t *testing.T) {
 	set := func(spf ...string) {
 		dns.txt[name] = append([]string{str(d.JSON, "txt")}, spf...)
 	}
-	dns.txt["dkim._domainkey."+name] = []string{"v=DKIM1; k=rsa; p=MIIB"}
+	dns.txt["dkim._domainkey."+name] = []string{dkimRecord(e.t)}
 	dns.txt["_dmarc."+name] = []string{"v=DMARC1; p=quarantine"}
 	rec := func(key string) map[string]any { return recordByKey(e.admOK(admin, "POST", path, nil), key) }
 
@@ -342,7 +342,7 @@ func TestDomainCheckEvaluatesSPFAndDMARC(t *testing.T) {
 		t.Fatalf("misaligned DMARC passed: %v", r)
 	}
 	// With DKIM back, DMARC passes and explains it relies on DKIM.
-	dns.txt["dkim._domainkey."+name] = []string{"v=DKIM1; k=rsa; p=MIIB"}
+	dns.txt["dkim._domainkey."+name] = []string{dkimRecord(e.t)}
 	if r := rec("dmarc"); r["pass"] != true || !strings.Contains(str(r, "hint"), "through DKIM only") {
 		t.Fatalf("DKIM-aligned DMARC: %v", r)
 	}
@@ -351,5 +351,74 @@ func TestDomainCheckEvaluatesSPFAndDMARC(t *testing.T) {
 	dns.txt["_dmarc.example.com"] = []string{"v=DMARC1; p=none"}
 	if r := rec("dmarc"); r["pass"] != true || !strings.Contains(str(r, "found"), "_dmarc.example.com") {
 		t.Fatalf("org-domain DMARC: %v", r)
+	}
+}
+
+// D06: the DKIM key is decoded and validated; a published key is reported as
+// published, not as proof that mail is signed.
+func TestDomainCheckValidatesDKIMKey(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	e.must(e.svc.CreateProject(ctx, "dk"))
+	const name = "notify.example.com"
+	d := e.admOK(admin, "POST", wsPath("dk", "/domains"), map[string]any{"name": name, "purpose": "sending"})
+	path := wsPath("dk", "/domains/"+str(d.JSON, "id")+"/check")
+	dns := newDNS()
+	e.srv.Resolver = dns
+	host := "dkim._domainkey." + name
+	key := dkimRecord(t)
+	for _, c := range []struct {
+		txt  []string
+		pass bool
+		hint string
+	}{
+		{[]string{key[:len(key)-30]}, false, "cut off"},
+		{[]string{"v=DKIM1; k=rsa; p="}, false, "revoked"},
+		{[]string{key, key}, false, "More than one"},
+		{nil, false, "No DKIM record"},
+		{[]string{key}, true, "Only a received test message"},
+		{[]string{strings.Replace(key, "k=rsa;", "k=rsa; t=y;", 1)}, true, "testing"},
+	} {
+		dns.txt[host] = c.txt
+		r := recordByKey(e.admOK(admin, "POST", path, nil), "dkim")
+		if r["pass"] != c.pass || !strings.Contains(str(r, "hint"), c.hint) {
+			t.Fatalf("%v: %v", c.txt, r)
+		}
+	}
+}
+
+// D08: reverse DNS of the sending address must be forward-confirmed.
+func TestPTRIsForwardConfirmed(t *testing.T) {
+	e := setup(t)
+	e.provision("sacas")
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	e.saveSMTP("mail.example.com", "pw")
+	_, err := e.pool.Exec(context.Background(), `UPDATE transport_profiles SET provider_type='mailcow'`)
+	e.must(err)
+	ptrResult := func(a map[string][]string) map[string]any {
+		e.srv.Resolver = fakeDNS{txt: map[string][]string{}, mx: map[string][]string{},
+			ptr: map[string][]string{"203.0.113.10": {"mail.example.com."}}, a: a}
+		for _, r := range items(e.admOK(admin, "POST", "/admin/v1/dns/check", nil)) {
+			if r["record_type"] == "PTR" {
+				return r
+			}
+		}
+		t.Fatal("no PTR result")
+		return nil
+	}
+	if r := ptrResult(map[string][]string{"mail.example.com": {"198.51.100.9"}}); r["pass"] != false {
+		t.Fatalf("PTR whose name points elsewhere passed: %v", r)
+	}
+	if r := ptrResult(map[string][]string{"mail.example.com": {"203.0.113.10"}}); r["pass"] != true {
+		t.Fatalf("forward-confirmed PTR: %v", r)
+	}
+	// Generic SMTP: the sending address is not ours to check.
+	_, err = e.pool.Exec(context.Background(), `UPDATE transport_profiles SET provider_type='generic'`)
+	e.must(err)
+	for _, r := range items(e.admOK(admin, "POST", "/admin/v1/dns/check", nil)) {
+		if r["record_type"] == "PTR" {
+			t.Fatalf("PTR checked for a generic SMTP server: %v", r)
+		}
 	}
 }

@@ -1154,11 +1154,12 @@ func TestDNSHealthCheck(t *testing.T) {
 	good := fakeDNS{
 		txt: map[string][]string{
 			"notify.example.com":                 {"google-site-verification=abc", "v=spf1 ip4:203.0.113.10 -all"},
-			"dkim._domainkey.notify.example.com": {"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A"},
+			"dkim._domainkey.notify.example.com": {dkimRecord(t)},
 			"_dmarc.example.com":                 {"v=DMARC1; p=none; rua=mailto:dmarc@example.com"}, // parent-domain fallback
 		},
 		mx:  map[string][]string{"notify.example.com": {"mail.example.com."}, inDomain: {"mail.example.com."}},
 		ptr: map[string][]string{"203.0.113.10": {"mail.example.com."}},
+		a:   map[string][]string{"mail.example.com": {"203.0.113.10"}}, // forward-confirms the PTR
 	}
 	e.srv.Resolver = good
 	res := items(e.admOK(admin, "POST", "/admin/v1/dns/check", nil))

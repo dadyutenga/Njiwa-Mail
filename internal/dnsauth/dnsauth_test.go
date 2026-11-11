@@ -1,10 +1,15 @@
-package dnsauth
+//go:debug rsa1024min=0
+
+package dnsauth_test
 
 import (
 	"context"
 	"net"
 	"strings"
 	"testing"
+
+	. "github.com/njiwa-tz/mail/internal/dnsauth"
+	"github.com/njiwa-tz/mail/internal/dnsauth/dkimtest"
 )
 
 type fake struct {
@@ -167,5 +172,36 @@ func TestDMARCLookupAndAlignment(t *testing.T) {
 	if !Aligned("r", "notify.example.com", "bounce.example.com") || Aligned("s", "notify.example.com", "bounce.example.com") ||
 		!Aligned("s", "Notify.Example.com.", "notify.example.com") || Aligned("r", "example.com", "example.net") {
 		t.Fatal("alignment")
+	}
+}
+
+func TestDKIMKeyParsing(t *testing.T) {
+	for _, bits := range []int{2048, 1024} {
+		rec := dkimtest.KeyRecord(t, bits)
+		k, err := ParseDKIMKey(rec)
+		if err != nil || k.Bits != bits || k.Revoked || len(k.Fingerprint) != 32 {
+			t.Fatalf("%d: %+v %v", bits, k, err)
+		}
+		// Folded whitespace inside p= is not significant.
+		folded := strings.Replace(rec, "p=", "p= ", 1)
+		folded = folded[:len(folded)-20] + " " + folded[len(folded)-20:]
+		if k2, err := ParseDKIMKey(folded); err != nil || k2.Fingerprint != k.Fingerprint {
+			t.Fatalf("folded: %v", err)
+		}
+	}
+	if k, err := ParseDKIMKey("v=DKIM1; p="); err != nil || !k.Revoked {
+		t.Fatalf("revoked: %+v %v", k, err)
+	}
+	for _, bad := range []string{
+		"v=DKIM1; k=rsa; p=MIIB",     // truncated
+		"v=DKIM1; k=rsa",             // no key
+		"k=rsa; v=DKIM1; p=AAAA",     // v not first
+		"v=DKIM1; k=dsa; p=AAAA",     // unknown type
+		"v=DKIM1; k=ed25519; p=AAAA", // wrong length
+		dkimtest.KeyRecord(t, 512),   // too short
+	} {
+		if _, err := ParseDKIMKey(bad); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
 	}
 }
