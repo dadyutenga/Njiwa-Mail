@@ -202,3 +202,62 @@ func TestUnregisteredDomainEscapeHatchIsNarrow(t *testing.T) {
 		t.Fatalf("escape hatch reached another project's claimed domain: %v", err)
 	}
 }
+
+func recordByKey(r resp, key string) map[string]any {
+	for _, rec := range r.JSON["records"].([]any) {
+		if m := rec.(map[string]any); m["key"] == key {
+			return m
+		}
+	}
+	return nil
+}
+
+// SPF and DKIM must describe the server that actually sends. With a generic
+// SMTP server Njiwa-Mail cannot see its egress or signer, so it shows marked
+// templates and never authorises OUTBOUND_IP or MAIL_HOSTNAME. MX guidance
+// names exactly the host the check compares, at priority 10.
+func TestDNSRecordsFollowTheActualSender(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	e.must(e.svc.CreateProject(ctx, "rec"))
+	d := e.admOK(admin, "POST", wsPath("rec", "/domains"), map[string]any{"name": "rec.example.com", "purpose": "both"})
+	path := wsPath("rec", "/domains/"+str(d.JSON, "id"))
+
+	e.saveSMTP("smtp.provider.example", "pw") // generic provider (default)
+	r := e.admOK(admin, "GET", path, nil)
+	spf, dkim, mx := recordByKey(r, "spf"), recordByKey(r, "dkim"), recordByKey(r, "mx")
+	if spf["placeholder"] != true || strings.Contains(str(spf, "value"), "203.0.113.10") || strings.Contains(str(spf, "value"), "mail.example.com") {
+		t.Fatalf("generic SPF authorises this host: %v", spf)
+	}
+	if dkim["placeholder"] != true || strings.Contains(str(dkim, "value"), "Mailcow") || strings.Contains(str(dkim, "hint"), "Mailcow") {
+		t.Fatalf("generic DKIM: %v", dkim)
+	}
+	if mx["placeholder"] == true || str(mx, "value") != "mail.example.com" || mx["priority"].(float64) != 10 ||
+		!strings.Contains(str(mx, "hint"), "at mail.example.com with") || !strings.Contains(str(mx, "hint"), "priority 10") {
+		t.Fatalf("MX guidance must name the checked host: %v", mx)
+	}
+	if rp := recordByKey(r, "return_path"); !strings.Contains(str(rp, "hint"), "at mail.example.com with") {
+		t.Fatalf("return path guidance: %v", rp)
+	}
+	// The check itself is unchanged: an MX at the configured host passes.
+	dns := newDNS()
+	dns.mx["rec.example.com"] = []string{"mail.example.com."}
+	e.srv.Resolver = dns
+	if m := recordByKey(e.admOK(admin, "POST", path+"/check", nil), "mx"); m["pass"] != true {
+		t.Fatalf("MX check: %v", m)
+	}
+
+	// Mailcow chosen: OUTBOUND_IP describes the Mailcow server, so it is used.
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	e.admOK(owner, "PUT", "/admin/v1/mail-server", map[string]any{"smtp_host": "smtp.provider.example", "smtp_port": 587,
+		"smtp_tls_mode": "starttls", "smtp_username": "njiwa@example.com", "provider_type": "mailcow"})
+	// The page shows the records of the last check; a re-check uses the new sender.
+	r = e.admOK(admin, "POST", path+"/check", nil)
+	if spf := recordByKey(r, "spf"); spf["placeholder"] == true || str(spf, "value") != "v=spf1 mx ip4:203.0.113.10 -all" {
+		t.Fatalf("mailcow SPF: %v", spf)
+	}
+	if dkim := recordByKey(r, "dkim"); dkim["placeholder"] != true || !strings.Contains(str(dkim, "value"), "Mailcow") {
+		t.Fatalf("mailcow DKIM without the API is still a template: %v", dkim)
+	}
+}
