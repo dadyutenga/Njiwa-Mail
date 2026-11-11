@@ -3,8 +3,9 @@ info:
   title: Njiwa Mail API
   version: 1.0.0
   description: |
-    Implemented contract only. `submitted` means the SMTP server (Mailcow)
-    positively acknowledged the message. It does NOT mean delivered, inboxed or read.
+    Implemented contract only. `submitted` means the active mail server (managed
+    Postfix or your existing SMTP server) positively acknowledged the message.
+    It does NOT mean delivered, inboxed or read.
 servers:
   - url: https://mail-api.example.com
 security:
@@ -27,11 +28,17 @@ paths:
       responses:
         '202': { description: Durably queued, or identical replay (original id), content: { application/json: { schema: { $ref: '#/components/schemas/Accepted' } } } }
         '401': { $ref: '#/components/responses/Error' }
-        '403': { description: missing_scope | sender_not_approved | project_disabled, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403':
+          description: |
+            missing_scope | sender_not_approved | project_disabled |
+            domain_not_registered (Live: the sender's domain is not a verified sending domain of this project) |
+            domain_claimed_elsewhere (Live: another project in this installation holds the domain, or it awaits operator review) |
+            domain_not_ready (Live: ownership, SPF, DKIM or DMARC does not pass yet)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
         '409': { description: idempotency_conflict (same key, different payload), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '413': { description: body_too_large (32 KiB max), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '422': { description: 'Validation: invalid_request, invalid_recipient, invalid_sender, unknown_template, template_version_required, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, invalid_ttl, invalid_metadata, idempotency_key_invalid, recipient_suppressed, recipient_not_allowed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '429': { description: rate_limited; see Retry-After, headers: { Retry-After: { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { description: "rate_limited: a project quota, or the installation-wide or per-sending-domain Live limit; see Retry-After", headers: { Retry-After: { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '503': { description: Durable persistence unavailable. Nothing was accepted; retry with the same key., headers: { Retry-After: { schema: { type: integer } } } }
   /v1/emails/{id}:
     get:
