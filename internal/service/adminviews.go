@@ -3,10 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/ditronics-tz/mail/internal/db"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // Read models and writes for the admin API. Like the console views these are
@@ -266,7 +265,7 @@ func (s *Service) AdminCapture(ctx context.Context, id string) ([]byte, error) {
 	}
 	var enc []byte
 	err := s.Pool.QueryRow(ctx, `SELECT raw_enc FROM sandbox_captures WHERE message_id=$1 AND expires_at > now()`, id).Scan(&enc)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(404, "not_found")
 	}
 	if err != nil {

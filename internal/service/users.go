@@ -10,10 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ditronics-tz/mail/internal/db"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -109,7 +109,7 @@ func (s *Service) CreateUser(ctx context.Context, email, password, role string) 
 	var id string
 	err := s.Pool.QueryRow(ctx, `INSERT INTO users(email, password_hash, role) VALUES ($1,$2,$3) ON CONFLICT (email) DO NOTHING RETURNING id::text`,
 		e, hashPassword(password), role).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return "", newErr(409, "user_exists")
 	}
 	if err != nil {
@@ -216,7 +216,7 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent, tot
 	var id, hash, role string
 	var disabled, totpEnabled bool
 	err = s.Pool.QueryRow(ctx, `SELECT id::text, password_hash, role, disabled, totp_enabled FROM users WHERE email=$1`, e).Scan(&id, &hash, &role, &disabled, &totpEnabled)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		verifyPassword(dummyHash, password)
 		return "", nil, errBadLogin
 	}
@@ -272,7 +272,7 @@ func (s *Service) Session(ctx context.Context, token string) (*AdminUser, error)
 	var u AdminUser
 	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, u.totp_enabled, s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
 WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.TOTPEnabled, &u.ExpiresAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(401, "unauthenticated")
 	}
 	if err != nil {
@@ -315,7 +315,7 @@ var CLIActor = Actor{Name: "cli"}
 
 func (u *AdminUser) Actor() Actor { return Actor{UserID: u.ID, Name: u.Email} }
 
-func audit(ctx context.Context, tx pgx.Tx, a Actor, action, targetType, targetID string, details map[string]any) error {
+func audit(ctx context.Context, tx *db.Tx, a Actor, action, targetType, targetID string, details map[string]any) error {
 	if details == nil {
 		details = map[string]any{}
 	}
@@ -349,7 +349,7 @@ WHERE ($1='' OR actor=$1) AND ($2='' OR action LIKE $2 || '%') ORDER BY id DESC`
 func (s *Service) UserIDByEmail(ctx context.Context, email string) (string, error) {
 	var id string
 	err := s.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(email))).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return "", &Error{Status: 404, Code: "not_found", Message: "user not found"}
 	}
 	return id, err

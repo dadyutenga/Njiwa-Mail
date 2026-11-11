@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ditronics-tz/mail/internal/db"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/ditronics-tz/mail/internal/tmpl"
-	"github.com/jackc/pgx/v5"
 )
 
 // Admin operations are CLI-only. There are deliberately no public
@@ -18,7 +18,7 @@ import (
 func (s *Service) envID(ctx context.Context, project, mode string) (pid, eid string, err error) {
 	err = s.Pool.QueryRow(ctx, `SELECT p.id::text, e.id::text FROM projects p JOIN environments e ON e.project_id=p.id WHERE p.name=$1 AND e.mode=$2`,
 		project, mode).Scan(&pid, &eid)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return "", "", fmt.Errorf("project %q environment %q not found", project, mode)
 	}
 	return

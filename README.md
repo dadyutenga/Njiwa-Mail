@@ -12,7 +12,7 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, roles (`owner`, `admin`), audit log, DNS health check, metrics.
 - Per-project, per-environment (sandbox/live) API keys, approved senders, approved link origins, recipient allowlist, rate limits.
 - Honest status: `submitted` = Mailcow acknowledged acceptance. Never "delivered".
-- Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. Only dependency is PostgreSQL.
+- Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. The HTTP API is Fiber. Persistence is GORM on PostgreSQL.
 
 > Release status: see [docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md). Real Mailcow delivery and HTTPS deployment have **not** been verified yet.
 
@@ -33,6 +33,9 @@ docker compose run --rm -T api user create -email you@example.com -role owner <<
 Without Docker: `go build -o ditronics-mail ./cmd/ditronics-mail`, set the env vars from `.env.example`,
 run `ditronics-mail migrate`, then `serve`, `worker` and `scheduler` (systemd units in `deploy/`).
 The `inbound` role needs Mailcow routing first: see [docs/MAILCOW_SETUP.md](docs/MAILCOW_SETUP.md).
+
+To start the HTTP API directly from the project root, set the same environment variables and run `go run .`.
+You can also run CLI commands from the root, for example `go run . migrate`.
 
 ## Admin API
 
@@ -83,12 +86,12 @@ go vet ./... && go test ./... -race -count=1
 
 ```
 cmd/ditronics-mail   CLI entrypoint (serve | worker | inbound | scheduler | migrate | provisioning | ops)
-internal/api         HTTP: application API, admin API, legacy console
+internal/api         Fiber HTTP: application API, admin API, legacy console
 internal/service     auth, accept, dispatch state machine, templates, webhooks outbox, inbound, bounces, users, DNS, stats
 internal/worker      outbound claim/dispatch loop      internal/webhook   signed webhook delivery (SSRF-guarded)
 internal/inbound     private SMTP listener + MIME/DSN parsing
 internal/mailer      MIME + SMTP transport             internal/tmpl      template engine + seed content (en, sw)
-internal/secure      AES-GCM + keyed HMAC              internal/db        pool + migrations
+internal/secure      AES-GCM + keyed HMAC              internal/db        GORM session, models, SQL migrations
 client/              dependency-free Go client and webhook verifier
 test/                acceptance tests                  deploy/            nginx + systemd; Dockerfile, compose.yaml at root
 ```

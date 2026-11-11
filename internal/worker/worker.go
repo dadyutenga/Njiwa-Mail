@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ditronics-tz/mail/internal/db"
 	"log/slog"
 	"math/rand"
 	"strings"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/ditronics-tz/mail/internal/mailer"
 	"github.com/ditronics-tz/mail/internal/service"
-	"github.com/jackc/pgx/v5"
 )
 
 type Worker struct {
@@ -181,7 +181,7 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	// Rendered from the template version pinned at accept time.
 	subject, text, html, err := w.Svc.RenderPayload(ctx, pl)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, db.ErrNoRows) {
 			fail("template_missing")
 		} else {
 			fail("render_failed")

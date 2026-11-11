@@ -10,18 +10,19 @@ import (
 	"testing"
 
 	"github.com/ditronics-tz/mail/internal/api"
+	"github.com/gofiber/fiber/v2"
 )
 
-func consoleHandler(e *env, password string) http.Handler {
+func consoleHandler(e *env, password string) *fiber.App {
 	return (&api.Server{
 		Svc:             e.svc,
 		MaxBodyBytes:    32 * 1024,
 		ConsolePassword: password,
 		SMTPConfigured:  true,
-	}).Handler()
+	}).App()
 }
 
-func consoleDo(h http.Handler, method, path, cookie string, body any) *httptest.ResponseRecorder {
+func consoleDo(h *fiber.App, method, path, cookie string, body any) *httptest.ResponseRecorder {
 	var rdr io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -32,8 +33,21 @@ func consoleDo(h http.Handler, method, path, cookie string, body any) *httptest.
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}
+	res, err := h.Test(req, -1)
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return w
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	for k, vs := range res.Header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(res.StatusCode)
+	w.Write(b)
 	return w
 }
 

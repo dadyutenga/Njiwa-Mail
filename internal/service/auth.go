@@ -8,11 +8,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"github.com/ditronics-tz/mail/internal/db"
 	"net"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 type Principal struct {
@@ -115,7 +114,7 @@ WHERE k.prefix = $1`, parts[2]).Scan(
 		&p.KeyID, &hash, &p.Scopes, &p.IPAllowlist, &p.KeyPerMinute, &expires, &revoked,
 		&p.ProjectID, &projEnabled, &p.PerMinute, &p.PerDay, &p.RcptPerMinute, &p.RcptPerHour,
 		&p.EnvironmentID, &mode, &envEnabled, &p.Origins, &p.RestrictRecipients, &p.Allowlist)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		sum := sha256.Sum256([]byte(parts[3])) // keep timing similar for unknown prefixes
 		subtle.ConstantTimeCompare(sum[:], make([]byte, 32))
 		return nil, errInvalidKey

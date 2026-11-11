@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ditronics-tz/mail/internal/db"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/jackc/pgx/v5"
 )
 
 // Inbound mail arrives from Mailcow at the private SMTP listener. The raw
@@ -67,7 +67,7 @@ func (s *Service) route(ctx context.Context, addr string) (*inboundRoute, error)
 FROM inbound_addresses a JOIN environments e ON e.id=a.environment_id JOIN projects p ON p.id=a.project_id
 WHERE a.domain=$1 AND a.local_part IN ($2,'*') AND a.enabled AND e.enabled AND p.enabled
 ORDER BY (a.local_part='*') LIMIT 1`, domain, local).Scan(&r.AddressID, &r.ProjectID, &r.EnvironmentID, &r.EndpointID, &r.Route, &r.ForwardTo)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -158,7 +158,7 @@ func (s *Service) FailSpool(ctx context.Context, it SpoolItem, code string) erro
 	return err
 }
 
-func finishSpool(ctx context.Context, tx pgx.Tx, id string) error {
+func finishSpool(ctx context.Context, tx *db.Tx, id string) error {
 	_, err := tx.Exec(ctx, `UPDATE inbound_spool SET state='done', error_code='', lease_expires_at=NULL WHERE id=$1`, id)
 	return err
 }
@@ -280,7 +280,7 @@ WHERE bodies_purged_at IS NULL AND retention_expires_at < now() RETURNING id::te
 	if err != nil {
 		return 0, 0, err
 	}
-	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	ids, err := db.CollectStrings(rows)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -304,7 +304,7 @@ WHERE bodies_purged_at IS NULL AND retention_expires_at < now() RETURNING id::te
 	if err != nil {
 		return 0, 0, err
 	}
-	sids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	sids, err := db.CollectStrings(rows)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -335,10 +335,10 @@ func headerOne(h map[string][]string, name string) string {
 
 // queueForward records a raw queued message to the address's forward target.
 // It uses the environment's first approved sender. No sender means the copy is skipped.
-func (s *Service) queueForward(ctx context.Context, tx pgx.Tx, r *inboundRoute, p *ParsedInbound) error {
+func (s *Service) queueForward(ctx context.Context, tx *db.Tx, r *inboundRoute, p *ParsedInbound) error {
 	var from, name string
 	err := tx.QueryRow(ctx, `SELECT email, display_name FROM sender_identities WHERE environment_id=$1 LIMIT 1`, r.EnvironmentID).Scan(&from, &name)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
@@ -489,7 +489,7 @@ func (s *Service) CreateInboundAddress(ctx context.Context, project, mode, local
 	var id string
 	err = s.Pool.QueryRow(ctx, `INSERT INTO inbound_addresses(project_id, environment_id, domain, local_part, webhook_endpoint_id, route, forward_to)
 VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (domain, local_part) DO NOTHING RETURNING id::text`, pid, eid, s.Opts.InboundDomain, local, endpointID, route, strings.ToLower(forwardTo)).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return "", newErr(409, "address_exists")
 	}
 	if err != nil {
@@ -507,7 +507,7 @@ func (s *Service) checkEndpoint(ctx context.Context, envID string, endpointID *s
 	}
 	var one int
 	err := s.Pool.QueryRow(ctx, `SELECT 1 FROM webhook_endpoints WHERE id=$1 AND environment_id=$2`, *endpointID, envID).Scan(&one)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return badRequest("webhook endpoint must belong to the same project environment")
 	}
 	return notFound(err)

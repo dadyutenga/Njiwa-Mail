@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ditronics-tz/mail/internal/db"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -15,8 +16,6 @@ import (
 	"golang.org/x/net/idna"
 
 	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Options struct {
@@ -45,12 +44,12 @@ type Options struct {
 }
 
 type Service struct {
-	Pool *pgxpool.Pool
+	Pool *db.DB
 	Box  *secure.Box
 	Opts Options
 }
 
-func New(pool *pgxpool.Pool, box *secure.Box, o Options) *Service {
+func New(pool *db.DB, box *secure.Box, o Options) *Service {
 	if o.MaxAttempts <= 0 {
 		o.MaxAttempts = 4
 	}
@@ -111,7 +110,7 @@ func notFound(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return newErr(404, "not_found")
 	}
 	return unavailable("lookup", err)
@@ -159,7 +158,7 @@ func (s *Service) maps(ctx context.Context, sql string, args ...any) ([]map[stri
 	if err != nil {
 		return nil, unavailable("query", err)
 	}
-	out, err := pgx.CollectRows(rows, pgx.RowToMap)
+	out, err := db.CollectMaps(rows)
 	if err != nil {
 		return nil, unavailable("query_rows", err)
 	}

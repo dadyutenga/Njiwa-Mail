@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ditronics-tz/mail/internal/db"
 	"log/slog"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // ---------------------------------------------------------------- settings
@@ -81,7 +80,7 @@ ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, k, v); 
 
 // raiseAlert records an operator alert and logs it. The same kind is not
 // raised again while an unacknowledged alert of that kind is under an hour old.
-func raiseAlert(ctx context.Context, tx pgx.Tx, kind, summary string, details map[string]any) error {
+func raiseAlert(ctx context.Context, tx *db.Tx, kind, summary string, details map[string]any) error {
 	dj, _ := json.Marshal(details)
 	tag, err := tx.Exec(ctx, `INSERT INTO alerts(kind, summary, details) SELECT $1,$2,$3
 WHERE NOT EXISTS (SELECT 1 FROM alerts WHERE kind=$1 AND acknowledged_at IS NULL AND created_at > now() - interval '1 hour')`, kind, summary, dj)

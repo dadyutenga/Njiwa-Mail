@@ -2,59 +2,48 @@ package api
 
 import (
 	"crypto/subtle"
-	"net/http"
 
 	"github.com/ditronics-tz/mail/internal/service"
+	"github.com/gofiber/fiber/v2"
 )
 
 // Application API on /v1: inbound mail and suppressions. Every
 // request authenticates an API key and every query is scoped to that key's
 // project AND environment.
 
-type keyFn func(r *http.Request, p *service.Principal) (any, error)
+type keyFn func(c *fiber.Ctx, p *service.Principal) (any, error)
 
-func (s *Server) key(scope string, h keyFn) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		p, err := s.Svc.Authenticate(r.Context(), r.Header.Get("Authorization"))
+func (s *Server) key(scope string, h keyFn) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		p, err := s.Svc.Authenticate(reqCtx(c), c.Get("Authorization"))
 		if err != nil {
-			writeErr(w, err)
-			return
+			return writeErr(c, err)
 		}
-		if err := p.AllowIP(s.clientIP(r)); err != nil {
-			writeErr(w, err)
-			return
+		if err := p.AllowIP(s.clientIP(c)); err != nil {
+			return writeErr(c, err)
 		}
 		if !p.HasScope(scope) {
-			writeErr(w, &service.Error{Status: 403, Code: "missing_scope"})
-			return
+			return writeErr(c, &service.Error{Status: 403, Code: "missing_scope"})
 		}
-		out, err := h(r, p)
+		out, err := h(c, p)
 		if err != nil {
-			writeErr(w, err)
-			return
+			return writeErr(c, err)
 		}
-		switch v := out.(type) {
-		case nil:
-			writeJSON(w, 200, map[string]bool{"ok": true})
-		case rawResponse:
-			v.write(w)
-		default:
-			writeJSON(w, 200, out)
-		}
+		return writeOut(c, out)
 	}
 }
 
-func (s *Server) appRoutes(mux *http.ServeMux) {
+func (s *Server) appRoutes(app *fiber.App) {
 	svc := s.Svc
-	mux.HandleFunc("GET /v1/inbound", s.key(service.ScopeInboundRead, func(r *http.Request, p *service.Principal) (any, error) {
-		items, more, err := svc.ListInbound(r.Context(), p.EnvironmentID, "", "", r.URL.Query().Get("q"), pageOf(r))
-		return list(r, items, more, err)
+	app.Get("/v1/inbound", s.key(service.ScopeInboundRead, func(c *fiber.Ctx, p *service.Principal) (any, error) {
+		items, more, err := svc.ListInbound(reqCtx(c), p.EnvironmentID, "", "", c.Query("q"), pageOf(c))
+		return list(c, items, more, err)
 	}))
-	mux.HandleFunc("GET /v1/inbound/{id}", s.key(service.ScopeInboundRead, func(r *http.Request, p *service.Principal) (any, error) {
-		return svc.GetInbound(r.Context(), p.EnvironmentID, r.PathValue("id"), true)
+	app.Get("/v1/inbound/:id", s.key(service.ScopeInboundRead, func(c *fiber.Ctx, p *service.Principal) (any, error) {
+		return svc.GetInbound(reqCtx(c), p.EnvironmentID, c.Params("id"), true)
 	}))
-	mux.HandleFunc("GET /v1/inbound/{id}/attachments/{aid}", s.key(service.ScopeInboundRead, func(r *http.Request, p *service.Principal) (any, error) {
-		f, err := svc.OpenAttachment(r.Context(), p.EnvironmentID, r.PathValue("id"), r.PathValue("aid"))
+	app.Get("/v1/inbound/:id/attachments/:aid", s.key(service.ScopeInboundRead, func(c *fiber.Ctx, p *service.Principal) (any, error) {
+		f, err := svc.OpenAttachment(reqCtx(c), p.EnvironmentID, c.Params("id"), c.Params("aid"))
 		if err != nil {
 			return nil, err
 		}
@@ -64,47 +53,45 @@ func (s *Server) appRoutes(mux *http.ServeMux) {
 	actor := func(p *service.Principal) service.Actor {
 		return service.Actor{KeyID: p.KeyID, Name: "key:" + p.KeyPrefix}
 	}
-	mux.HandleFunc("GET /v1/suppressions", s.key(service.ScopeSuppressions, func(r *http.Request, p *service.Principal) (any, error) {
-		items, more, err := svc.KeySuppressions(r.Context(), p, pageOf(r))
-		return list(r, items, more, err)
+	app.Get("/v1/suppressions", s.key(service.ScopeSuppressions, func(c *fiber.Ctx, p *service.Principal) (any, error) {
+		items, more, err := svc.KeySuppressions(reqCtx(c), p, pageOf(c))
+		return list(c, items, more, err)
 	}))
-	mux.HandleFunc("POST /v1/suppressions", s.key(service.ScopeSuppressions, func(r *http.Request, p *service.Principal) (any, error) {
+	app.Post("/v1/suppressions", s.key(service.ScopeSuppressions, func(c *fiber.Ctx, p *service.Principal) (any, error) {
 		var in struct {
 			Email  string `json:"email"`
 			Reason string `json:"reason"`
 		}
-		if err := decode(r, &in); err != nil {
+		if err := decode(c, &in); err != nil {
 			return nil, &service.Error{Status: 422, Code: "invalid_request"}
 		}
-		id, err := svc.KeySuppress(r.Context(), p, in.Email, in.Reason)
+		id, err := svc.KeySuppress(reqCtx(c), p, in.Email, in.Reason)
 		if err != nil {
 			return nil, err
 		}
-		svc.Audit(r.Context(), actor(p), "suppression.add", "suppression", id, nil)
+		svc.Audit(reqCtx(c), actor(p), "suppression.add", "suppression", id, nil)
 		return map[string]string{"id": id}, nil
 	}))
-	// {id} is a suppression id or the email address itself.
-	mux.HandleFunc("DELETE /v1/suppressions/{id}", s.key(service.ScopeSuppressions, func(r *http.Request, p *service.Principal) (any, error) {
-		if err := svc.KeyUnsuppress(r.Context(), p, r.PathValue("id")); err != nil {
+	// :id is a suppression id or the email address itself.
+	app.Delete("/v1/suppressions/:id", s.key(service.ScopeSuppressions, func(c *fiber.Ctx, p *service.Principal) (any, error) {
+		if err := svc.KeyUnsuppress(reqCtx(c), p, c.Params("id")); err != nil {
 			return nil, err
 		}
-		svc.Audit(r.Context(), actor(p), "suppression.remove", "suppression", "", nil)
+		svc.Audit(reqCtx(c), actor(p), "suppression.remove", "suppression", "", nil)
 		return nil, nil
 	}))
 
 	// Prometheus metrics: disabled (404) unless a token is configured.
-	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+	app.Get("/metrics", func(c *fiber.Ctx) error {
 		want := "Bearer " + s.MetricsToken
-		if s.MetricsToken == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(want)) != 1 {
-			http.NotFound(w, r)
-			return
+		if s.MetricsToken == "" || subtle.ConstantTimeCompare([]byte(c.Get("Authorization")), []byte(want)) != 1 {
+			return notFound(c)
 		}
-		text, err := svc.Metrics(r.Context())
+		text, err := svc.Metrics(reqCtx(c))
 		if err != nil {
-			writeErr(w, err)
-			return
+			return writeErr(c, err)
 		}
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		w.Write([]byte(text))
+		c.Set(fiber.HeaderContentType, "text/plain; version=0.0.4; charset=utf-8")
+		return c.SendString(text)
 	})
 }

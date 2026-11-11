@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ditronics-tz/mail/internal/db"
 	"time"
 
 	"github.com/ditronics-tz/mail/internal/mailer"
-	"github.com/jackc/pgx/v5"
 )
 
 // Claimed is a message leased to a worker. Payload is still encrypted.
@@ -115,7 +115,7 @@ type finishOpts struct {
 	reply      *string
 	messageID  *string
 	retryAfter *float64
-	extra      func(ctx context.Context, tx pgx.Tx) error
+	extra      func(ctx context.Context, tx *db.Tx) error
 }
 
 // finish applies a lease-token-guarded transition. It reports false when the
@@ -175,7 +175,7 @@ var webhookStates = map[string]bool{"submitted": true, "failed": true, "unknown"
 const messageEventData = `jsonb_build_object('message_id', m.id, 'state', m.state, 'reason', %s::text,
   'template', m.template, 'request_id', m.metadata->>'request_id')`
 
-func emitMessageEvent(ctx context.Context, tx pgx.Tx, id, eventType, reason string) error {
+func emitMessageEvent(ctx context.Context, tx *db.Tx, id, eventType, reason string) error {
 	_, err := tx.Exec(ctx, `SELECT dm_emit(m.environment_id, $2, `+fmt.Sprintf(messageEventData, "$3")+`) FROM messages m WHERE m.id=$1`,
 		id, eventType, reason)
 	return err
@@ -223,7 +223,7 @@ func (s *Service) MarkCaptured(ctx context.Context, c Claimed, raw []byte, messa
 	}
 	return s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "captured", event: "captured", reason: "sandbox", clear: true, complete: true,
 		messageID: &messageID,
-		extra: func(ctx context.Context, tx pgx.Tx) error {
+		extra: func(ctx context.Context, tx *db.Tx) error {
 			_, err := tx.Exec(ctx, `INSERT INTO sandbox_captures(message_id, raw_enc, expires_at) VALUES ($1,$2, now() + make_interval(secs => $3::float8))`,
 				c.ID, enc, s.Opts.CaptureRetention.Seconds())
 			return err

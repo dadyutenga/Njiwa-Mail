@@ -13,12 +13,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ditronics-tz/mail/internal/db"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/ditronics-tz/mail/internal/secure"
-	"github.com/jackc/pgx/v5"
 )
 
 // Cancel stops a queued or scheduled message before submission starts.
@@ -324,7 +324,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 	}
 	var id string
 	err := s.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email=$1 AND NOT disabled`, e).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
@@ -374,7 +374,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, password string) err
 	sum := sha256.Sum256([]byte(token))
 	var userID string
 	err := s.Pool.QueryRow(ctx, `DELETE FROM password_resets WHERE token_hash=$1 AND expires_at>now() RETURNING user_id::text`, sum[:]).Scan(&userID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return newErr(400, "invalid_request")
 	}
 	if err != nil {

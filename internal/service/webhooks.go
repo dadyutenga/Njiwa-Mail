@@ -6,12 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/ditronics-tz/mail/internal/db"
 	"net"
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // Webhooks use the outbox pattern: dm_emit() writes a delivery row inside the
@@ -299,7 +298,7 @@ func (s *Service) FinishDelivery(ctx context.Context, d Delivery, ok bool, code 
   next_attempt_at=CASE WHEN $6::float8 IS NULL THEN next_attempt_at ELSE now() + make_interval(secs => $6::float8) END,
   lease_expires_at=NULL
 WHERE id=$1 AND lease_token=$2::uuid AND state='sending' RETURNING endpoint_id::text`, d.ID, d.Token, state, respCode, errCode, retry).Scan(&endpoint)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil // lease lost; another worker owns it
 	}
 	if err != nil {

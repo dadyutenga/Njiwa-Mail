@@ -5,13 +5,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ditronics-tz/mail/internal/service"
+	"github.com/gofiber/fiber/v2"
 )
 
 const consoleCookie = "dm_session"
@@ -72,9 +72,9 @@ func (s *Server) validSession(tok string) bool {
 	return hmac.Equal(expect, mac)
 }
 
-func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string, exp time.Time) {
-	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
-	http.SetCookie(w, &http.Cookie{
+func (s *Server) setSessionCookie(c *fiber.Ctx, token string, exp time.Time) {
+	secure := c.Protocol() == "https" || strings.EqualFold(c.Get("X-Forwarded-Proto"), "https")
+	setCookie(c, &http.Cookie{
 		Name:     consoleCookie,
 		Value:    token,
 		Path:     "/",
@@ -86,8 +86,8 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token 
 	})
 }
 
-func (s *Server) clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
+func (s *Server) clearSessionCookie(c *fiber.Ctx) {
+	setCookie(c, &http.Cookie{
 		Name:     consoleCookie,
 		Value:    "",
 		Path:     "/",
@@ -98,129 +98,117 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-func (s *Server) requireConsole(w http.ResponseWriter, r *http.Request) bool {
+func (s *Server) requireConsole(c *fiber.Ctx) bool {
 	if !s.consoleOn() {
-		http.NotFound(w, r)
+		_ = notFound(c)
 		return false
 	}
-	c, err := r.Cookie(consoleCookie)
-	if err != nil || !s.validSession(c.Value) {
-		writeErr(w, &service.Error{Status: 401, Code: "unauthenticated"})
+	tok, err := cookieVal(c, consoleCookie)
+	if err != nil || !s.validSession(tok) {
+		_ = writeErr(c, &service.Error{Status: 401, Code: "unauthenticated"})
 		return false
 	}
 	return true
 }
 
-func (s *Server) consoleLogin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) consoleLogin(c *fiber.Ctx) error {
 	if !s.consoleOn() {
-		http.NotFound(w, r)
-		return
+		return notFound(c)
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1024))
-	if err != nil {
-		writeErr(w, &service.Error{Status: 422, Code: "invalid_request"})
-		return
+	if len(c.Body()) > 1024 {
+		return writeErr(c, &service.Error{Status: 422, Code: "invalid_request"})
 	}
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil || strings.TrimSpace(req.Password) == "" {
-		writeErr(w, &service.Error{Status: 401, Code: "invalid_credentials"})
-		return
+	if err := json.Unmarshal(c.Body(), &req); err != nil || strings.TrimSpace(req.Password) == "" {
+		return writeErr(c, &service.Error{Status: 401, Code: "invalid_credentials"})
 	}
 	if !s.passwordOK(req.Password) {
-		writeErr(w, &service.Error{Status: 401, Code: "invalid_credentials"})
-		return
+		return writeErr(c, &service.Error{Status: 401, Code: "invalid_credentials"})
 	}
 	token, exp, err := s.issueSession()
 	if err != nil {
-		writeErr(w, &service.Error{Status: 500, Code: "internal_error"})
-		return
+		return writeErr(c, &service.Error{Status: 500, Code: "internal_error"})
 	}
-	s.setSessionCookie(w, r, token, exp)
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	s.setSessionCookie(c, token, exp)
+	return writeJSON(c, 200, map[string]bool{"ok": true})
 }
 
-func (s *Server) consoleLogout(w http.ResponseWriter, r *http.Request) {
+func (s *Server) consoleLogout(c *fiber.Ctx) error {
 	if !s.consoleOn() {
-		http.NotFound(w, r)
-		return
+		return notFound(c)
 	}
-	s.clearSessionCookie(w)
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	s.clearSessionCookie(c)
+	return writeJSON(c, 200, map[string]bool{"ok": true})
 }
 
-func (s *Server) consoleMe(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsole(w, r) {
-		return
+func (s *Server) consoleMe(c *fiber.Ctx) error {
+	if !s.requireConsole(c) {
+		return nil
 	}
-	writeJSON(w, 200, map[string]string{
+	return writeJSON(c, 200, map[string]string{
 		"id":   "operator",
 		"name": "Operator",
 		"role": "admin",
 	})
 }
 
-func (s *Server) consoleOverview(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsole(w, r) {
-		return
+func (s *Server) consoleOverview(c *fiber.Ctx) error {
+	if !s.requireConsole(c) {
+		return nil
 	}
-	ov, err := s.Svc.ConsoleOverview(r.Context())
+	ov, err := s.Svc.ConsoleOverview(reqCtx(c))
 	if err != nil {
-		writeErr(w, err)
-		return
+		return writeErr(c, err)
 	}
-	writeJSON(w, 200, struct {
+	return writeJSON(c, 200, struct {
 		*service.ConsoleOverview
 		SMTPConfigured bool `json:"smtp_configured"`
 	}{ConsoleOverview: ov, SMTPConfigured: s.SMTPConfigured})
 }
 
-func (s *Server) consoleMessages(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsole(w, r) {
-		return
+func (s *Server) consoleMessages(c *fiber.Ctx) error {
+	if !s.requireConsole(c) {
+		return nil
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	rows, err := s.Svc.ConsoleMessages(r.Context(), r.URL.Query().Get("state"), limit)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	rows, err := s.Svc.ConsoleMessages(reqCtx(c), c.Query("state"), limit)
 	if err != nil {
-		writeErr(w, err)
-		return
+		return writeErr(c, err)
 	}
-	writeJSON(w, 200, map[string]any{"messages": rows})
+	return writeJSON(c, 200, map[string]any{"messages": rows})
 }
 
-func (s *Server) consoleMessage(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsole(w, r) {
-		return
+func (s *Server) consoleMessage(c *fiber.Ctx) error {
+	if !s.requireConsole(c) {
+		return nil
 	}
-	row, err := s.Svc.ConsoleMessage(r.Context(), r.PathValue("id"))
+	row, err := s.Svc.ConsoleMessage(reqCtx(c), c.Params("id"))
 	if err != nil {
-		writeErr(w, err)
-		return
+		return writeErr(c, err)
 	}
-	writeJSON(w, 200, row)
+	return writeJSON(c, 200, row)
 }
 
-func (s *Server) consoleProjects(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsole(w, r) {
-		return
+func (s *Server) consoleProjects(c *fiber.Ctx) error {
+	if !s.requireConsole(c) {
+		return nil
 	}
-	rows, err := s.Svc.ConsoleProjects(r.Context())
+	rows, err := s.Svc.ConsoleProjects(reqCtx(c))
 	if err != nil {
-		writeErr(w, err)
-		return
+		return writeErr(c, err)
 	}
-	writeJSON(w, 200, map[string]any{"projects": rows})
+	return writeJSON(c, 200, map[string]any{"projects": rows})
 }
 
-func (s *Server) consoleKeys(w http.ResponseWriter, r *http.Request) {
-	if !s.requireConsole(w, r) {
-		return
+func (s *Server) consoleKeys(c *fiber.Ctx) error {
+	if !s.requireConsole(c) {
+		return nil
 	}
-	keys, err := s.Svc.ListKeys(r.Context(), "")
+	keys, err := s.Svc.ListKeys(reqCtx(c), "")
 	if err != nil {
-		writeErr(w, err)
-		return
+		return writeErr(c, err)
 	}
 	type keyView struct {
 		Prefix    string     `json:"prefix"`
@@ -249,5 +237,5 @@ func (s *Server) consoleKeys(w http.ResponseWriter, r *http.Request) {
 			Scopes: scopes, Status: st, ExpiresAt: k.Expires,
 		})
 	}
-	writeJSON(w, 200, map[string]any{"keys": out})
+	return writeJSON(c, 200, map[string]any{"keys": out})
 }

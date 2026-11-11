@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ditronics-tz/mail/internal/db"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/ditronics-tz/mail/internal/secure"
 	"github.com/ditronics-tz/mail/internal/tmpl"
-	"github.com/jackc/pgx/v5"
 )
 
 // Templates live in the database. A version is a draft until published, and
@@ -38,7 +38,7 @@ func (s *Service) SeedTemplates(ctx context.Context) error {
 		err = tx.QueryRow(ctx, `INSERT INTO templates(project_id, slug, description, default_ttl_seconds, max_ttl_seconds)
 VALUES (NULL,$1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id::text`,
 			sd.Slug, sd.Description, int(sd.DefaultTTL.Seconds()), int(sd.MaxTTL.Seconds())).Scan(&tid)
-		if errors.Is(err, pgx.ErrNoRows) { // already seeded
+		if errors.Is(err, db.ErrNoRows) { // already seeded
 			tx.Rollback(ctx)
 			continue
 		}
@@ -56,7 +56,7 @@ VALUES (NULL,$1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id::text`,
 	return nil
 }
 
-func insertVersion(ctx context.Context, tx pgx.Tx, templateID string, version int, schema tmpl.Schema, content map[string]tmpl.Content, publish bool) error {
+func insertVersion(ctx context.Context, tx *db.Tx, templateID string, version int, schema tmpl.Schema, content map[string]tmpl.Content, publish bool) error {
 	sj, _ := json.Marshal(schema)
 	var vid string
 	if err := tx.QueryRow(ctx, `INSERT INTO template_versions(template_id, version, variable_schema) VALUES ($1,$2,$3) RETURNING id::text`,
@@ -90,7 +90,7 @@ WHERE t.slug = $2 AND (t.project_id = $1 OR t.project_id IS NULL) AND NOT t.arch
   AND v.published_at IS NOT NULL AND ($3::int IS NULL OR v.version = $3)
 ORDER BY (t.project_id IS NULL), v.version DESC LIMIT 1`, projectID, slug, version).
 		Scan(&r.VersionID, &r.Slug, &r.Version, &schema, &def, &max)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, invalid("unknown_template")
 	}
 	if err != nil {
@@ -210,7 +210,7 @@ func (s *Service) CreateTemplate(ctx context.Context, in TemplateInput) (string,
 	var id string
 	err = s.Pool.QueryRow(ctx, `INSERT INTO templates(project_id, slug, description, default_ttl_seconds, max_ttl_seconds)
 VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING id::text`, pid, in.Slug, strings.TrimSpace(in.Description), def, max).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return "", newErr(409, "template_exists")
 	}
 	if err != nil {

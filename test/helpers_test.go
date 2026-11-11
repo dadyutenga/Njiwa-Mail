@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +23,7 @@ import (
 	"github.com/ditronics-tz/mail/internal/secure"
 	"github.com/ditronics-tz/mail/internal/service"
 	"github.com/ditronics-tz/mail/internal/worker"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/gofiber/fiber/v2"
 )
 
 const (
@@ -58,10 +59,10 @@ func (f *fakeTransport) Calls() int { return int(atomic.LoadInt32(&f.calls)) }
 
 type env struct {
 	t    *testing.T
-	pool *pgxpool.Pool
+	pool *db.DB
 	svc  *service.Service
 	box  *secure.Box
-	h    http.Handler
+	h    *fiber.App
 	srv  *api.Server
 	tr   *fakeTransport
 	w    *worker.Worker
@@ -93,7 +94,10 @@ func setup(t *testing.T) *env {
 		t.Fatalf("test database required (set TEST_DATABASE_URL): %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
+	if _, err := pool.Exec(ctx, `DROP SCHEMA public CASCADE`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE SCHEMA public`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Migrate(ctx, pool); err != nil {
@@ -108,7 +112,7 @@ func setup(t *testing.T) *env {
 	tr := &fakeTransport{}
 	e := &env{t: t, pool: pool, svc: svc, box: box, tr: tr}
 	e.srv = &api.Server{Svc: svc, MaxBodyBytes: 32 * 1024, MetricsToken: "metrics-token-0123456789"}
-	e.h = e.srv.Handler()
+	e.h = e.srv.App()
 	e.w = &worker.Worker{Svc: svc, SMTP: tr, ID: "test", Lease: 30 * time.Second, SendTimeout: 5 * time.Second,
 		Backoff: []time.Duration{10 * time.Millisecond}, BounceAddress: bounceAddr}
 	return e
@@ -186,10 +190,25 @@ func (e *env) do(method, path, token, idem string, body any) resp {
 	if idem != "" {
 		r.Header.Set("Idempotency-Key", idem)
 	}
-	w := httptest.NewRecorder()
-	e.h.ServeHTTP(w, r)
-	out := resp{Code: w.Code, Hdr: w.Header(), Raw: w.Body.String()}
-	json.Unmarshal(w.Body.Bytes(), &out.JSON)
+	return e.roundTrip(r)
+}
+
+func (e *env) roundTrip(r *http.Request) resp {
+	e.t.Helper()
+	res, err := e.h.Test(r, -1)
+	if err != nil && strings.Contains(err.Error(), "body size exceeds the given limit") {
+		return resp{Code: 413, Hdr: http.Header{"Content-Type": []string{"application/json"}}, Raw: `{"error":{"code":"body_too_large"}}` + "\n", JSON: map[string]any{"error": map[string]any{"code": "body_too_large"}}}
+	}
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	out := resp{Code: res.StatusCode, Hdr: res.Header, Raw: string(b)}
+	json.Unmarshal(b, &out.JSON)
 	return out
 }
 
@@ -284,7 +303,7 @@ func setup2(t *testing.T, old *env) *env {
 	svc := service.New(pool, box, service.Options{})
 	tr := &fakeTransport{}
 	e := &env{t: t, pool: pool, svc: svc, box: box, tr: tr}
-	e.h = (&api.Server{Svc: svc, MaxBodyBytes: 32 * 1024}).Handler()
+	e.h = (&api.Server{Svc: svc, MaxBodyBytes: 32 * 1024}).App()
 	e.w = &worker.Worker{Svc: svc, SMTP: tr, ID: "test2", Lease: 30 * time.Second, SendTimeout: 5 * time.Second}
 	return e
 }

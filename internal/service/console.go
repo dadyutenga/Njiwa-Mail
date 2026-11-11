@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ditronics-tz/mail/internal/db"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // Console views are metadata only. They never return payloads, recipients,
@@ -177,7 +176,7 @@ JOIN projects p ON p.id = m.project_id
 JOIN environments e ON e.id = m.environment_id
 WHERE m.id = $1`, id).Scan(&m.ID, &m.State, &m.Template, &m.TemplateVersion, &m.Project, &m.Mode, &m.Attempts,
 		&m.CreatedAt, &m.UpdatedAt, &m.ExpiresAt, &m.SubmittedAt, &m.CompletedAt, &m.IdempotencyKey, &reply, &meta)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(404, "not_found")
 	}
 	if err != nil {

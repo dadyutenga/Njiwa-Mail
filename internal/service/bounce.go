@@ -5,9 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"github.com/ditronics-tz/mail/internal/db"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // BounceReport is one recipient of a parsed delivery status notification.
@@ -70,7 +69,7 @@ func (s *Service) RecordBounce(ctx context.Context, it SpoolItem, reports []Boun
 	return tx.Commit(ctx)
 }
 
-func (s *Service) recordOne(ctx context.Context, tx pgx.Tx, r BounceReport) error {
+func (s *Service) recordOne(ctx context.Context, tx *db.Tx, r BounceReport) error {
 	typ := ClassifyBounce(r.Status)
 	if r.Action == "delayed" && typ != "soft" {
 		typ = "unknown"
@@ -90,7 +89,7 @@ func (s *Service) recordOne(ctx context.Context, tx pgx.Tx, r BounceReport) erro
 		if err == nil {
 			msgID, pid, eid = &r.MessageID, &p, &e
 			verified = rcptHash != nil && bytes.Equal(mh, rcptHash)
-		} else if !errors.Is(err, pgx.ErrNoRows) {
+		} else if !errors.Is(err, db.ErrNoRows) {
 			return err
 		}
 	}
@@ -104,7 +103,7 @@ func (s *Service) recordOne(ctx context.Context, tx pgx.Tx, r BounceReport) erro
 	err := tx.QueryRow(ctx, `INSERT INTO bounces(message_id, project_id, environment_id, recipient_hash, recipient_masked, type, status_code, diagnostic, dedupe_hash)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (dedupe_hash) DO NOTHING RETURNING id::text`,
 		msgID, pid, eid, rcptHash, masked, typ, clean(r.Status, 20), clean(r.Diagnostic, 500), h.Sum(nil)).Scan(&bounceID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil // this DSN was already processed
 	}
 	if err != nil {

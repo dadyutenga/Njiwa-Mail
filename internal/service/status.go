@@ -4,10 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ditronics-tz/mail/internal/db"
 	"regexp"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 type Event struct {
@@ -51,7 +50,7 @@ SELECT id::text, state, template, template_version, created_at, updated_at, expi
 FROM messages WHERE id=$1 AND project_id=$2 AND environment_id=$3`, id, p.ProjectID, p.EnvironmentID).
 		Scan(&st.ID, &st.Status, &st.Template, &st.TemplateVersion, &st.CreatedAt, &st.UpdatedAt, &st.ExpiresAt,
 			&st.SubmittedAt, &st.CompletedAt, &st.Attempts, &reply, &meta)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(404, "not_found")
 	}
 	if err != nil {

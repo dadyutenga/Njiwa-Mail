@@ -66,11 +66,7 @@ func (e *env) raw(method, path string, hdr map[string]string, body any) resp {
 	for k, v := range hdr {
 		r.Header.Set(k, v)
 	}
-	w := httptest.NewRecorder()
-	e.h.ServeHTTP(w, r)
-	out := resp{Code: w.Code, Hdr: w.Header(), Raw: w.Body.String()}
-	json.Unmarshal(w.Body.Bytes(), &out.JSON)
-	return out
+	return e.roundTrip(r)
 }
 
 // adm performs an authenticated admin request with the CSRF token.

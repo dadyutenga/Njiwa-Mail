@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/ditronics-tz/mail/internal/db"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -19,7 +20,6 @@ import (
 
 	"github.com/ditronics-tz/mail/internal/secure"
 	"github.com/ditronics-tz/mail/internal/tmpl"
-	"github.com/jackc/pgx/v5"
 )
 
 type SendRequest struct {
@@ -200,7 +200,7 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 	var name string
 	err := s.Pool.QueryRow(ctx, `SELECT display_name FROM sender_identities WHERE environment_id=$1 AND project_id=$2 AND email=$3`,
 		p.EnvironmentID, p.ProjectID, v.from).Scan(&name)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(403, "sender_not_approved")
 	}
 	if err != nil {
@@ -506,7 +506,7 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 		}
 		return nil, false, newErr(409, "idempotency_conflict")
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, db.ErrNoRows) {
 		return nil, false, unavailable("idem_lookup", err)
 	}
 
@@ -520,7 +520,7 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 		if err == nil {
 			return nil, false, invalid("recipient_suppressed")
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		if !errors.Is(err, db.ErrNoRows) {
 			return nil, false, unavailable("suppression_lookup", err)
 		}
 	}
@@ -652,12 +652,12 @@ func nullableTime(t time.Time) *time.Time {
 // domainAllowsLive blocks live mail from a sending domain that has been added
 // but is not yet verified with SPF, DKIM and DMARC all passing. A domain that
 // has never been added is unchanged, so existing projects keep sending.
-func (s *Service) domainAllowsLive(ctx context.Context, tx pgx.Tx, projectID, from string) error {
+func (s *Service) domainAllowsLive(ctx context.Context, tx *db.Tx, projectID, from string) error {
 	domain := from[strings.LastIndexByte(from, '@')+1:]
 	var verified, spf, dkim, dmarc bool
 	err := tx.QueryRow(ctx, `SELECT verified_at IS NOT NULL, spf_ok, dkim_ok, dmarc_ok FROM domains
 WHERE project_id=$1 AND name=$2 AND purpose='sending'`, projectID, domain).Scan(&verified, &spf, &dkim, &dmarc)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
@@ -678,7 +678,7 @@ func hexOf(b []byte) []byte {
 	return out
 }
 
-func hit(ctx context.Context, tx pgx.Tx, key string, window time.Duration, limit int) (time.Duration, bool, error) {
+func hit(ctx context.Context, tx *db.Tx, key string, window time.Duration, limit int) (time.Duration, bool, error) {
 	now := time.Now()
 	ws := now.Truncate(window)
 	var n int
