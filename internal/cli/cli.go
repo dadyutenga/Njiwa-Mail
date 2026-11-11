@@ -4,6 +4,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/config"
 	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/inbound"
+	"github.com/njiwa-tz/mail/internal/installer/preflight"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/secure"
 	"github.com/njiwa-tz/mail/internal/service"
@@ -37,6 +39,9 @@ Runtime:
   role-health -role R [-max 60s]   same, for worker | inbound | scheduler
   dns-check                   run the read-only DNS health check now and print the results
   smtp-check                  verify TLS + auth against the SMTP server (sends nothing)
+  preflight [-hostname H -ip IP -spool DIR -probe DOMAIN -json -record]
+                              read-only host checks for "Send from my VPS" (managed mode); changes nothing.
+                              -record stores the result for the Delivery infrastructure page (needs the database)
   retention                   run the retention job once
 
 Provisioning (operator CLI only):
@@ -77,6 +82,12 @@ func Run(args []string) {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
+	}
+	// The preflight runs on a fresh host, before a database or .env exists;
+	// only -record needs the full configuration.
+	if args[0] == "preflight" && !hasFlag(args[1:], "record") {
+		runPreflight(context.Background(), nil, args[1:])
+		return
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -145,6 +156,8 @@ func Run(args []string) {
 			os.Exit(1)
 		}
 		fmt.Println(*role, "healthy")
+	case "preflight":
+		runPreflight(ctx, &preflightDeps{svc: svc, hostname: cfg.MailHostname, ip: cfg.OutboundIP, spool: cfg.DataDir}, args)
 	case "dns-check":
 		res, err := svc.RunDNSChecks(ctx, nil)
 		if err != nil {
@@ -553,4 +566,80 @@ func cliErr(err error) error {
 		return errors.New(e.Message)
 	}
 	return err
+}
+
+func hasFlag(args []string, name string) bool {
+	for _, a := range args {
+		a = strings.TrimLeft(a, "-")
+		if a == name || strings.HasPrefix(a, name+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+type preflightDeps struct {
+	svc                 *service.Service
+	hostname, ip, spool string
+}
+
+// runPreflight prints the managed-mode host checks and exits non-zero unless
+// every required one is ready. With -record (and deps) it stores the result.
+func runPreflight(ctx context.Context, deps *preflightDeps, args []string) {
+	fs := flag.NewFlagSet("preflight", flag.ExitOnError)
+	var defHost, defIP, defSpool string
+	if deps != nil {
+		defHost, defIP, defSpool = deps.hostname, deps.ip, deps.spool
+	}
+	hostname := fs.String("hostname", firstNonEmpty(defHost, os.Getenv("MAIL_HOSTNAME")), "public mail hostname (PTR and HELO name)")
+	ip := fs.String("ip", firstNonEmpty(defIP, os.Getenv("OUTBOUND_IP")), "public IP mail is sent from")
+	spool := fs.String("spool", firstNonEmpty(defSpool, "/var"), "directory whose disk holds the mail queue")
+	probe := fs.String("probe", "gmail.com", "domain whose MX is used to test outbound port 25 (no mail is sent)")
+	asJSON := fs.Bool("json", false, "print JSON")
+	record := fs.Bool("record", false, "store the result for the Delivery infrastructure page")
+	fs.Parse(args)
+
+	checks := preflight.Run(ctx, preflight.HostEnv(), preflight.Params{Hostname: *hostname, IP: *ip, SpoolDir: *spool, ProbeMX: *probe})
+	ok, first := preflight.Summary(checks)
+	if *asJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"ready": ok, "checks": checks})
+	} else {
+		for _, c := range checks {
+			fmt.Printf("%-46s %-24s %s\n", c.Title, strings.ToUpper(string(c.Status)), c.Detail)
+			if c.Status != preflight.Ready && c.Fix != "" {
+				fmt.Printf("%-46s %-24s fix: %s\n", "", "", c.Fix)
+			}
+		}
+		if ok {
+			fmt.Println("\nThis host is ready for managed delivery.")
+		} else {
+			fmt.Println("\nNot ready: fix the items above and run the preflight again.")
+		}
+	}
+	if *record && deps != nil {
+		summary := map[string]any{}
+		for _, c := range checks {
+			summary[c.Key] = string(c.Status)
+		}
+		code, external := "", false
+		if first != nil {
+			code, external = first.Code, first.Status == preflight.BlockedExternalAction
+		}
+		if err := deps.svc.RecordManagedPreflight(ctx, ok, code, external, summary); err != nil {
+			die(err)
+		}
+		fmt.Println("Result recorded.")
+	}
+	if !ok {
+		os.Exit(1)
+	}
+}
+
+func firstNonEmpty(v ...string) string {
+	for _, s := range v {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
