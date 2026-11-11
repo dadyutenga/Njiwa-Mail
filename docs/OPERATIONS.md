@@ -108,6 +108,29 @@ njiwa-mail installer apply -hostname mailout.example.com -domains notify.example
 - Verification on a host: `go test -tags managed_e2e ./internal/installer/managed -run E2E -v` (as root, after apply with the test
   domains in that file) checks no open relay, mTLS-only submission, sender restrictions and DKIM signing end to end.
 
+## Delivery evidence from the mail server log
+
+A message's state says what Njiwa-Mail did: `submitted` means your mail server (managed Postfix or an existing SMTP server)
+accepted it. What happens afterwards is recorded separately as delivery evidence, each item with its source, and shown on the
+message page:
+
+- the SMTP reply (with the MTA queue ID, from "queued as …"),
+- the mail server log (`deferred`, `sent` = the recipient's server accepted it, `bounced`, `expired`),
+- bounce reports (DSNs) and feedback-loop complaints,
+- operator resolutions of unknown outcomes.
+
+None of these means "delivered to the inbox", and the UI never says so. For managed mode (and any Postfix you can read the log of),
+run the collector next to Postfix:
+
+```
+njiwa-mail mta-log -follow                     # tails /var/log/mail.log, reopens it after rotation
+journalctl -fu postfix | njiwa-mail mta-log -file -
+```
+
+It correlates lines to messages by queue ID (messages submitted in the last 7 days), ignores everything else, never stores addresses
+or IPs from the log, and records each line once. A permanent MTA bounce marks the message bounced but never suppresses the
+recipient; only a bounce report correlated to the message's own recipient does.
+
 ## Sending domains and claims
 
 Live mail and Live sender addresses require a sending domain that the project added on the Domains page, verified with its

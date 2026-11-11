@@ -350,6 +350,9 @@ func (s *Service) ResolveUnknown(ctx context.Context, id, to, note string) error
 	if _, err := tx.Exec(ctx, `INSERT INTO message_events(message_id, event_type, reason_code) VALUES ($1,'operator_resolved',$2)`, id, to+": "+note); err != nil {
 		return err
 	}
+	if err := addEvidence(ctx, tx, id, "operator", "operator_resolved", "", "", to+": "+note, "", dedupe("resolve", id)); err != nil {
+		return err
+	}
 	// The webhook carries a fixed reason code, never the operator's note.
 	if err := emitMessageEvent(ctx, tx, id, "email."+to, "operator_resolved"); err != nil {
 		return err
