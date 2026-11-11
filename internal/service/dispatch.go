@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/njiwa-tz/mail/internal/db"
+	"strings"
 	"time"
 
+	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/mailer"
 )
 
@@ -135,7 +136,8 @@ func (s *Service) finish(ctx context.Context, id, token string, o finishOpts) (b
 	if o.pin.ProfileID != "" {
 		pinID, pinRev = &o.pin.ProfileID, &o.pin.Revision
 	}
-	tag, err := tx.Exec(ctx, `
+	var transportTest bool
+	err = tx.QueryRow(ctx, `
 UPDATE messages SET state=$3::text,
   payload_enc = CASE WHEN $4::bool THEN NULL ELSE payload_enc END,
   completed_at = CASE WHEN $5::bool THEN now() ELSE completed_at END,
@@ -147,13 +149,14 @@ UPDATE messages SET state=$3::text,
   lease_expires_at = CASE WHEN $3::text = 'submitting' THEN lease_expires_at ELSE NULL END,
   next_attempt_at = CASE WHEN $8::float8 IS NULL THEN next_attempt_at ELSE now() + make_interval(secs => $8::float8) END,
   updated_at = now()
-WHERE id=$1 AND lease_token=$2::uuid AND state = ANY($9)`,
-		id, token, o.to, o.clear, o.complete, o.reply, o.messageID, o.retryAfter, o.from, pinID, pinRev)
+WHERE id=$1 AND lease_token=$2::uuid AND state = ANY($9)
+RETURNING transport_test`,
+		id, token, o.to, o.clear, o.complete, o.reply, o.messageID, o.retryAfter, o.from, pinID, pinRev).Scan(&transportTest)
+	if errors.Is(err, db.ErrNoRows) {
+		return false, nil // the lease was lost: another actor moved the row
+	}
 	if err != nil {
 		return false, err
-	}
-	if tag.RowsAffected() == 0 {
-		return false, nil
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO message_events(message_id, event_type, reason_code) VALUES ($1,$2,$3)`, id, o.event, o.reason); err != nil {
 		return false, err
@@ -174,7 +177,21 @@ WHERE id=$1 AND lease_token=$2::uuid AND state = ANY($9)`,
 			return false, err
 		}
 	}
-	return true, tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	// A controlled transport test is evidence about the profile revision that
+	// really sent it. Only final outcomes count; an unattributable send (no
+	// pin: environment SMTP) records nothing rather than guessing.
+	if transportTest && o.pin.ProfileID != "" && (o.to == "submitted" || o.to == "failed" || o.to == "unknown") {
+		problem := "SMTP_" + strings.TrimPrefix(strings.ToUpper(strings.TrimPrefix(o.reason, "retries_exhausted:")), "SMTP_")
+		if o.to == "unknown" {
+			problem = "SMTP_OUTCOME_UNKNOWN"
+		}
+		_ = s.RecordInstallationCheck(context.WithoutCancel(ctx), o.pin.ProfileID, o.pin.Revision, "test_send", o.to == "submitted", problem,
+			map[string]any{"message_id": id, "via": "queue"}, false)
+	}
+	return true, nil
 }
 
 var submittingOnly = []string{"submitting"}
@@ -214,7 +231,7 @@ func (s *Service) MarkSubmitted(ctx context.Context, c Claimed, reason, reply, m
 }
 
 func (s *Service) MarkFailed(ctx context.Context, c Claimed, reason string) (bool, error) {
-	return s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "failed", event: "failed", reason: reason, clear: true, complete: true})
+	return s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "failed", event: "failed", reason: reason, clear: true, complete: true, pin: c.Pin})
 }
 
 func (s *Service) MarkUnknown(ctx context.Context, c Claimed, reason string) (bool, error) {
@@ -246,7 +263,7 @@ func (s *Service) MarkCaptured(ctx context.Context, c Claimed, raw []byte, messa
 // would fall beyond the message deadline.
 func (s *Service) ScheduleRetry(ctx context.Context, c Claimed, reason string, delay time.Duration) (string, error) {
 	if c.Attempts >= s.Opts.MaxAttempts {
-		_, err := s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "failed", event: "failed", reason: "retries_exhausted:" + reason, clear: true, complete: true})
+		_, err := s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "failed", event: "failed", reason: "retries_exhausted:" + reason, clear: true, complete: true, pin: c.Pin})
 		return "failed", err
 	}
 	if !time.Now().Add(delay).Before(c.ExpiresAt) {

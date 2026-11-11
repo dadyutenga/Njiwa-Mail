@@ -125,6 +125,7 @@ type validated struct {
 	replyInboundID string
 	skipQuota      bool // bulk mail has its own rate; it never uses the transactional quota
 	copy           []byte
+	transportTest  bool // controlled installation test (C04); server-set only
 }
 
 var customHeaderRe = regexp.MustCompile(`^X-[A-Za-z0-9-]{1,40}$`)
@@ -637,13 +638,13 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 	tag, err := tx.Exec(ctx, `
 INSERT INTO messages (id, project_id, environment_id, api_key_id, template, template_version, state, payload_enc,
                       recipient_hash, request_hmac, idempotency_key, metadata, expires_at, next_attempt_at, locale, template_version_id,
-                      priority, send_at, reply_to, cc, bcc, source, sender, recipient_masked, subject, campaign_id, reply_to_inbound_id)
+                      priority, send_at, reply_to, cc, bcc, source, sender, recipient_masked, subject, campaign_id, reply_to_inbound_id, transport_test)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, $13::timestamptz + make_interval(secs => $14::float8), $15, $16, NULLIF($17,'')::uuid,
-        $18, $19, $20, COALESCE($21::text[], '{}'), COALESCE($22::text[], '{}'), $23, $24, $25, $26, NULLIF($27,'')::uuid, NULLIF($28,'')::uuid)
+        $18, $19, $20, COALESCE($21::text[], '{}'), COALESCE($22::text[], '{}'), $23, $24, $25, $26, NULLIF($27,'')::uuid, NULLIF($28,'')::uuid, $29)
 ON CONFLICT (project_id, environment_id, idempotency_key) DO NOTHING`,
 		id, p.ProjectID, p.EnvironmentID, nullable(p.KeyID), v.tpl.Slug, v.tpl.Version, state, sealed, rcptHash, reqMAC, idemKey, mj, ttlFrom, v.ttl.Seconds(), next,
 		v.locale, v.tpl.VersionID, v.priority, nullableTime(v.sendAt), v.replyTo, v.cc, v.bcc,
-		sourceOf(v), v.from, maskEmail(v.to), operatorSubject(v), v.campaignID, v.replyInboundID)
+		sourceOf(v), v.from, maskEmail(v.to), operatorSubject(v), v.campaignID, v.replyInboundID, v.transportTest)
 	if err != nil {
 		return nil, false, unavailable("insert", err)
 	}

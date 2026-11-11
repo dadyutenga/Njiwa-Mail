@@ -394,6 +394,7 @@ type ComposeInput struct {
 	DraftID      string            `json:"draft_id"`
 	ReplyTo      string            `json:"reply_to"`
 	extraHeaders map[string]string // unexported: system headers set by callers inside the package
+	transport    bool              // unexported: controlled transport test (QueueTransportTest)
 }
 
 // Compose sends one message written in the workspace through the same accept
@@ -417,7 +418,7 @@ func (s *Service) Compose(ctx context.Context, sc *Scope, user, idemKey string, 
 	if err != nil {
 		return nil, err
 	}
-	v.source, v.personal = "ui", true
+	v.source, v.personal, v.transportTest = "ui", true, in.transport
 	if in.Template != "" {
 		v.subject = "Template: " + in.Template
 	}

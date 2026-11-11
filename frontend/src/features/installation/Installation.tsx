@@ -98,6 +98,28 @@ export const problemFixes: Record<string, string> = {
   SMTP_AUTH_FAILED: "The login was rejected. Check the username and enter the password again.",
   SMTP_SENDER_FAILED:
     "This login may not send as the test sender. Allow it on your mail server, or use another sender.",
+  SMTP_DNS_NOT_FOUND: "The host name does not resolve. Check the spelling, or its DNS record.",
+  SMTP_HOST_FORBIDDEN:
+    "The host resolves to a link-local or metadata address. Enter the mail server's real host name.",
+  SMTP_TCP_REFUSED:
+    "Nothing is listening on that port. Check the port number and that the mail server is running.",
+  SMTP_TCP_TIMEOUT:
+    "No answer on that port. A firewall or your hosting provider may block it; ask them to allow it.",
+  SMTP_CONNECTION_FAILED:
+    "Could not connect. Check the port, and that a firewall allows this server to reach it.",
+  SMTP_TLS_MODE_MISMATCH:
+    "The encryption setting does not match the port. Use STARTTLS with port 587, or TLS with port 465.",
+  SMTP_STARTTLS_UNSUPPORTED:
+    "The server does not offer STARTTLS on this port. Use port 465 with TLS, or enable STARTTLS on the server.",
+  SMTP_TLS_CERT_INVALID:
+    "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
+  SMTP_NO_GREETING: "The server did not answer like a mail server. Check the host and port.",
+  SMTP_AUTH_MISSING: "Enter the SMTP username and password.",
+  SMTP_AUTH_REJECTED: "The login was rejected. Check the username and enter the password again.",
+  SMTP_SENDER_REJECTED:
+    "This login may not send as the test sender. Allow it on your mail server, or use another sender.",
+  SMTP_OUTCOME_UNKNOWN:
+    "The server may or may not have accepted the test. Check its logs before testing again; nothing is resent automatically.",
   SMTP_TLS_VERIFICATION_FAILED:
     "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
 };

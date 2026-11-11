@@ -8,6 +8,7 @@ import (
 
 	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/installation"
+	"github.com/njiwa-tz/mail/internal/secure"
 )
 
 // Installation wizard (backlog B01-B03). The operator's delivery-mode choice
@@ -160,4 +161,26 @@ func (s *Service) InstallationSummary(ctx context.Context) (map[string]any, erro
 	rd := st["readiness"].(installation.Readiness)
 	return map[string]any{"scope": "installation", "status": rd.Status, "mode": rd.Mode, "progress": rd.Progress,
 		"welcome_state": st["welcome_state"]}, nil
+}
+
+// QueueTransportTest sends one controlled Live message through the normal
+// accept pipeline, queue and worker (backlog C04). Every Live rule applies:
+// approved sender, domain gate, suppressions, quotas. When the worker finishes
+// it, the outcome is recorded as the test_send check of the profile revision
+// that sent it, so a pass proves the real path, not just an SMTP handshake.
+// from defaults to the environment's default (else first) sender.
+func (s *Service) QueueTransportTest(ctx context.Context, sc *Scope, user, from, to string) (*Accepted, error) {
+	if sc.Mode != "live" {
+		return nil, &Error{Status: 409, Code: "live_only", Message: "a transport test uses the Live environment; Sandbox never reaches a mail server"}
+	}
+	if from == "" {
+		if err := s.Pool.QueryRow(ctx, `SELECT email FROM sender_identities WHERE environment_id=$1 ORDER BY is_default DESC, created_at LIMIT 1`, sc.EnvID).Scan(&from); err != nil {
+			return nil, &Error{Status: 409, Code: "no_default_sender", Message: "add a verified Live sender to this project first"}
+		}
+	}
+	in := ComposeInput{From: from, To: to, Subject: "Njiwa-Mail delivery test",
+		Text: "This is a controlled test from Njiwa-Mail. It went through the normal queue and worker.\n\n" +
+			"If it arrived, check the headers: SPF, DKIM and DMARC should pass, with DKIM signed by your sending domain.",
+		transport: true}
+	return s.Compose(ctx, sc, user, "transport-test-"+secure.NewUUID(), in)
 }
