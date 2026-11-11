@@ -261,3 +261,95 @@ func TestDNSRecordsFollowTheActualSender(t *testing.T) {
 		t.Fatalf("mailcow DKIM without the API is still a template: %v", dkim)
 	}
 }
+
+// D05/D07 on the Domains page: SPF is evaluated, not just found; DMARC is
+// parsed and must be able to align.
+func TestDomainCheckEvaluatesSPFAndDMARC(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	e.must(e.svc.CreateProject(ctx, "auth"))
+	const name = "notify.example.com" // also the bounce address domain in tests
+	d := e.admOK(admin, "POST", wsPath("auth", "/domains"), map[string]any{"name": name, "purpose": "sending"})
+	path := wsPath("auth", "/domains/"+str(d.JSON, "id")+"/check")
+	dns := newDNS()
+	dns.a = map[string][]string{}
+	e.srv.Resolver = dns
+	set := func(spf ...string) {
+		dns.txt[name] = append([]string{str(d.JSON, "txt")}, spf...)
+	}
+	dns.txt["dkim._domainkey."+name] = []string{"v=DKIM1; k=rsa; p=MIIB"}
+	dns.txt["_dmarc."+name] = []string{"v=DMARC1; p=quarantine"}
+	rec := func(key string) map[string]any { return recordByKey(e.admOK(admin, "POST", path, nil), key) }
+
+	// Mailcow (known egress 203.0.113.10): the IP must really be authorised.
+	e.saveSMTP("smtp.provider.example", "pw")
+	_, err := e.pool.Exec(ctx, `UPDATE transport_profiles SET provider_type='mailcow'`)
+	e.must(err)
+	set("v=spf1 ip4:198.51.100.0/24 -all")
+	if r := rec("spf"); r["pass"] != false || !strings.Contains(str(r, "hint"), "fail for 203.0.113.10") {
+		t.Fatalf("wrong source IP passed: %v", r)
+	}
+	set("v=spf1 include:_spf.provider.example -all")
+	dns.txt["_spf.provider.example"] = []string{"v=spf1 ip4:203.0.113.0/24 -all"}
+	if r := rec("spf"); r["pass"] != true {
+		t.Fatalf("authorised through include: %v", r)
+	}
+	set("v=spf1 mx -all")
+	dns.mx[name] = []string{"mx.example.com."}
+	dns.a["mx.example.com"] = []string{"203.0.113.10"}
+	if r := rec("spf"); r["pass"] != true {
+		t.Fatalf("authorised through mx: %v", r)
+	}
+	set("v=spf1 ip4:203.0.113.10 -all", "v=spf1 mx -all")
+	if r := rec("spf"); r["pass"] != false || !strings.Contains(str(r, "hint"), "Two SPF") {
+		t.Fatalf("duplicate SPF passed: %v", r)
+	}
+	set("v=spf1 ip4:203.0.113.10 +all")
+	if r := rec("spf"); r["pass"] != false || !strings.Contains(str(r, "hint"), "+all") {
+		t.Fatalf("+all passed: %v", r)
+	}
+
+	// Generic SMTP: the egress is unknown, so a valid record passes with an
+	// honest hint, and an invalid one (lookup loop) fails.
+	_, err = e.pool.Exec(ctx, `UPDATE transport_profiles SET provider_type='generic'`)
+	e.must(err)
+	set("v=spf1 ip4:198.51.100.0/24 -all")
+	if r := rec("spf"); r["pass"] != true || !strings.Contains(str(r, "hint"), "only a test message") {
+		t.Fatalf("generic valid SPF: %v", r)
+	}
+	set("v=spf1 include:" + name + " -all")
+	if r := rec("spf"); r["pass"] != false || !strings.Contains(str(r, "hint"), "loop") {
+		t.Fatalf("SPF loop passed: %v", r)
+	}
+
+	// DMARC: invalid syntax fails with the reason; a valid policy passes.
+	set("v=spf1 ip4:198.51.100.0/24 -all")
+	dns.txt["_dmarc."+name] = []string{"v=DMARC1; p=block"}
+	if r := rec("dmarc"); r["pass"] != false || !strings.Contains(str(r, "hint"), "p must be") {
+		t.Fatalf("invalid DMARC passed: %v", r)
+	}
+	dns.txt["_dmarc."+name] = []string{"v=DMARC1; p=reject; aspf=s"}
+	if r := rec("dmarc"); r["pass"] != true {
+		t.Fatalf("valid DMARC: %v", r)
+	}
+	// No DKIM and SPF on a non-aligned envelope domain: DMARC cannot pass.
+	e.svc.Opts.BounceAddress = "bounces@bounce-provider.net"
+	t.Cleanup(func() { e.svc.Opts.BounceAddress = bounceAddr })
+	dns.txt["dkim._domainkey."+name] = nil
+	dns.txt["bounce-provider.net"] = []string{"v=spf1 ip4:198.51.100.0/24 -all"}
+	if r := rec("dmarc"); r["pass"] != false || !strings.Contains(str(r, "hint"), "not aligned") {
+		t.Fatalf("misaligned DMARC passed: %v", r)
+	}
+	// With DKIM back, DMARC passes and explains it relies on DKIM.
+	dns.txt["dkim._domainkey."+name] = []string{"v=DKIM1; k=rsa; p=MIIB"}
+	if r := rec("dmarc"); r["pass"] != true || !strings.Contains(str(r, "hint"), "through DKIM only") {
+		t.Fatalf("DKIM-aligned DMARC: %v", r)
+	}
+	// Organisational-domain fallback, reported as such.
+	dns.txt["_dmarc."+name] = nil
+	dns.txt["_dmarc.example.com"] = []string{"v=DMARC1; p=none"}
+	if r := rec("dmarc"); r["pass"] != true || !strings.Contains(str(r, "found"), "_dmarc.example.com") {
+		t.Fatalf("org-domain DMARC: %v", r)
+	}
+}
