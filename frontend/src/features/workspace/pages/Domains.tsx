@@ -39,6 +39,8 @@ type DnsRecord = {
   pass: boolean;
   found: string;
   hint?: string;
+  /** The value is guidance with a part to fill in, not a publishable record. */
+  placeholder?: boolean;
 };
 
 const recordName: Record<string, string> = {
@@ -423,13 +425,27 @@ export function DomainDetail() {
                         <CopyButton text={r.host} label="full host" />
                       </dd>
                       <dt className="text-muted-foreground">{phrase("Value")}</dt>
-                      <dd className="flex items-start gap-2">
-                        <code className="break-all">
-                          {r.priority ? `${r.priority} ` : ""}
-                          {r.value}
-                        </code>
-                        <CopyButton text={r.value} label="value" />
-                      </dd>
+                      {r.placeholder ? (
+                        <dd data-placeholder="true">
+                          <code className="break-all italic text-muted-foreground">
+                            {r.priority ? `${r.priority} ` : ""}
+                            {r.value}
+                          </code>
+                          <span className="mt-1 block text-xs text-warning">
+                            {phrase(
+                              "Template, not a record to copy: replace the part in <…> with your mail server's details before publishing.",
+                            )}
+                          </span>
+                        </dd>
+                      ) : (
+                        <dd className="flex items-start gap-2">
+                          <code className="break-all">
+                            {r.priority ? `${r.priority} ` : ""}
+                            {r.value}
+                          </code>
+                          <CopyButton text={r.value} label="value" />
+                        </dd>
+                      )}
                       <dt className="text-muted-foreground">{phrase("Found")}</dt>
                       <dd className="break-all text-xs">{r.found}</dd>
                     </dl>
@@ -675,7 +691,7 @@ export function DnsGuide() {
       "mx",
       "MX (receiving)",
       [
-        "Tells the world which server receives mail for the domain. For a receiving domain, point it at the mail server that receives for it, with priority 10.",
+        "Tells the world which server receives mail for the domain. For a receiving domain, point it at the mail hostname shown in the MX record on the domain's page, with priority 10: the check passes only when the MX target is exactly that host.",
         "Only add MX to a domain you want to receive on. Changing the MX of your main domain moves all of its mail.",
       ],
     ],
@@ -683,7 +699,7 @@ export function DnsGuide() {
       "return_path",
       "Return path",
       [
-        "Bounces come back to the bounce address Njiwa-Mail uses as the envelope sender. Its domain needs an MX record pointing at a mail server that relays bounces@ and fbl@ to Njiwa-Mail. Do not change your main domain’s MX for this.",
+        "Bounces come back to the bounce address Njiwa-Mail uses as the envelope sender. Its domain needs an MX record, priority 10, pointing at the mail hostname shown in the Return path record on the domain's page; that server relays bounces@ and fbl@ to Njiwa-Mail. Do not change your main domain’s MX for this.",
       ],
     ],
   ];
