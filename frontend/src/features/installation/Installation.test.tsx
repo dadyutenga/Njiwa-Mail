@@ -234,3 +234,22 @@ it("project checklist uses the backend denominator and keeps installation separa
   expect(within(banner).getByText(/Out of date/)).toBeInTheDocument();
   expect(screen.getByText(/\(optional\)/)).toBeInTheDocument();
 });
+
+it("sends a controlled test through the queue of the current project", async () => {
+  mockAdmin(state({}));
+  const send = vi.spyOn(admin, "send").mockResolvedValue({ id: "m-1", status: "queued" } as never);
+  wrap(<MailServer />);
+  fireEvent.change(await screen.findByLabelText("Send test to"), {
+    target: { value: "you@example.org" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send through the queue" }));
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith("/w/demo/live/transport-test", "POST", {
+      to: "you@example.org",
+    }),
+  );
+  expect(await screen.findByRole("link", { name: "view the message" })).toHaveAttribute(
+    "href",
+    "/p/demo/messages/m-1",
+  );
+});

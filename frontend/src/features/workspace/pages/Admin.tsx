@@ -416,6 +416,8 @@ export function MailServer() {
   const [testing, setTesting] = useState(false);
   const [sendTo, setSendTo] = useState("");
   const [sendResult, setSendResult] = useState<Row | null>(null);
+  const [queued, setQueued] = useState<string | null>(null);
+  const { project, to: wsTo } = useWorkspace();
   useEffect(() => {
     const d = cfg.data;
     if (!d) return;
@@ -784,7 +786,7 @@ export function MailServer() {
             <Section title={phrase("Send test email")}>
               <p className="mb-2 text-xs text-muted-foreground">
                 {phrase(
-                  "Sends one message straight to the mail server from the test sender. Check SPF, DKIM and DMARC in the received headers.",
+                  "Send through the queue to test the real path: the message is accepted, queued and sent by the worker, and the result is recorded for these settings. Send directly for a quick check of the connection only.",
                 )}
               </p>
               <div className="flex gap-2">
@@ -808,9 +810,34 @@ export function MailServer() {
                     client.invalidateQueries({ queryKey: installationKey });
                   }}
                 >
-                  {phrase("Send")}
+                  {phrase("Send directly")}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={!emailOk(sendTo) || !project}
+                  onClick={async () => {
+                    const r = await run(
+                      () =>
+                        admin.send<Row>(`/w/${project}/live/transport-test`, "POST", {
+                          to: sendTo,
+                        }),
+                      phrase("Test queued. The result appears above once the worker has sent it."),
+                    );
+                    if (r) setQueued(s(r.id));
+                    client.invalidateQueries({ queryKey: installationKey });
+                  }}
+                >
+                  {phrase("Send through the queue")}
                 </Button>
               </div>
+              {queued && (
+                <p role="status" className="mt-2 text-sm">
+                  {phrase("Queued from project")} {project}:{" "}
+                  <Link className="text-primary underline" to={wsTo(`messages/${queued}`)}>
+                    {phrase("view the message")}
+                  </Link>
+                </p>
+              )}
               {sendResult && (
                 <p role="status" className="mt-2 text-sm">
                   <StateBadge state={s(sendResult.state)} /> {s(sendResult.reason)}{" "}
