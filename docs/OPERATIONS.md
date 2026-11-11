@@ -59,6 +59,22 @@ Alerts are rows in the `alerts` table, shown on the Overview page, counted in `/
 MX for the inbound domain and the PTR of `OUTBOUND_IP`, and shows the expected value next to what it observed. It never changes DNS.
 Set `MAIL_HOSTNAME`, `OUTBOUND_IP` and `DKIM_SELECTOR` so the expected values are exact. The SPF check is a heuristic (it does not expand `include:`): read the observed record yourself.
 
+## Sending domains and claims
+
+Live mail and Live sender addresses require a sending domain that the project added on the Domains page, verified with its
+ownership TXT record, and holds the **installation-wide claim** for. Only one project can hold a claim: the first project whose
+ownership check passes. Another project that adds the same domain sees "already used by another project" and cannot use it.
+
+- Names are compared canonically (lowercase, punycode for international names, no trailing dot). A subdomain is a separate claim
+  that needs its own DNS proof; owning `example.com` does not grant `notify.example.com`.
+- `GET /admin/v1/domain-claims` lists claims. `POST /admin/v1/domain-claims/transfer {"name", "project"}` moves a claim to a project
+  that has added the domain. Transfer is audited, resets every project's ownership proof for the name (the new owner re-checks with
+  its own token), and the previous owner's senders stop counting as verified immediately.
+- Upgrading: a domain verified by more than one project before the upgrade is flagged `review_required` and nobody can send Live
+  mail from it until an operator transfers it. Live mail from a domain no project registered is refused with
+  `domain_not_registered`. `ALLOW_UNREGISTERED_LIVE_DOMAINS=true` restores the old behaviour for unclaimed names only, as a
+  temporary bridge while domains are registered; it never allows a claimed name.
+
 ## Inbound mail and bounces
 
 Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to `DATA_DIR/spool` and records it before answering `250`; the parser runs afterwards.

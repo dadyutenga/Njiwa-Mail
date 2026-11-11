@@ -37,11 +37,14 @@ func smtpProfileConfig(in MailServerInput) map[string]any {
 // updates the existing_smtp profile (preferring the active one) and bumps its
 // revision only when the configuration or a secret really changed, so
 // re-saving identical settings does not invalidate a good check.
-func syncLegacyProfile(ctx context.Context, tx *db.Tx, cfg map[string]any, pw, key []byte, clearKey, mailcow bool) error {
+func syncLegacyProfile(ctx context.Context, tx *db.Tx, cfg map[string]any, pw, key []byte, clearKey bool, provider *string, hasMailcowURL bool) error {
 	cj, _ := json.Marshal(cfg)
-	provider := "generic"
-	if mailcow {
-		provider = "mailcow"
+	newProvider := "generic"
+	if hasMailcowURL {
+		newProvider = "mailcow"
+	}
+	if provider != nil {
+		newProvider = *provider
 	}
 	var id string
 	err := tx.QueryRow(ctx, `SELECT id::text FROM transport_profiles WHERE mode='existing_smtp' AND status <> 'retired' ORDER BY is_active DESC, created_at LIMIT 1 FOR UPDATE`).Scan(&id)
@@ -54,7 +57,7 @@ func syncLegacyProfile(ctx context.Context, tx *db.Tx, cfg map[string]any, pw, k
 			return err
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO transport_profiles(mode, provider_type, label, config_json, encrypted_secret, encrypted_provider_secret, status, is_active, source)
-VALUES ('existing_smtp',$1,'Existing SMTP',$2::jsonb,$3,$4,'needs_action',$5,'operator')`, provider, cj, pw, key, !anyActive)
+VALUES ('existing_smtp',$1,'Existing SMTP',$2::jsonb,$3,$4,'needs_action',$5,'operator')`, newProvider, cj, pw, key, !anyActive)
 		return err
 	}
 	if err != nil {
@@ -64,11 +67,11 @@ VALUES ('existing_smtp',$1,'Existing SMTP',$2::jsonb,$3,$4,'needs_action',$5,'op
   config_revision = config_revision + CASE WHEN config_json IS DISTINCT FROM $2::jsonb OR $3::bool OR ($6::bool AND encrypted_provider_secret IS NOT NULL) THEN 1 ELSE 0 END,
   status = CASE WHEN config_json IS DISTINCT FROM $2::jsonb OR $3::bool OR ($6::bool AND encrypted_provider_secret IS NOT NULL) THEN 'needs_action' ELSE status END,
   config_json = $2::jsonb,
-  provider_type = $4,
+  provider_type = COALESCE($4::text, CASE WHEN $8::bool THEN 'mailcow' ELSE provider_type END),
   encrypted_secret = COALESCE($5, encrypted_secret),
   encrypted_provider_secret = CASE WHEN $6::bool THEN NULL ELSE COALESCE($7, encrypted_provider_secret) END,
   updated_at = now()
-WHERE id = $1::uuid`, id, cj, pw != nil || key != nil, provider, pw, clearKey, key)
+WHERE id = $1::uuid`, id, cj, pw != nil || key != nil, provider, pw, clearKey, key, hasMailcowURL)
 	return err
 }
 
@@ -188,28 +191,6 @@ FROM installation_checks WHERE profile_id=$1::uuid ORDER BY check_key, checked_a
 	}
 	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM installer_receipts WHERE profile_id=$1::uuid AND result_code='ok' AND verified_at IS NOT NULL AND rollback_state <> 'rolled_back')`, id).Scan(&f.ManagedInstalled)
 	return installation.Compute(f), nil
-}
-
-// InstallationState is installation readiness plus the active profile summary.
-// Project onboarding is a separate scope and never feeds into this.
-func (s *Service) InstallationState(ctx context.Context) (map[string]any, error) {
-	var id string
-	err := s.Pool.QueryRow(ctx, `SELECT id::text FROM transport_profiles WHERE is_active`).Scan(&id)
-	if errors.Is(err, db.ErrNoRows) {
-		return map[string]any{"readiness": installation.Compute(installation.Facts{Now: time.Now()}), "active_profile": nil}, nil
-	}
-	if err != nil {
-		return nil, unavailable("installation_state", err)
-	}
-	rd, err := s.profileReadiness(ctx, id)
-	if err != nil {
-		return nil, unavailable("installation_state", err)
-	}
-	p, err := s.TransportProfile(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"readiness": rd, "active_profile": p}, nil
 }
 
 // ---------------------------------------------------------------- registry

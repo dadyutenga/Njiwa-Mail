@@ -38,6 +38,9 @@ type Options struct {
 	SessionTTL time.Duration
 
 	PublicURL string // origin used in admin password-reset links
+
+	// AllowUnregisteredLiveDomains: see config. Temporary upgrade escape hatch.
+	AllowUnregisteredLiveDomains bool
 }
 
 type Service struct {

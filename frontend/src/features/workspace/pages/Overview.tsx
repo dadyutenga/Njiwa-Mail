@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, FolderKanban, Plus } from "lucide-react";
 import { usePhrase } from "@/features/i18n/i18n";
+import { statusLabels, type StepStatus } from "@/features/installation/Installation";
 import { Button } from "@/components/ui/button";
 import { lastWorkspace, useProjects, useWorkspace, useWsKey } from "../context";
 import { FirstRunShell, NewProjectDialog, useCompose } from "../Layout";
@@ -148,7 +149,7 @@ export function Dashboard() {
   });
   const checklist = useQuery({
     queryKey: key("checklist"),
-    queryFn: () => api.get<{ complete: boolean; steps: Step[] }>("/checklist"),
+    queryFn: () => api.get<ChecklistResponse>("/checklist"),
   });
   if (checklist.data && !checklist.data.complete) return <Navigate to={to("setup")} replace />;
   return (
@@ -162,6 +163,7 @@ export function Dashboard() {
         }
         action={<Button onClick={() => compose.open()}>{phrase("Compose")}</Button>}
       />
+      {checklist.data && <InstallationBanner inst={checklist.data.installation} />}
       <DataState q={q} rows={4}>
         {(d) => {
           const cards: [string, number, string][] = [
@@ -218,19 +220,64 @@ export function Dashboard() {
 
 // ---------------------------------------------------------------- setup checklist
 
-type Step = { key: string; title: string; done: boolean; optional?: boolean; detail?: string };
+type Step = {
+  key: string;
+  title: string;
+  done: boolean;
+  required: boolean;
+  optional?: boolean;
+  detail?: string;
+};
+
+// The project list and the installation summary are separate scopes: project
+// progress never includes the mail transport, and the denominator always
+// comes from the backend.
+type InstallationSummary = {
+  scope: "installation";
+  status: StepStatus;
+  mode?: "managed_mta" | "existing_smtp";
+  progress: { complete: number; required: number };
+  welcome_state: string;
+  environment_override?: boolean;
+};
+
+type ChecklistResponse = {
+  scope: "project";
+  complete: boolean;
+  steps: Step[];
+  progress: { complete: number; required: number };
+  installation: InstallationSummary;
+};
+
+function InstallationBanner({ inst }: { inst: InstallationSummary }) {
+  const phrase = usePhrase();
+  const { to } = useWorkspace();
+  if (inst.status === "ready") return null;
+  const text =
+    inst.status === "not_started"
+      ? "Mail delivery for this installation is not set up yet. Sandbox works now; live mail waits until delivery is ready."
+      : inst.status === "stale"
+        ? "Mail delivery settings changed or were last checked too long ago. Live mail may not go out until they are checked again."
+        : "Mail delivery for this installation needs attention. Live mail stays queued until it is ready.";
+  return (
+    <div
+      role="status"
+      className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
+      data-installation-status={inst.status}
+    >
+      <p>
+        <span className="font-medium">{phrase("Delivery infrastructure")}:</span>{" "}
+        {phrase(statusLabels[inst.status] ?? inst.status)} ({inst.progress.complete}/
+        {inst.progress.required}). {phrase(text)}
+      </p>
+      <Link className="mt-1 inline-block font-medium text-primary" to={to("mail-server")}>
+        {phrase("Open Delivery infrastructure")}
+      </Link>
+    </div>
+  );
+}
 
 const stepLinks: Record<string, { path: string; action: string; help: string }> = {
-  mail_server: {
-    path: "mail-server",
-    action: "Open Mail server",
-    help: "Enter the SMTP settings and run the connection test.",
-  },
-  project: {
-    path: "projects",
-    action: "Open Projects",
-    help: "A project groups domains, senders, keys and mail.",
-  },
   domain: {
     path: "domains",
     action: "Add domain",
@@ -271,15 +318,15 @@ export function Checklist() {
   const compose = useCompose();
   const q = useQuery({
     queryKey: key("checklist"),
-    queryFn: () => api.get<{ complete: boolean; steps: Step[] }>("/checklist"),
+    queryFn: () => api.get<ChecklistResponse>("/checklist"),
   });
   const created = (location.state as { created?: boolean } | null)?.created;
   return (
     <>
       <PageHeader
-        title={phrase("Setup checklist")}
+        title={phrase("Getting started")}
         description={phrase(
-          "Each step shows its real state. Open any step directly; only its real prerequisite blocks it.",
+          "The steps for this project. Each shows its real state; open any step directly. Sandbox works before setup is complete.",
         )}
       />
       {created && (
@@ -292,23 +339,27 @@ export function Checklist() {
       )}
       <DataState q={q}>
         {(d) => {
-          const doneCount = d.steps.filter((x) => x.done && !x.optional).length;
+          const { complete: doneCount, required } = d.progress;
           return (
             <>
+              <InstallationBanner inst={d.installation} />
               <div className="mb-4 flex items-center gap-3">
                 <div
                   className="h-2 flex-1 overflow-hidden rounded-full bg-muted"
                   role="progressbar"
+                  aria-label={phrase("Project setup")}
                   aria-valuemin={0}
-                  aria-valuemax={7}
+                  aria-valuemax={required}
                   aria-valuenow={doneCount}
                 >
                   <div
                     className="h-full bg-primary transition-all"
-                    style={{ width: `${(doneCount / 7) * 100}%` }}
+                    style={{ width: required ? `${(doneCount / required) * 100}%` : "0%" }}
                   />
                 </div>
-                <span className="text-sm text-muted-foreground">{doneCount}/7</span>
+                <span className="text-sm text-muted-foreground" data-testid="project-progress">
+                  {doneCount}/{required}
+                </span>
               </div>
               {d.complete && (
                 <p
@@ -324,6 +375,7 @@ export function Checklist() {
               <ol className="space-y-3">
                 {d.steps.map((st, i) => {
                   const link = stepLinks[st.key];
+                  if (!link) return null;
                   return (
                     <li
                       key={st.key}

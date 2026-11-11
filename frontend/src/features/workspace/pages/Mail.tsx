@@ -1354,7 +1354,7 @@ export function TempInboxes() {
       {info && !info.inbound_domain && (
         <p className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
           {phrase(
-            "Temporary inboxes need an inbound domain. Set INBOUND_DOMAIN on the server and relay it from Mailcow (see the Mail server page).",
+            "Temporary inboxes need an inbound domain. Set INBOUND_DOMAIN on the server and have your mail server relay it to Njiwa-Mail (see Delivery infrastructure).",
           )}
         </p>
       )}

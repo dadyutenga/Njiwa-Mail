@@ -78,11 +78,14 @@ func (s *Service) AcceptBatch(ctx context.Context, p *Principal, messages []json
 }
 
 func (s *Service) CreateDomain(ctx context.Context, project, name, purpose string) (id, token string, err error) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if purpose != "sending" && purpose != "inbound" {
-		return "", "", badRequest("purpose must be sending or inbound")
+	if purpose == "inbound" { // the pre-workspace name; the schema now says receiving
+		purpose = "receiving"
 	}
-	if _, ok := NormalizeEmail("a@" + name); !ok {
+	if purpose != "sending" && purpose != "receiving" && purpose != "both" {
+		return "", "", badRequest("purpose must be sending, receiving or both")
+	}
+	name, ok := NormalizeDomain(name)
+	if !ok {
 		return "", "", badRequest("invalid domain")
 	}
 	var pid string

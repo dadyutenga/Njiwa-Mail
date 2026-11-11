@@ -386,42 +386,196 @@ func TestEnvironmentTestBindsOnlyToIdenticalProfile(t *testing.T) {
 	}
 }
 
-// The project checklist's mail-server step follows the active revision.
-func TestChecklistMailServerStepFollowsActiveRevision(t *testing.T) {
+func stepByKey(cl map[string]any, key string) map[string]any {
+	for _, it := range cl["steps"].([]any) {
+		if m := it.(map[string]any); m["key"] == key {
+			return m
+		}
+	}
+	return nil
+}
+
+// B05/B06: the project checklist holds only this project's steps with a
+// backend-computed count; installation readiness is reported beside it and
+// follows the active profile's current revision.
+func TestChecklistSeparatesProjectFromInstallation(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
-	e.provision("proj")
-	sc, err := e.svc.ResolveScope(ctx, "proj", "live")
-	e.must(err)
-	done := func() bool {
-		steps, _, err := e.svc.Checklist(ctx, sc, false)
-		e.must(err)
-		for _, s := range steps {
-			if s.Key == "mail_server" {
-				return s.Done
-			}
-		}
-		t.Fatal("no mail_server step")
-		return false
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	e.must(e.svc.CreateProject(ctx, "alpha"))
+	e.must(e.svc.CreateProject(ctx, "beta"))
+	get := func(project string) map[string]any {
+		return e.admOK(admin, "GET", "/admin/v1/w/"+project+"/live/checklist", nil).JSON
 	}
+	cl := get("alpha")
+	if cl["scope"] != "project" || stepByKey(cl, "mail_server") != nil || stepByKey(cl, "project") != nil {
+		t.Fatalf("installation or global steps in the project list: %v", cl["steps"])
+	}
+	prog := cl["progress"].(map[string]any)
+	if prog["required"].(float64) != 5 || prog["complete"].(float64) != 0 {
+		t.Fatalf("progress: %v", prog)
+	}
+	if m := stepByKey(cl, "mailbox"); m["required"] != false || m["optional"] != true {
+		t.Fatalf("mailbox must be optional: %v", m)
+	}
+	inst := cl["installation"].(map[string]any)
+	if inst["scope"] != "installation" || inst["status"] != "not_started" || inst["welcome_state"] != "ready_to_configure" {
+		t.Fatalf("installation summary: %v", inst)
+	}
+	if _, leak := inst["active_profile"]; leak {
+		t.Fatal("profile configuration leaked into the workspace checklist")
+	}
+
+	// Installation status follows the active revision, for every project alike.
 	e.saveSMTP("mail.example.com", "pw")
-	if done() {
-		t.Fatal("done before any test")
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "connection", true, okSteps))
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "test_send", true, map[string]any{"state": "submitted"}))
+	if st := get("beta")["installation"].(map[string]any)["status"]; st != "ready" {
+		t.Fatalf("installation: %v", st)
+	}
+	e.saveSMTP("mail.example.com", "rotated")
+	if st := get("alpha")["installation"].(map[string]any)["status"]; st != "stale" {
+		t.Fatalf("installation after rotation: %v", st)
+	}
+
+	// Project B never inherits project A's progress.
+	k := e.provision("gamma")
+	r := e.post(k.sbx, idem("cap"), otpBody(testRcpt))
+	if r.Code != 202 {
+		t.Fatalf("%d %s", r.Code, r.Raw)
+	}
+	e.runWorker()
+	_, _, err := e.svc.CreateKey(ctx, "alpha", "live", []string{"emails:send"}, "k", 0)
+	e.must(err)
+	if stepByKey(get("alpha"), "api_key")["done"] != true || stepByKey(get("beta"), "api_key")["done"] != false {
+		t.Fatal("api_key step leaked between projects")
+	}
+	if stepByKey(get("beta"), "test_email")["done"] != false {
+		t.Fatal("another project's captured message completed this project's test step")
+	}
+}
+
+// B01/B02: the delivery-mode choice is persisted server-side, survives a new
+// service instance (a redeploy), and never switches an active transport.
+func TestDeliveryModeWizardPersistsAndNeverSwitches(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	if r := e.adm(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "postfix"}); r.Code != 400 {
+		t.Fatalf("only the two modes are valid: %d", r.Code)
+	}
+	r := e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"})
+	if r.JSON["welcome_state"] != "in_progress" || r.JSON["active_profile"] != nil {
+		t.Fatalf("%s", r.Raw)
+	}
+	rd := r.JSON["readiness"].(map[string]any)
+	if rd["mode"] != "managed_mta" || rd["status"] == "ready" {
+		t.Fatalf("managed readiness: %v", rd)
+	}
+	ids := []string{}
+	for _, st := range rd["steps"].([]any) {
+		ids = append(ids, st.(map[string]any)["id"].(string))
+	}
+	if strings.Join(ids, ",") != "choose_mode,preflight,install,verify_transport" {
+		t.Fatalf("managed steps: %v", ids)
+	}
+	// Choosing again is idempotent: one draft managed profile, never active.
+	e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"})
+	if e.count(`SELECT count(*) FROM transport_profiles WHERE mode='managed_mta' AND NOT is_active`) != 1 {
+		t.Fatal("duplicate or active managed profile")
+	}
+
+	// Resume after a "redeploy": a fresh service on the same database.
+	fresh := service.New(e.pool, e.box, service.Options{})
+	st, err := fresh.InstallationState(ctx)
+	e.must(err)
+	if st["wizard"].(service.WizardState).SelectedMode != "managed_mta" {
+		t.Fatalf("wizard not persisted: %v", st["wizard"])
+	}
+
+	// No active transport yet, so the operator may still change their mind.
+	r = e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "existing_smtp"})
+	if r.JSON["readiness"].(map[string]any)["mode"] != "existing_smtp" {
+		t.Fatalf("%s", r.Raw)
+	}
+	// Once SMTP is active, choosing managed must go through the switch planner.
+	e.saveSMTP("mail.example.com", "pw")
+	if r := e.adm(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"}); r.Code != 409 || errCode(r) != "mode_switch_requires_plan" {
+		t.Fatalf("active transport switched by the wizard: %d %s", r.Code, r.Raw)
+	}
+	if e.activeProfile()["mode"] != "existing_smtp" {
+		t.Fatal("active profile changed")
+	}
+	if e.count(`SELECT count(*) FROM audit_log WHERE action='installation.mode_selected'`) != 3 {
+		t.Fatal("mode choices not audited")
+	}
+}
+
+// An installation carried over from the singleton row is "legacy_detected"
+// until the operator confirms it; confirming does not change any settings.
+func TestLegacyInstallIsDetectedThenConfirmed(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	e.must(e.svc.AdoptEnvSMTP(ctx, mailer.SMTPConfig{Host: "smtp.env.example", Port: 587, Username: "u", Password: "p"}, ""))
+	st := e.admOK(owner, "GET", "/admin/v1/installation", nil)
+	if st.JSON["welcome_state"] != "legacy_detected" {
+		t.Fatalf("%s", st.Raw)
+	}
+	rev := e.activeProfile()["config_revision"]
+	r := e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "existing_smtp"})
+	if r.JSON["welcome_state"] != "in_progress" || e.activeProfile()["config_revision"] != rev {
+		t.Fatalf("confirming changed settings or state: %s", r.Raw)
 	}
 	e.must(e.svc.RecordMailTest(ctx, e.pin(), "connection", true, okSteps))
-	if !done() {
-		t.Fatal("not done after a pass for the active revision")
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "test_send", true, map[string]any{"state": "submitted"}))
+	if st, _ := e.svc.InstallationState(ctx); st["welcome_state"] != "completed" {
+		t.Fatalf("%v", st["welcome_state"])
 	}
-	e.saveSMTP("mail.example.com", "rotated") // revision 2: the old pass no longer applies
-	if done() {
-		t.Fatal("still done after the settings changed")
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "connection", false, []mailer.Step{{Key: "login"}}))
+	if st, _ := e.svc.InstallationState(ctx); st["welcome_state"] != "degraded" {
+		t.Fatalf("%v", st["welcome_state"])
 	}
-	// A pass on a different (inactive) profile does not count either.
-	b := e.newProfile("second.example.com")
-	_, _, rev, _ := e.svc.ProfileSMTP(ctx, b)
-	e.must(e.svc.RecordInstallationCheck(ctx, b, rev, "connection", true, "", nil, false))
-	if done() {
-		t.Fatal("another profile's pass completed the step")
+}
+
+// B04/C05: generic is the default provider; Mailcow is opt-in and choosing
+// generic drops any stored Mailcow API settings.
+func TestProviderTypeIsOptIn(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	base := map[string]any{"smtp_host": "mail.example.com", "smtp_port": 587, "smtp_tls_mode": "starttls", "smtp_username": "u", "smtp_password": "pw"}
+	r := e.admOK(owner, "PUT", "/admin/v1/mail-server", base)
+	if r.JSON["provider_type"] != "generic" {
+		t.Fatalf("default provider: %s", r.Raw)
+	}
+	// Mailcow chosen without an API key: SMTP still works, no API required.
+	mc := map[string]any{}
+	for k, v := range base {
+		mc[k] = v
+	}
+	mc["provider_type"] = "mailcow"
+	if r := e.admOK(owner, "PUT", "/admin/v1/mail-server", mc); r.JSON["provider_type"] != "mailcow" || r.JSON["mailcow_api_key_set"] != false {
+		t.Fatalf("%s", r.Raw)
+	}
+	if cfg, _, _, ok, _ := e.svc.StoredSMTP(ctx); !ok || cfg.Host != "mail.example.com" {
+		t.Fatal("Mailcow SMTP must work without the Mailcow API")
+	}
+	mc["mailcow_api_url"], mc["mailcow_api_key"] = "https://mail.example.com", "KEY-1"
+	if r := e.admOK(owner, "PUT", "/admin/v1/mail-server", mc); r.JSON["mailcow_api_key_set"] != true {
+		t.Fatalf("%s", r.Raw)
+	}
+	// Back to generic: the API settings are removed, not hidden.
+	base["provider_type"] = "generic"
+	r = e.admOK(owner, "PUT", "/admin/v1/mail-server", base)
+	if r.JSON["provider_type"] != "generic" || r.JSON["mailcow_api_key_set"] != false || r.JSON["mailcow_api_url"] != "" {
+		t.Fatalf("%s", r.Raw)
+	}
+	if e.count(`SELECT count(*) FROM transport_profiles WHERE encrypted_provider_secret IS NOT NULL`) != 0 {
+		t.Fatal("Mailcow key kept on the profile")
+	}
+	if r := e.adm(owner, "PUT", "/admin/v1/mail-server", map[string]any{"smtp_host": "x.example.com", "provider_type": "sendgrid"}); r.Code != 400 {
+		t.Fatalf("unknown provider accepted: %d", r.Code)
 	}
 }
 

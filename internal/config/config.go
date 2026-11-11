@@ -77,6 +77,11 @@ type Config struct {
 	MailHostname string
 	OutboundIP   string
 	DKIMSelector string
+
+	// AllowUnregisteredLiveDomains is a temporary upgrade escape hatch: Live
+	// mail and Live senders may use a domain no project has registered or
+	// claimed. Off by default. It never allows a domain another project claims.
+	AllowUnregisteredLiveDomains bool
 }
 
 func boolVar(name string) (bool, error) {
@@ -329,5 +334,8 @@ func Load() (*Config, error) {
 	c.MailHostname = strings.ToLower(get("MAIL_HOSTNAME", ""))
 	c.OutboundIP = get("OUTBOUND_IP", "")
 	c.DKIMSelector = get("DKIM_SELECTOR", "dkim")
+	if c.AllowUnregisteredLiveDomains, err = boolVar("ALLOW_UNREGISTERED_LIVE_DOMAINS"); err != nil {
+		return nil, err
+	}
 	return &c, nil
 }

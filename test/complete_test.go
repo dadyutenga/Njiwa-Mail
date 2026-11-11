@@ -65,21 +65,55 @@ func TestRawSendScheduleCancelAndBatch(t *testing.T) {
 	}
 }
 
+// D02: Live mail and Live senders need a registered, verified, claimed
+// domain on every path. There is no grandfathering of unregistered domains.
 func TestDomainGateAndSearch(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 	_ = e.provision("dom")
-	id, token, err := e.svc.CreateDomain(ctx, "dom", "notify.example.com", "sending")
+	const from = "hello@gate.example.com"
+	k, _, err := e.svc.CreateKey(ctx, "dom", "live", []string{"emails:send"}, "live", 0)
+	e.must(err)
+	body := otpBody(testRcpt)
+	body["from"] = from
+
+	// Unregistered domain: no Live sender by CLI/admin path, no Live mail.
+	if err := e.svc.AddSender(ctx, "dom", "live", from, "App"); errCodeOf(err) != "domain_not_registered" {
+		t.Fatalf("live sender on unregistered domain: %v", err)
+	}
+	e.must(e.svc.AddSender(ctx, "dom", "sandbox", from, "App")) // sandbox never sends
+	_, err = e.pool.Exec(ctx, `INSERT INTO sender_identities(project_id, environment_id, email, display_name)
+SELECT p.id, en.id, $1, 'legacy' FROM projects p JOIN environments en ON en.project_id=p.id AND en.mode='live' WHERE p.name='dom'`, from)
+	e.must(err) // a sender created before this gate existed
+	if r := e.post(k, idem("unregistered"), body); r.Code != 403 || errCode(r) != "domain_not_registered" {
+		t.Fatalf("unregistered domain must block live send: %d %s", r.Code, r.Raw)
+	}
+
+	// Registered but not verified.
+	id, token, err := e.svc.CreateDomain(ctx, "dom", "Gate.Example.COM.", "sending")
 	e.must(err)
 	if token == "" || id == "" {
 		t.Fatal("missing domain token")
 	}
-	k, _, err := e.svc.CreateKey(ctx, "dom", "live", []string{"emails:send"}, "live", 0)
-	e.must(err)
-	e.must(e.svc.AddSender(ctx, "dom", "live", liveFrom, "App"))
-	r := e.post(k, idem("blocked-domain"), otpBody(testRcpt))
-	if r.Code != 403 || errCode(r) != "domain_not_ready" {
+	if e.count(`SELECT count(*) FROM domains WHERE id=$1 AND name='gate.example.com'`, id) != 1 {
+		t.Fatal("domain name not stored canonically")
+	}
+	if r := e.post(k, idem("unverified"), body); r.Code != 403 || errCode(r) != "domain_not_ready" {
 		t.Fatalf("unverified domain should block live send: %d %s", r.Code, r.Raw)
+	}
+	// Ownership proven and claimed but DNS not passing: sender may be created, mail not sent.
+	_, err = e.pool.Exec(ctx, `UPDATE domains SET verified_at=now() WHERE id=$1`, id)
+	e.must(err)
+	_, err = e.pool.Exec(ctx, `INSERT INTO domain_claims(name, project_id, state) SELECT 'gate.example.com', id, 'active' FROM projects WHERE name='dom'`)
+	e.must(err)
+	e.must(e.svc.AddSender(ctx, "dom", "live", from, "App"))
+	if r := e.post(k, idem("nodns"), body); r.Code != 403 || errCode(r) != "domain_not_ready" {
+		t.Fatalf("failing DNS should block live send: %d %s", r.Code, r.Raw)
+	}
+	_, err = e.pool.Exec(ctx, `UPDATE domains SET spf_ok=true, dkim_ok=true, dmarc_ok=true WHERE id=$1`, id)
+	e.must(err)
+	if r := e.post(k, idem("ready"), body); r.Code != 202 {
+		t.Fatalf("ready domain: %d %s", r.Code, r.Raw)
 	}
 }
 

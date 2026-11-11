@@ -44,7 +44,7 @@ export const navGroups: NavGroup[] = [
     label: "Overview",
     items: [
       { path: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { path: "setup", label: "Setup checklist", icon: ListChecks },
+      { path: "setup", label: "Getting started", icon: ListChecks },
     ],
   },
   {
@@ -86,7 +86,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { path: "projects", label: "Projects", icon: FolderKanban },
       { path: "users", label: "Users", icon: Users },
-      { path: "mail-server", label: "Mail server", icon: Server },
+      { path: "mail-server", label: "Delivery infrastructure", icon: Server },
       { path: "analytics", label: "Analytics", icon: BarChart3 },
       { path: "alerts", label: "Alerts", icon: Bell },
       { path: "system", label: "System", icon: Activity },

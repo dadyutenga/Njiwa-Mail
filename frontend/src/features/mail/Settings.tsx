@@ -46,7 +46,7 @@ export default function Settings() {
             {phrase("Users")}
           </Link>
           <Link className="text-primary underline" to={to("mail-server")}>
-            {phrase("Mail server")}
+            {phrase("Delivery infrastructure")}
           </Link>
           <Link className="text-primary underline" to={to("privacy")}>
             {phrase("Recipient privacy")}
