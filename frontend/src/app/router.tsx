@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { createBrowserRouter } from "react-router-dom";
+import Welcome from "@/features/welcome/Welcome";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { ProtectedRoute } from "@/features/auth/auth";
 import { routes } from "./routes";
@@ -9,8 +10,8 @@ import { PageLoader } from "@/components/shared/Display";
 import { ErrorBoundary, NotFound } from "@/components/shared/RouteErrors";
 
 export const router = createBrowserRouter([
+  { path: "/", element: <Welcome /> },
   {
-    path: "/",
     element: (
       <ProtectedRoute>
         <DashboardLayout />
@@ -19,8 +20,7 @@ export const router = createBrowserRouter([
     errorElement: <ErrorBoundary />,
     children: [
       ...routes.map(({ path, component: Component }) => ({
-        index: path === "/" ? true : undefined,
-        path: path === "/" ? undefined : path.slice(1),
+        path: path.slice(1),
         element: (
           <Suspense fallback={<PageLoader />}>
             <Component />

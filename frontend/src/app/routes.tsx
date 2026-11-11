@@ -8,7 +8,13 @@ const Profile = lazy(() => import("@/pages/Profile"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const Example = lazy(() => import("@/pages/Example"));
 export const routes = [
-  { path: "/", label: "Overview", icon: LayoutDashboard, component: Dashboard, navigation: true },
+  {
+    path: "/dashboard",
+    label: "Overview",
+    icon: LayoutDashboard,
+    component: Dashboard,
+    navigation: true,
+  },
   { path: "/records", label: "Records", icon: List, component: Records, navigation: true },
   { path: "/reports", label: "Reports", icon: BarChart3, component: Reports, navigation: true },
   { path: "/profile", label: "Profile", icon: User, component: Profile, navigation: true },

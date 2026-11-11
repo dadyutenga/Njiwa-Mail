@@ -3,8 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="A reusable frontend template" />
-    <title>Your App</title>
+    <meta
+      name="description"
+      content="Njiwa-Mail is an open-source email platform for your apps. Send, receive and track email through one API, on servers you control."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Njiwa-Mail — Your own mail carrier." />
+    <meta
+      property="og:description"
+      content="Send, receive and track transactional email through one API, on servers you control."
+    />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FAF7F2" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0F1114" />
+    <link rel="icon" type="image/svg+xml" href="/njiwa-dove.svg" />
+    <script>
+      try {
+        const theme = localStorage.getItem("theme");
+        document.documentElement.classList.toggle(
+          "dark",
+          theme === "dark" || (!theme && matchMedia("(prefers-color-scheme: dark)").matches),
+        );
+      } catch {}
+    </script>
+    <title>Njiwa-Mail — Your own mail carrier.</title>
   </head>
   <body>
     <div id="root"></div>

@@ -78,7 +78,7 @@ export default function DashboardLayout() {
           compact ? "w-20" : "w-64"
         }`}
       >
-        <Link to="/" className="mb-8 flex h-10 items-center gap-3 px-2 font-bold">
+        <Link to="/dashboard" className="mb-8 flex h-10 items-center gap-3 px-2 font-bold">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-sm font-black text-primary-foreground">
             A
           </span>
@@ -127,7 +127,7 @@ export default function DashboardLayout() {
               <BreadcrumbList>
                 <BreadcrumbItem>
                   <BreadcrumbLink asChild>
-                    <Link to="/">{t.nav.home}</Link>
+                    <Link to="/dashboard">{t.nav.home}</Link>
                   </BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />

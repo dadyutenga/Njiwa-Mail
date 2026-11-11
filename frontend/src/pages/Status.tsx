@@ -26,7 +26,7 @@ export default function Status({
         </p>
         <div className="mt-6 flex justify-center gap-3">
           <Button asChild>
-            <Link to="/">Return to Dashboard</Link>
+            <Link to="/dashboard">Return to Dashboard</Link>
           </Button>
         </div>
       </div>
