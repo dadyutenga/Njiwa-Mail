@@ -195,8 +195,13 @@ it("managed mode never shows the SMTP password form", async () => {
   );
   wrap(<MailServer />);
   expect(await screen.findByText(/host installer/)).toBeInTheDocument();
-  expect(screen.queryByLabelText("SMTP host")).not.toBeInTheDocument();
+  expect(screen.getByText("njiwa-mail preflight -record")).toBeInTheDocument();
+  // Wait for the mail-server settings to load too, so a form that renders
+  // late would still be caught.
+  await waitFor(() => expect(admin.get).toHaveBeenCalledWith("/mail-server"));
+  expect(screen.queryByLabelText(/^SMTP host/)).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/^Password/)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/^Mail server type/)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Test connection" })).not.toBeInTheDocument();
 });
 
