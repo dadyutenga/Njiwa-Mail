@@ -1,6 +1,7 @@
 # Implementation status
 
 Design reference: the Njiwa-Mail implementation pack (`15_IMPLEMENTATION_BACKLOG`, master spec).
+What is **not** done yet (checkpoint): [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md).
 This file is the live tracker the backlog asks for. A ticket is Done only when its backend predicate is tested.
 
 Baseline: `cd129e2` — `go test ./...` green on PostgreSQL 16 (throwaway DB; the suite resets `public`).
