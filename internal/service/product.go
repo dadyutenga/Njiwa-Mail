@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
-	"net"
 	"strings"
 
 	"github.com/njiwa-tz/mail/internal/secure"
@@ -117,31 +116,23 @@ func (s *Service) VerifyDomain(ctx context.Context, id string, r Resolver) error
 	if !uuidRe.MatchString(id) {
 		return newErr(404, "not_found")
 	}
-	var name, token string
-	if err := s.Pool.QueryRow(ctx, `SELECT name, verify_token FROM domains WHERE id=$1`, id).Scan(&name, &token); err != nil {
+	var name string
+	if err := s.Pool.QueryRow(ctx, `SELECT name FROM domains WHERE id=$1`, id).Scan(&name); err != nil {
 		return notFound(err)
 	}
-	if r == nil {
-		r = net.DefaultResolver
+	// One verification path: the same DNS evaluation and domain claim as the
+	// Domains page, so this older route cannot mark a domain verified on its own.
+	recs, err := s.CheckDomain(ctx, id, r)
+	if err != nil {
+		return err
 	}
-	txt, _ := r.LookupTXT(ctx, name)
-	verified := false
-	for _, rec := range txt {
-		if strings.TrimSpace(rec) == "njiwa-mail-verify="+token {
-			verified = true
+	ready := true
+	for _, rec := range recs {
+		if rec.Key == "ownership" || rec.Key == "spf" || rec.Key == "dkim" || rec.Key == "dmarc" {
+			ready = ready && rec.Pass
 		}
 	}
-	spf := strings.Contains(strings.ToLower(strings.Join(txt, " ")), "v=spf1")
-	dmarcRec, _ := r.LookupTXT(ctx, "_dmarc."+name)
-	dmarc := strings.Contains(strings.ToLower(strings.Join(dmarcRec, " ")), "v=dmarc1")
-	dkimRec, _ := r.LookupTXT(ctx, s.Opts.DKIMSelector+"._domainkey."+name)
-	dkim := strings.Contains(strings.ToLower(strings.Join(dkimRec, " ")), "v=dkim1")
-	_, err := s.Pool.Exec(ctx, `UPDATE domains SET verified_at=CASE WHEN $2 THEN COALESCE(verified_at, now()) ELSE NULL END,
-spf_ok=$3, dkim_ok=$4, dmarc_ok=$5 WHERE id=$1`, id, verified, spf, dkim, dmarc)
-	if err != nil {
-		return unavailable("domain_verify", err)
-	}
-	if !verified || !spf || !dkim || !dmarc {
+	if !ready {
 		_ = s.Audit(ctx, Actor{Name: "scheduler"}, "domain.not_ready", "domain", id, map[string]any{"name": name})
 	}
 	return nil

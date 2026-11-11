@@ -234,7 +234,13 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	if pk, err := s.mailcowDKIM(ctx, name); err == nil && pk != "" {
 		dkimKnown = pk
 	}
-	recs := s.expectedRecords(s.senderKind(ctx), name, purpose, token, dkimKnown)
+	kind := s.senderKind(ctx)
+	recs := s.expectedRecords(kind, name, purpose, token, dkimKnown)
+	sip := s.senderIP(kind)
+	envDomain := name // the SMTP MAIL FROM domain that SPF authenticates
+	if _, bd, ok := splitAddr(s.Opts.BounceAddress); ok {
+		envDomain = bd
+	}
 	host := fqdn(s.Opts.MailHost)
 	apex, apexErr := r.LookupTXT(ctx, name)
 	var verified, spfOK, dkimOK, dmarcOK, mxOK bool
@@ -250,15 +256,11 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 			}
 			verified = rec.Pass
 		case "spf":
-			spf := pick(apex, "v=spf1")
+			pass, why, spf := evalSPF(ctx, r, name, sip)
 			rec.Found = observed(spf, apexErr)
-			switch {
-			case len(spf) > 1:
-				rec.Hint = "Two SPF records were found. Merge them into one record: receivers treat two as an error."
-			case len(spf) == 1 && strings.Contains(strings.ToLower(spf[0]), "+all"):
-				rec.Hint = "+all lets anyone send as this domain. Use -all or ~all."
-			case len(spf) == 1:
-				rec.Pass = true
+			rec.Pass = pass
+			if why != "" {
+				rec.Hint = why
 			}
 			spfOK = rec.Pass
 		case "dkim":
@@ -276,10 +278,16 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 			}
 			dkimOK = rec.Pass
 		case "dmarc":
-			txt, err := r.LookupTXT(ctx, rec.Host)
-			dm := pick(txt, "v=dmarc1")
-			rec.Found = observed(dm, err)
-			rec.Pass = len(dm) == 1
+			// SPF counts for DMARC on the envelope (bounce) domain.
+			envSPF := spfOK
+			if envDomain != name {
+				envSPF, _, _ = evalSPF(ctx, r, envDomain, sip)
+			}
+			var hint string
+			rec.Pass, rec.Found, hint = evalDMARC(ctx, r, name, envDomain, dkimOK, envSPF)
+			if hint != "" {
+				rec.Hint = hint
+			}
 			dmarcOK = rec.Pass
 		case "mx", "return_path":
 			mx, err := r.LookupMX(ctx, rec.Host)
