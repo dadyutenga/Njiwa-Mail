@@ -10,7 +10,7 @@ import {
   UserMenu,
 } from "@/components/shared/Toolbar";
 import { LanguageSwitcher } from "@/features/i18n/LanguageSwitcher";
-import { useI18n } from "@/features/i18n/i18n";
+import { useI18n, usePhrase } from "@/features/i18n/i18n";
 import { Button } from "@/components/ui/button";
 import { BrandIcon } from "@/components/shared/BrandIcon";
 import {
@@ -37,6 +37,7 @@ function Navigation({
   onNavigate?: () => void;
 }) {
   const { user } = useAuth();
+  const phrase = usePhrase();
   return (
     <nav aria-label="Main navigation" className="space-y-1">
       {routes
@@ -47,7 +48,7 @@ function Navigation({
             onClick={onNavigate}
             key={path}
             to={path}
-            title={compact ? label : undefined}
+            title={compact ? phrase(label) : undefined}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                 isActive
@@ -57,7 +58,7 @@ function Navigation({
             }
           >
             <Icon size={19} />
-            {!compact && <span>{label}</span>}
+            {!compact && <span>{phrase(label)}</span>}
           </NavLink>
         ))}
     </nav>
@@ -69,9 +70,10 @@ export default function DashboardLayout() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const { t } = useI18n();
+  const phrase = usePhrase();
 
   const currentRoute = routes.find((r) => r.path === location.pathname);
-  const title = currentRoute?.label ?? "Page";
+  const title = phrase(currentRoute?.label ?? "Page");
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -98,7 +100,7 @@ export default function DashboardLayout() {
                 variant="ghost"
                 size="icon"
                 className="md:hidden"
-                aria-label="Open navigation"
+                aria-label={phrase("Open navigation")}
               >
                 <Menu />
               </Button>
@@ -108,7 +110,9 @@ export default function DashboardLayout() {
                 <BrandIcon size={36} />
                 Njiwa-Mail
               </SheetTitle>
-              <SheetDescription className="sr-only">Choose a page to navigate to.</SheetDescription>
+              <SheetDescription className="sr-only">
+                {phrase("Choose a page to navigate to.")}
+              </SheetDescription>
               <Navigation onNavigate={() => setOpen(false)} />
             </SheetContent>
           </Sheet>
@@ -116,7 +120,7 @@ export default function DashboardLayout() {
           <Link
             to="/dashboard"
             className="inline-flex items-center gap-2 font-bold md:hidden"
-            aria-label="Njiwa-Mail dashboard"
+            aria-label={phrase("Njiwa-Mail dashboard")}
           >
             <BrandIcon size={32} />
             <span className="hidden min-[420px]:inline">Njiwa-Mail</span>
@@ -127,7 +131,7 @@ export default function DashboardLayout() {
             variant="ghost"
             size="icon"
             className="hidden md:inline-flex"
-            aria-label="Toggle sidebar"
+            aria-label={phrase("Toggle sidebar")}
             aria-expanded={!compact}
             onClick={() => setCompact(!compact)}
           >
@@ -140,7 +144,7 @@ export default function DashboardLayout() {
               <BreadcrumbList>
                 <BreadcrumbItem>
                   <BreadcrumbLink asChild>
-                    <Link to="/dashboard">{t.nav.home}</Link>
+                    <Link to="/dashboard">{phrase(t.nav.home)}</Link>
                   </BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
@@ -166,7 +170,7 @@ export default function DashboardLayout() {
         </main>
 
         <footer className="border-t px-8 py-6 text-xs text-muted-foreground">
-          Njiwa-Mail · Built in Tanzania
+          {phrase("Njiwa-Mail · Built in Tanzania")}
         </footer>
       </div>
     </div>

@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { admin } from "@/lib/admin-api";
+import { usePhrase } from "@/features/i18n/i18n";
 export default function Privacy() {
+  const phrase = usePhrase();
   const [project, setProject] = useState("");
   const [mode, setMode] = useState("sandbox");
   const [email, setEmail] = useState("");
@@ -20,36 +22,38 @@ export default function Privacy() {
       a.download = "njiwa-mail-recipient-export.json";
       a.click();
       URL.revokeObjectURL(url);
-      setMessage("Export downloaded.");
+      setMessage(phrase("Export downloaded."));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Export failed");
+      setError(e instanceof Error ? e.message : phrase("Export failed"));
     }
   };
   const deleteData = async () => {
     setError("");
     if (confirmEmail !== email) {
-      setError("Enter the same email to confirm deletion.");
+      setError(phrase("Enter the same email to confirm deletion."));
       return;
     }
     if (!window.confirm(`Permanently delete stored data for ${email} in ${project}/${mode}?`))
       return;
     try {
       await admin.send("/privacy/delete", "POST", data);
-      setMessage("Recipient data deleted.");
+      setMessage(phrase("Recipient data deleted."));
       setConfirmEmail("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Deletion failed");
+      setError(e instanceof Error ? e.message : phrase("Deletion failed"));
     }
   };
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Recipient privacy</h1>
+      <h1 className="text-3xl font-bold">{phrase("Recipient privacy")}</h1>
       <p className="text-muted-foreground">
-        Export or remove one recipient’s stored data in a specific project and environment.
+        {phrase(
+          "Export or remove one recipient’s stored data in a specific project and environment.",
+        )}
       </p>
       <form onSubmit={exportData} className="grid max-w-xl gap-4 rounded-xl border bg-card p-5">
         <label className="grid gap-1 text-sm">
-          Project
+          {phrase("Project")}
           <input
             className="rounded border bg-background p-2"
             value={project}
@@ -58,7 +62,7 @@ export default function Privacy() {
           />
         </label>
         <label className="grid gap-1 text-sm">
-          Environment
+          {phrase("Environment")}
           <select
             className="rounded border bg-background p-2"
             value={mode}
@@ -69,7 +73,7 @@ export default function Privacy() {
           </select>
         </label>
         <label className="grid gap-1 text-sm">
-          Recipient email
+          {phrase("Recipient email")}
           <input
             type="email"
             className="rounded border bg-background p-2"
@@ -78,10 +82,10 @@ export default function Privacy() {
             required
           />
         </label>
-        <button className="rounded border px-4 py-2">Export data</button>
+        <button className="rounded border px-4 py-2">{phrase("Export data")}</button>
         <div className="border-t pt-4">
           <label className="grid gap-1 text-sm">
-            Re-enter email to confirm deletion
+            {phrase("Re-enter email to confirm deletion")}
             <input
               type="email"
               className="rounded border bg-background p-2"
@@ -94,7 +98,7 @@ export default function Privacy() {
             onClick={deleteData}
             className="mt-3 rounded bg-destructive px-4 py-2 text-destructive-foreground"
           >
-            Delete recipient data
+            {phrase("Delete recipient data")}
           </button>
         </div>
         {error && (

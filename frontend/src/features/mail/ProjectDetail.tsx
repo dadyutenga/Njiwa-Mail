@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { admin, type Page } from "@/lib/admin-api";
+import { usePhrase } from "@/features/i18n/i18n";
 type Env = {
   mode: string;
   enabled: boolean;
@@ -11,6 +12,7 @@ type Env = {
 };
 type Project = { name: string; enabled: boolean; environments: Env[] };
 function Environment({ project, env }: { project: string; env: Env }) {
+  const phrase = usePhrase();
   const client = useQueryClient();
   const [enabled, setEnabled] = useState(env.enabled);
   const [restrict, setRestrict] = useState(env.restrict_recipients);
@@ -47,7 +49,7 @@ function Environment({ project, env }: { project: string; env: Env }) {
       setSaved(true);
       client.invalidateQueries({ queryKey: ["projects-detail"] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      setError(e instanceof Error ? e.message : phrase("Save failed"));
     }
   };
   return (
@@ -55,14 +57,14 @@ function Environment({ project, env }: { project: string; env: Env }) {
       <h2 className="text-xl font-semibold capitalize">{env.mode}</h2>
       <label className="flex gap-2">
         <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        Enabled
+        {phrase("Enabled")}
       </label>
       <label className="flex gap-2">
         <input type="checkbox" checked={restrict} onChange={(e) => setRestrict(e.target.checked)} />
-        Restrict recipients
+        {phrase("Restrict recipients")}
       </label>
       <label className="grid gap-1 text-sm">
-        Approved origins, one per line
+        {phrase("Approved origins, one per line")}
         <textarea
           className="rounded border bg-background p-2"
           rows={3}
@@ -71,7 +73,7 @@ function Environment({ project, env }: { project: string; env: Env }) {
         />
       </label>
       <label className="grid gap-1 text-sm">
-        Recipient allowlist, one email or @domain per line
+        {phrase("Recipient allowlist, one email or @domain per line")}
         <textarea
           className="rounded border bg-background p-2"
           rows={3}
@@ -86,16 +88,17 @@ function Environment({ project, env }: { project: string; env: Env }) {
       )}
       {saved && (
         <p role="status" className="text-primary">
-          Saved.
+          {phrase("Saved.")}
         </p>
       )}
       <button onClick={save} className="rounded bg-primary px-4 py-2 text-primary-foreground">
-        Save environment
+        {phrase("Save environment")}
       </button>
     </section>
   );
 }
 export default function ProjectDetail() {
+  const phrase = usePhrase();
   const { name } = useParams();
   const q = useQuery({
     queryKey: ["projects-detail", name],
@@ -105,20 +108,20 @@ export default function ProjectDetail() {
         const page = await admin.get<Page<Project>>(`/projects?limit=100&offset=${offset}`);
         const match = page.items.find((p) => p.name === name);
         if (match) return match;
-        if (!page.has_more) throw new Error("Project not found");
+        if (!page.has_more) throw new Error(phrase("Project not found"));
         offset += 100;
       }
     },
   });
-  if (q.isPending) return <p role="status">Loading project…</p>;
+  if (q.isPending) return <p role="status">{phrase("Loading project…")}</p>;
   if (q.error) return <p role="alert">{q.error.message}</p>;
   return (
     <div className="space-y-6">
       <Link to="/projects" className="text-primary">
-        ← Projects
+        {phrase("← Projects")}
       </Link>
       <h1 className="text-3xl font-bold">{q.data.name}</h1>
-      <p className="text-muted-foreground">Manage sandbox and live sending rules.</p>
+      <p className="text-muted-foreground">{phrase("Manage sandbox and live sending rules.")}</p>
       <div className="grid gap-5 lg:grid-cols-2">
         {q.data.environments?.map((e) => (
           <Environment key={e.mode} project={q.data.name} env={e} />

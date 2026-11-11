@@ -163,4 +163,4 @@ resp, err := http.DefaultClient.Do(req)`,
   compose: `cp .env.example .env
 # Set database and encryption values in .env
 docker compose up -d --build`,
-} as const;
+};

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { admin, type Page } from "@/lib/admin-api";
 import { useAuth } from "@/features/auth/auth";
+import { usePhrase } from "@/features/i18n/i18n";
 import { Link } from "react-router-dom";
 type Row = Record<string, unknown>;
 type Field = {
@@ -185,6 +186,7 @@ function display(value: unknown): string {
   return String(value);
 }
 export default function Resources({ kind }: { kind: string }) {
+  const phrase = usePhrase();
   const cfg = resources[kind];
   const { user } = useAuth();
   const client = useQueryClient();
@@ -201,7 +203,8 @@ export default function Resources({ kind }: { kind: string }) {
         `${cfg.path}${cfg.path === "/dns" ? "" : `?limit=50&offset=${offset}`}`,
       ),
   });
-  if (cfg.owner && user?.role !== "owner") return <p role="alert">Owner access required.</p>;
+  if (cfg.owner && user?.role !== "owner")
+    return <p role="alert">{phrase("Owner access required.")}</p>;
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
@@ -231,7 +234,7 @@ export default function Resources({ kind }: { kind: string }) {
       setValues({});
       client.invalidateQueries({ queryKey: ["resource", kind] });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(err instanceof Error ? err.message : phrase("Request failed"));
     }
   };
   const rows = q.data?.items || [];
@@ -285,7 +288,7 @@ export default function Resources({ kind }: { kind: string }) {
           if (!input) return;
           const numbers = input.split(",").map(Number);
           if (numbers.length !== 4 || numbers.some((n) => !Number.isInteger(n) || n < 0)) {
-            setActionError("Enter four nonnegative whole numbers.");
+            setActionError(phrase("Enter four nonnegative whole numbers."));
             return;
           }
           Object.assign(quotas, {
@@ -301,14 +304,14 @@ export default function Resources({ kind }: { kind: string }) {
         });
       }
       if (kind === "suppressions") {
-        const reason = window.prompt("Reason for removing this suppression");
+        const reason = window.prompt(phrase("Reason for removing this suppression"));
         if (!reason?.trim()) return;
         await admin.send(`/suppressions/${id}`, "DELETE", { reason });
       }
       if (kind === "alerts") await admin.send(`/alerts/${id}/ack`, "POST");
       if (kind === "users")
         if (action === "change role") {
-          const role = window.prompt("New role: owner or admin", String(row.role));
+          const role = window.prompt(phrase("New role: owner or admin"), String(row.role));
           if (role !== "owner" && role !== "admin") return;
           await admin.send(`/users/${id}`, "PATCH", { role });
         } else {
@@ -320,16 +323,16 @@ export default function Resources({ kind }: { kind: string }) {
       if (result?.key || result?.signing_secret) setSecret(result.key || result.signing_secret);
       client.invalidateQueries({ queryKey: ["resource", kind] });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Request failed");
+      setActionError(err instanceof Error ? err.message : phrase("Request failed"));
     }
   };
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">{cfg.title}</h1>
+          <h1 className="text-3xl font-bold">{phrase(cfg.title)}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Live data from the Njiwa-Mail admin API.
+            {phrase("Live data from the Njiwa-Mail admin API.")}
           </p>
         </div>
         {cfg.fields && (
@@ -337,7 +340,7 @@ export default function Resources({ kind }: { kind: string }) {
             className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
             onClick={() => setOpen(!open)}
           >
-            {open ? "Close" : "Add new"}
+            {phrase(open ? "Close" : "Add new")}
           </button>
         )}
         {kind === "dns" && (
@@ -348,24 +351,26 @@ export default function Resources({ kind }: { kind: string }) {
                 await admin.send("/dns/check", "POST");
                 client.invalidateQueries({ queryKey: ["resource", kind] });
               } catch (err) {
-                setActionError(err instanceof Error ? err.message : "DNS check failed");
+                setActionError(err instanceof Error ? err.message : phrase("DNS check failed"));
               }
             }}
           >
-            Run DNS check
+            {phrase("Run DNS check")}
           </button>
         )}
       </div>
       {secret && (
         <div role="status" className="rounded-xl border border-primary p-4">
           <strong>
-            {kind === "domains"
-              ? "Add this TXT challenge to DNS, then verify the domain."
-              : "Copy this secret now. It will not be shown again."}
+            {phrase(
+              kind === "domains"
+                ? "Add this TXT challenge to DNS, then verify the domain."
+                : "Copy this secret now. It will not be shown again.",
+            )}
           </strong>
           <pre className="mt-2 overflow-x-auto text-sm">{secret}</pre>
           <button onClick={() => setSecret("")} className="mt-2 text-sm text-primary">
-            Dismiss
+            {phrase("Dismiss")}
           </button>
         </div>
       )}
@@ -378,7 +383,7 @@ export default function Resources({ kind }: { kind: string }) {
         <form onSubmit={save} className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2">
           {cfg.fields.map((f) => (
             <label key={f.key} className="grid gap-1 text-sm font-medium">
-              {f.label}
+              {phrase(f.label)}
               {f.type === "select" ? (
                 <select
                   className="rounded border bg-background p-2"
@@ -406,12 +411,12 @@ export default function Resources({ kind }: { kind: string }) {
             </p>
           )}
           <button className="rounded bg-primary px-4 py-2 text-primary-foreground sm:col-span-2">
-            Create
+            {phrase("Create")}
           </button>
         </form>
       )}
       {q.isPending ? (
-        <p role="status">Loading…</p>
+        <p role="status">{phrase("Loading…")}</p>
       ) : q.error ? (
         <p role="alert">{q.error.message}</p>
       ) : (
@@ -422,30 +427,30 @@ export default function Resources({ kind }: { kind: string }) {
                 <tr className="border-b">
                   {cfg.columns.map((col) => (
                     <th key={col} className="whitespace-nowrap p-3 capitalize">
-                      {col.replaceAll("_", " ")}
+                      {phrase(col.replaceAll("_", " "))}
                     </th>
                   ))}
-                  {hasActions && <th className="p-3">Actions</th>}
+                  {hasActions && <th className="p-3">{phrase("Actions")}</th>}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row, i) => (
                   <tr key={String(row.id || row.prefix || i)} className="border-b">
                     {cfg.columns.map((col) => (
-                      <td className="max-w-64 truncate p-3" title={display(row[col])} key={col}>
+                      <td className="max-w-64 truncate p-3" title={phrase(display(row[col]))} key={col}>
                         {kind === "projects" && col === "name" ? (
                           <Link
                             className="text-primary underline"
                             to={`/projects/${encodeURIComponent(String(row.name))}`}
                           >
-                            {display(row[col])}
+                            {phrase(display(row[col]))}
                           </Link>
                         ) : kind === "templates" && col === "slug" ? (
                           <Link
                             className="text-primary underline"
                             to={`/templates/${encodeURIComponent(String(row.id))}`}
                           >
-                            {display(row[col])}
+                            {phrase(display(row[col]))}
                           </Link>
                         ) : (kind === "inbound" && col === "subject") ||
                           (kind === "sandbox" && col === "id") ? (
@@ -453,10 +458,10 @@ export default function Resources({ kind }: { kind: string }) {
                             className="text-primary underline"
                             to={`/${kind}/${encodeURIComponent(String(row.id))}`}
                           >
-                            {display(row[col])}
+                            {phrase(display(row[col]))}
                           </Link>
                         ) : (
-                          display(row[col])
+                          phrase(display(row[col]))
                         )}
                       </td>
                     ))}
@@ -485,7 +490,7 @@ export default function Resources({ kind }: { kind: string }) {
                             className="mr-3 underline"
                             onClick={() => act(row, action)}
                           >
-                            {action}
+                            {phrase(action)}
                           </button>
                         ))}
                       </td>
@@ -494,18 +499,20 @@ export default function Resources({ kind }: { kind: string }) {
                 ))}
               </tbody>
             </table>
-            {!rows.length && <p className="p-5 text-muted-foreground">No records yet.</p>}
+            {!rows.length && (
+              <p className="p-5 text-muted-foreground">{phrase("No records yet.")}</p>
+            )}
           </div>
           {"has_more" in (q.data || {}) && (
             <div className="flex gap-4 text-sm">
               <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>
-                Previous
+                {phrase("Previous")}
               </button>
               <button
                 disabled={!(q.data as Page<Row>).has_more}
                 onClick={() => setOffset(offset + 50)}
               >
-                Next
+                {phrase("Next")}
               </button>
             </div>
           )}

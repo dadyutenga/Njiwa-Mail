@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { admin } from "@/lib/admin-api";
+import { usePhrase } from "@/features/i18n/i18n";
 type Inbound = {
   id: string;
   subject: string;
@@ -12,13 +13,14 @@ type Inbound = {
 };
 type Capture = { id: string; subject: string; from: string; to: string; text: string; raw: string };
 export default function ResourceDetail({ kind }: { kind: "inbound" | "sandbox" }) {
+  const phrase = usePhrase();
   const { id } = useParams();
   const q = useQuery({
     queryKey: [kind, id],
     queryFn: () => admin.get<Inbound | Capture>(`/${kind}/${encodeURIComponent(id || "")}`),
     enabled: !!id,
   });
-  if (q.isPending) return <p role="status">Loading…</p>;
+  if (q.isPending) return <p role="status">{phrase("Loading…")}</p>;
   if (q.error) return <p role="alert">{q.error.message}</p>;
   const data = q.data;
   const inbound = kind === "inbound" ? (data as Inbound) : null;
@@ -26,26 +28,26 @@ export default function ResourceDetail({ kind }: { kind: "inbound" | "sandbox" }
   return (
     <div className="space-y-6">
       <Link className="text-primary" to={`/${kind}`}>
-        ← {kind}
+        ← {phrase(kind === "inbound" ? "Inbound" : "Sandbox")}
       </Link>
       <h1 className="text-3xl font-bold">{data.subject || data.id}</h1>
       <section className="rounded-xl border bg-card p-5">
         <p>
-          <strong>From:</strong> {inbound?.header_from || capture?.from}
+          <strong>{phrase("From:")}</strong> {inbound?.header_from || capture?.from}
         </p>
         <p>
-          <strong>To:</strong> {inbound?.envelope_to || capture?.to}
+          <strong>{phrase("To:")}</strong> {inbound?.envelope_to || capture?.to}
         </p>
       </section>
       <section className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold">Text content</h2>
+        <h2 className="font-semibold">{phrase("Text content")}</h2>
         <pre className="mt-3 whitespace-pre-wrap break-words text-sm">
-          {data.text || capture?.raw || "No text content"}
+          {data.text || capture?.raw || phrase("No text content")}
         </pre>
       </section>
       {inbound?.attachments?.length && (
         <section className="rounded-xl border bg-card p-5">
-          <h2 className="font-semibold">Attachments</h2>
+          <h2 className="font-semibold">{phrase("Attachments")}</h2>
           <ul>
             {inbound.attachments.map((a) => (
               <li key={a.id}>

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { admin } from "@/lib/admin-api";
+import { usePhrase } from "@/features/i18n/i18n";
 type Overview = {
   counts: Record<string, number>;
   sent_today: number;
@@ -11,23 +12,24 @@ type Overview = {
   workers: { role: string; healthy: boolean; last_seen: string }[];
 };
 export default function Dashboard() {
+  const phrase = usePhrase();
   const q = useQuery({ queryKey: ["overview"], queryFn: () => admin.get<Overview>("/overview") });
-  if (q.isPending) return <p role="status">Loading overview…</p>;
+  if (q.isPending) return <p role="status">{phrase("Loading overview…")}</p>;
   if (q.error) return <p role="alert">{q.error.message}</p>;
   const d = q.data;
   const cards = [
-    ["Submitted today", d.sent_today],
-    ["Queue depth", d.queue_depth],
-    ["Webhook backlog", d.webhook_backlog],
-    ["Open alerts", d.open_alerts],
+    [phrase("Submitted today"), d.sent_today],
+    [phrase("Queue depth"), d.queue_depth],
+    [phrase("Webhook backlog"), d.webhook_backlog],
+    [phrase("Open alerts"), d.open_alerts],
   ];
   return (
     <div className="space-y-8">
       <div>
         <p className="text-sm font-semibold text-primary">NJIWA-MAIL</p>
-        <h1 className="mt-2 text-3xl font-bold">Overview</h1>
+        <h1 className="mt-2 text-3xl font-bold">{phrase("Overview")}</h1>
         <p className="mt-2 text-muted-foreground">
-          Current operational data from the mail service.
+          {phrase("Current operational data from the mail service.")}
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -40,7 +42,7 @@ export default function Dashboard() {
       </div>
       <div className="grid gap-5 lg:grid-cols-2">
         <section className="rounded-xl border bg-card p-5">
-          <h2 className="font-semibold">Message states</h2>
+          <h2 className="font-semibold">{phrase("Message states")}</h2>
           <dl className="mt-4 space-y-2">
             {Object.entries(d.counts).map(([state, count]) => (
               <div className="flex justify-between border-b py-2 text-sm" key={state}>
@@ -50,18 +52,18 @@ export default function Dashboard() {
             ))}
           </dl>
           <Link to="/messages" className="mt-4 inline-block text-sm text-primary">
-            View messages →
+            {phrase("View messages →")}
           </Link>
         </section>
         <section className="rounded-xl border bg-card p-5">
-          <h2 className="font-semibold">Service health</h2>
+          <h2 className="font-semibold">{phrase("Service health")}</h2>
           <p className="mt-4 text-sm">
-            SMTP: {d.smtp_configured ? "Configured" : "Not configured"}
+            SMTP: {d.smtp_configured ? phrase("Configured") : phrase("Not configured")}
           </p>
           <ul className="mt-3 space-y-2">
             {d.workers?.map((w) => (
               <li key={w.role + w.last_seen} className="text-sm">
-                {w.role}: {w.healthy ? "Healthy" : "Unhealthy"}
+                {w.role}: {w.healthy ? phrase("Healthy") : phrase("Unhealthy")}
               </li>
             ))}
           </ul>

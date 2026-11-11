@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { admin } from "@/lib/admin-api";
+import { usePhrase } from "@/features/i18n/i18n";
 type Version = {
   version: number;
   variable_schema: unknown;
@@ -17,6 +18,7 @@ type Template = {
 };
 type Preview = { locale: string; subject: string; text: string; html: string };
 export default function TemplateDetail() {
+  const phrase = usePhrase();
   const { id } = useParams();
   const client = useQueryClient();
   const q = useQuery({
@@ -50,10 +52,10 @@ export default function TemplateDetail() {
       client.invalidateQueries({ queryKey: ["template", id] });
       client.invalidateQueries({ queryKey: ["resource", "templates"] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed");
+      setError(e instanceof Error ? e.message : phrase("Request failed"));
     }
   };
-  if (q.isPending) return <p role="status">Loading template…</p>;
+  if (q.isPending) return <p role="status">{phrase("Loading template…")}</p>;
   if (q.error) return <p role="alert">{q.error.message}</p>;
   const t = q.data;
   return (
@@ -63,7 +65,7 @@ export default function TemplateDetail() {
       </Link>
       <h1 className="text-3xl font-bold">{t.slug}</h1>
       <p className="text-muted-foreground">
-        {t.description} · {t.project || "Shared template"}
+        {t.description} · {t.project || phrase("Shared template")}
       </p>
       {error && (
         <p role="alert" className="text-destructive">
@@ -76,7 +78,7 @@ export default function TemplateDetail() {
         </p>
       )}
       <section className="space-y-4 rounded-xl border bg-card p-5">
-        <h2 className="text-xl font-semibold">Draft editor</h2>
+        <h2 className="text-xl font-semibold">{phrase("Draft editor")}</h2>
         <p className="text-sm text-muted-foreground">
           Edit JSON for the variable schema and locale content. Save before publishing.
         </p>
@@ -117,7 +119,7 @@ export default function TemplateDetail() {
         </button>
       </section>
       <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Versions</h2>
+        <h2 className="text-xl font-semibold">{phrase("Versions")}</h2>
         <label className="block text-sm">
           Preview variables (JSON)
           <textarea
@@ -131,7 +133,8 @@ export default function TemplateDetail() {
           <div key={v.version} className="rounded-xl border bg-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <strong>
-                Version {v.version} · {v.published_at ? "Published" : "Draft"}
+                {phrase("Versions")} {v.version} ·{" "}
+                {v.published_at ? phrase("Published") : phrase("Draft")}
               </strong>
               <div className="flex gap-2">
                 <button
@@ -170,7 +173,7 @@ export default function TemplateDetail() {
         ))}
       </section>
       <section className="space-y-4 rounded-xl border bg-card p-5">
-        <h2 className="text-xl font-semibold">Sandbox test send</h2>
+        <h2 className="text-xl font-semibold">{phrase("Sandbox test send")}</h2>
         <p className="text-sm text-muted-foreground">
           This captures a message locally and does not contact a mail server. Use approved sender
           details and sample variables above.

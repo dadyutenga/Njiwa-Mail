@@ -3,7 +3,8 @@ import { Link, Navigate } from "react-router-dom";
 import { ArrowRight, Check, ChevronDown, Copy, Menu, Moon, Sun, X } from "lucide-react";
 import { useAuth } from "@/features/auth/auth";
 import { BrandIcon } from "@/components/shared/BrandIcon";
-import { content as c } from "./content";
+import { LanguageSwitcher } from "@/features/i18n/LanguageSwitcher";
+import { useWelcomeContent } from "./use-welcome";
 import { welcomeLinks } from "./config";
 import "./welcome.css";
 
@@ -25,6 +26,7 @@ function Dove({ size = 38 }: { size?: number }) {
   );
 }
 function ThemeSwitch() {
+  const c = useWelcomeContent();
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   useEffect(() => {
     const update = () => setDark(document.documentElement.classList.contains("dark"));
@@ -49,6 +51,7 @@ function ThemeSwitch() {
   );
 }
 function Navigation() {
+  const c = useWelcomeContent();
   const [open, setOpen] = useState(false);
   const links = [
     { href: "#features", label: c.nav.features },
@@ -72,6 +75,7 @@ function Navigation() {
         </nav>
         <div className="nav-actions">
           <ThemeSwitch />
+          <LanguageSwitcher />
           <Link className="welcome-button nav-signin" to="/login">
             {c.nav.signIn}
             <ArrowRight size={16} />
@@ -122,10 +126,11 @@ function highlighted(code: string) {
     });
 }
 function CodePanel({ hero = false }: { hero?: boolean }) {
+  const c = useWelcomeContent();
   const tabs = c.developer.tabs;
   const [active, setActive] = useState<(typeof tabs)[number]>("cURL");
   const [copied, setCopied] = useState(false);
-  const code = c.samples[active];
+  const code = c.samples[active as keyof typeof c.samples];
   const copy = async () => {
     await navigator.clipboard.writeText(code);
     setCopied(true);
@@ -199,6 +204,7 @@ function CodePanel({ hero = false }: { hero?: boolean }) {
   );
 }
 function Hero() {
+  const c = useWelcomeContent();
   return (
     <section className="welcome-hero welcome-container">
       <div className="hero-copy">
@@ -227,6 +233,7 @@ function Hero() {
   );
 }
 function HowItWorks() {
+  const c = useWelcomeContent();
   return (
     <section id="how" className="welcome-section how-section">
       <div className="welcome-container">
@@ -265,6 +272,7 @@ function HowItWorks() {
   );
 }
 function Features() {
+  const c = useWelcomeContent();
   return (
     <section id="features" className="welcome-section">
       <div className="welcome-container">
@@ -286,6 +294,7 @@ function Features() {
   );
 }
 function HonestStatus() {
+  const c = useWelcomeContent();
   return (
     <section className="welcome-section status-section">
       <div className="welcome-container status-grid">
@@ -310,6 +319,7 @@ function HonestStatus() {
   );
 }
 function Developer() {
+  const c = useWelcomeContent();
   return (
     <section className="welcome-section developer-section">
       <div className="welcome-container developer-grid">
@@ -330,6 +340,7 @@ function Developer() {
   );
 }
 function SelfHosted() {
+  const c = useWelcomeContent();
   return (
     <section className="welcome-section hosted-section">
       <div className="welcome-container hosted-grid">
@@ -355,6 +366,7 @@ function SelfHosted() {
   );
 }
 function FAQ() {
+  const c = useWelcomeContent();
   return (
     <section className="welcome-section faq-section">
       <div className="welcome-container faq-grid">
@@ -378,6 +390,7 @@ function FAQ() {
   );
 }
 function Footer() {
+  const c = useWelcomeContent();
   return (
     <footer className="welcome-footer">
       <div className="welcome-container footer-grid">
@@ -399,10 +412,11 @@ function Footer() {
   );
 }
 export default function Welcome() {
+  const c = useWelcomeContent();
   const { user, loading } = useAuth();
   useEffect(() => {
     document.title = `${c.brand} — ${c.hero.title}`;
-  }, []);
+  }, [c]);
   if (loading)
     return (
       <div role="status" className="p-8">

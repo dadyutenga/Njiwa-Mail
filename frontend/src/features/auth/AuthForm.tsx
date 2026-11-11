@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/extra-inputs";
 import { admin } from "@/lib/admin-api";
+import { usePhrase } from "@/features/i18n/i18n";
 import { useAuth } from "./auth";
 
 export function AuthForm({ mode }: { mode: string }) {
@@ -12,36 +13,43 @@ export function AuthForm({ mode }: { mode: string }) {
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
   const { login } = useAuth();
+  const phrase = usePhrase();
   const navigate = useNavigate();
   const location = useLocation();
   const [params] = useSearchParams();
   const forgot = mode === "forgot-password",
     reset = mode === "reset-password";
-  const title = forgot ? "Forgot password" : reset ? "Reset password" : "Welcome back";
+  const title = phrase(forgot ? "Forgot password" : reset ? "Reset password" : "Welcome back");
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setFeedback("");
     if (!forgot && password.length < (reset ? 12 : 8)) {
-      setFeedback(`Password must be at least ${reset ? 12 : 8} characters`);
+      setFeedback(
+        phrase(
+          reset
+            ? "Password must be at least 12 characters"
+            : "Password must be at least 8 characters",
+        ),
+      );
       return;
     }
     setBusy(true);
     try {
       if (forgot) {
         await admin.forgot(email);
-        setFeedback("If this account exists, reset instructions have been sent.");
+        setFeedback(phrase("If this account exists, reset instructions have been sent."));
       } else if (reset) {
         const token = params.get("token") || "";
-        if (!token) throw new Error("Reset token is missing.");
+        if (!token) throw new Error(phrase("Reset token is missing."));
         await admin.reset(token, password);
-        setFeedback("Password updated. You can sign in now.");
+        setFeedback(phrase("Password updated. You can sign in now."));
       } else {
         await login(email, password);
         const state = location.state as { from?: string } | null;
         navigate(state?.from || "/dashboard", { replace: true });
       }
     } catch (err) {
-      setFeedback(err instanceof Error ? err.message : "Request failed");
+      setFeedback(err instanceof Error ? err.message : phrase("Request failed"));
     } finally {
       setBusy(false);
     }
@@ -49,11 +57,13 @@ export function AuthForm({ mode }: { mode: string }) {
   return (
     <div className="w-full">
       <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Use your Njiwa-Mail operator account.</p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {phrase("Use your Njiwa-Mail operator account.")}
+      </p>
       <form onSubmit={submit} className="mt-8 space-y-4">
         {!reset && (
           <label className="block space-y-2 text-sm font-medium">
-            Email
+            {phrase("Email")}
             <Input
               type="email"
               value={email}
@@ -65,7 +75,7 @@ export function AuthForm({ mode }: { mode: string }) {
         )}
         {!forgot && (
           <label className="block space-y-2 text-sm font-medium">
-            Password
+            {phrase("Password")}
             <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -89,12 +99,12 @@ export function AuthForm({ mode }: { mode: string }) {
           </p>
         )}
         <Button type="submit" disabled={busy} className="w-full">
-          {forgot ? "Send Instructions" : reset ? "Reset password" : "Sign in"}
+          {phrase(forgot ? "Send Instructions" : reset ? "Reset password" : "Sign in")}
         </Button>
       </form>
       <div className="mt-6 flex gap-4 text-sm text-primary">
-        {(forgot || reset) && <Link to="/login">Sign in</Link>}
-        {!forgot && !reset && <Link to="/forgot-password">Forgot password?</Link>}
+        {(forgot || reset) && <Link to="/login">{phrase("Sign in")}</Link>}
+        {!forgot && !reset && <Link to="/forgot-password">{phrase("Forgot password?")}</Link>}
       </div>
     </div>
   );
