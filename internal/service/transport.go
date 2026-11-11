@@ -113,6 +113,9 @@ func problemCodeFor(kind string, detail any) string {
 	case []mailer.Step:
 		for _, st := range d {
 			if !st.OK && !st.Skipped {
+				if st.Code != "" {
+					return st.Code
+				}
 				return "SMTP_" + strings.ToUpper(st.Key) + "_FAILED"
 			}
 		}

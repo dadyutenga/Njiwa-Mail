@@ -59,6 +59,23 @@ Alerts are rows in the `alerts` table, shown on the Overview page, counted in `/
 MX for the inbound domain and the PTR of `OUTBOUND_IP`, and shows the expected value next to what it observed. It never changes DNS.
 Set `MAIL_HOSTNAME`, `OUTBOUND_IP` and `DKIM_SELECTOR` so the expected values are exact. The SPF check is a heuristic (it does not expand `include:`): read the observed record yourself.
 
+## Managed delivery: host preflight
+
+Before choosing "Send from my VPS", run the read-only preflight on the server itself. It changes nothing on the host and needs no
+database:
+
+```
+njiwa-mail preflight -hostname mailout.example.com -ip 203.0.113.10
+```
+
+It checks the distribution (Debian 12, Ubuntu 22.04/24.04), systemd, disk and inodes for the queue, memory, clock synchronisation,
+whether the sending IP is on this host, the mail hostname's A record, reverse DNS (PTR) forward-confirmed, outbound port 25 (it
+connects to a large provider's MX and reads the greeting; no mail is sent) and existing mail servers that must not be overwritten.
+A check it cannot verify is reported as `CANNOT_CONFIRM`, never as ready. It exits non-zero until every required check passes.
+
+With the database configured, `njiwa-mail preflight -record` stores the result; the Delivery infrastructure page shows it as the
+"Check this server can send directly" step. Managed mode still cannot become ready until the host installer has run.
+
 ## Sending domains and claims
 
 Live mail and Live sender addresses require a sending domain that the project added on the Domains page, verified with its

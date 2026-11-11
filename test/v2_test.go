@@ -1118,6 +1118,18 @@ type fakeDNS struct {
 	txt map[string][]string
 	mx  map[string][]string
 	ptr map[string][]string
+	a   map[string][]string // A/AAAA for SPF a/mx mechanisms
+}
+
+func (f fakeDNS) LookupIPAddr(_ context.Context, n string) ([]net.IPAddr, error) {
+	var out []net.IPAddr
+	for _, s := range f.a[n] {
+		out = append(out, net.IPAddr{IP: net.ParseIP(s)})
+	}
+	if len(out) == 0 {
+		return nil, &net.DNSError{Err: "no such host", Name: n, IsNotFound: true}
+	}
+	return out, nil
 }
 
 func (f fakeDNS) LookupTXT(_ context.Context, n string) ([]string, error) { return f.txt[n], nil }
@@ -1134,14 +1146,20 @@ func TestDNSHealthCheck(t *testing.T) {
 	e := setup(t)
 	e.provision("sacas")
 	admin := e.user("admin@njiwa.co.tz", "admin")
+	// OUTBOUND_IP is the sending address only when Njiwa-Mail knows the
+	// sender (managed MTA, or Mailcow as here); SPF is evaluated against it.
+	e.saveSMTP("mail.example.com", "pw")
+	_, err := e.pool.Exec(context.Background(), `UPDATE transport_profiles SET provider_type='mailcow'`)
+	e.must(err)
 	good := fakeDNS{
 		txt: map[string][]string{
 			"notify.example.com":                 {"google-site-verification=abc", "v=spf1 ip4:203.0.113.10 -all"},
-			"dkim._domainkey.notify.example.com": {"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A"},
+			"dkim._domainkey.notify.example.com": {dkimRecord(t)},
 			"_dmarc.example.com":                 {"v=DMARC1; p=none; rua=mailto:dmarc@example.com"}, // parent-domain fallback
 		},
 		mx:  map[string][]string{"notify.example.com": {"mail.example.com."}, inDomain: {"mail.example.com."}},
 		ptr: map[string][]string{"203.0.113.10": {"mail.example.com."}},
+		a:   map[string][]string{"mail.example.com": {"203.0.113.10"}}, // forward-confirms the PTR
 	}
 	e.srv.Resolver = good
 	res := items(e.admOK(admin, "POST", "/admin/v1/dns/check", nil))
