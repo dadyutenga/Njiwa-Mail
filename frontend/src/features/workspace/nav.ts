@@ -90,6 +90,7 @@ export const navGroups: NavGroup[] = [
       { path: "users", label: "Users", icon: Users, operator: true },
       { path: "mail-server", label: "Delivery infrastructure", icon: Server, operator: true },
       { path: "domain-claims", label: "Domain ownership", icon: Globe, operator: true },
+      { path: "mta-queue", label: "Mail queue", icon: ListChecks, operator: true },
       { path: "analytics", label: "Analytics", icon: BarChart3 },
       { path: "alerts", label: "Alerts", icon: Bell },
       { path: "system", label: "System", icon: Activity },

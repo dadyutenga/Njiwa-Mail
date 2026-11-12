@@ -878,6 +878,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 
 	s.mailServerRoutes(app)
 	s.installationRoutes(app)
+	s.mtaRoutes(app)
 
 	// ---- public one-click unsubscribe (RFC 8058). Bulk mail only.
 	app.Get("/v1/unsubscribe/:token", func(c *fiber.Ctx) error {

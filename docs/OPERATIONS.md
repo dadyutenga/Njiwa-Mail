@@ -327,6 +327,25 @@ njiwa-mail env restrict -project P -mode live -on=false               # remove r
 ```
 Hard bounces are suppressed automatically once bounce routing is set up; until then, review Mailcow delivery failures and suppress confirmed-invalid recipients by hand.
 
+## Mail queue controls (E10, managed mode)
+
+The API runs in a container and gets no host privileges. To see and control the Postfix queue from the dashboard (Admin → Mail queue), run the
+agent on the mail host:
+
+1. `openssl rand -base64 36 > /etc/njiwa-mail/mta-agent.token && chmod 0600 /etc/njiwa-mail/mta-agent.token`
+2. `cp deploy/njiwa-mail-mta-agent.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now njiwa-mail-mta-agent`
+   (`-group 10001` makes the socket `root:10001 0660`, the API container's user.)
+3. Give the API the socket and the same token: `docker compose -f compose.yaml -f compose.mta-agent.yaml --profile inbound up -d` with
+   `MTA_AGENT_TOKEN=<token>` in `.env`.
+
+What it can do: list the queue (`postqueue -j`), hold / release / re-queue / delete one message (`postsuper -h/-H/-r/-d`), retry all deferred
+mail (`postqueue -f`), and report whether Postfix and the DKIM signer are running. Nothing else: the agent runs exactly those commands, without a
+shell, after checking the queue id (`[0-9A-Za-z]{6,20}`), listens only on the Unix socket, and refuses every request without the token.
+In the API these routes are for installation operators only, every action is audited (`mta.queue.*`), **delete requires typing the queue id**,
+recipient and sender addresses are masked, and queue ids are matched to our messages (a delete or hold is noted on that message's timeline as
+operator evidence; the message state itself never changes). If the agent is not configured the page says so; if it is stopped the API answers
+`503 mta_agent_unreachable`. Check on a real host: `curl --unix-socket /run/njiwa-mail/mta-agent.sock -H "Authorization: Bearer $(cat /etc/njiwa-mail/mta-agent.token)" http://agent/status`.
+
 ## Rotating `ENCRYPTION_KEY` (C02)
 
 Sealed data (queued payloads, sent copies, drafts, captures, inbound bodies and attachment files, webhook signing secrets, SMTP/Mailcow/managed

@@ -34,6 +34,9 @@ type Server struct {
 	InsecureCookies bool             // local HTTP development only: drop the Secure cookie attribute
 	MetricsToken    string           // bearer token for /metrics; empty disables the endpoint
 	Resolver        service.Resolver // DNS resolver override for tests; nil = system resolver
+
+	// MTA is the host agent behind the mail queue controls (E10); nil when none is configured.
+	MTA MTAAgent
 }
 
 const (

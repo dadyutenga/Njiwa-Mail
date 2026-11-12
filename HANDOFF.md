@@ -336,12 +336,11 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 - See `docs/OPERATIONS.md` (Retention) and `docs/SECURITY_REVIEW.md` section 7. Existing deployments: after upgrading, run
   `njiwa-mail attachments encrypt` (or wait for the retention job) to seal old attachment files.
 
-### E10 — MTA queue controls in the dashboard
+### E10 — MTA queue controls in the dashboard — **code done; real run pending**
 
-- The API runs in a container and must not get host root. Design: a small host-side agent (`njiwa-mail mta-agent`, systemd,
-  root) that exposes `postqueue -j` (view), `postsuper -h/-H/-r/-d` (hold, release, requeue, delete) on a Unix socket or the
-  private network with the installer's mTLS CA; the API proxies to it; every action audited; delete needs typed confirmation.
-- Tests with a fake agent; real run on the server.
+- Agent, API, dashboard page, unit and compose override are done and tested with a fake runner (`docs/OPERATIONS.md`, "Mail queue controls").
+- **Still to do on the managed server (with E06):** install the agent unit, open Admin → Mail queue, block outbound 25 to create a deferred
+  message, hold / release / requeue / delete it, and confirm the timeline note and the audit rows. Record it in `STATUS.md`.
 
 ### F07 — webhook event versioning — **done**
 

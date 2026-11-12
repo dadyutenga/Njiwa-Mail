@@ -14,6 +14,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +29,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/installer/managed"
 	"github.com/njiwa-tz/mail/internal/installer/preflight"
 	"github.com/njiwa-tz/mail/internal/mailer"
+	"github.com/njiwa-tz/mail/internal/mtaagent"
 	"github.com/njiwa-tz/mail/internal/secure"
 	"github.com/njiwa-tz/mail/internal/service"
 	"github.com/njiwa-tz/mail/internal/transport"
@@ -46,6 +50,7 @@ Runtime:
   dns-check                   run the read-only DNS health check now and print the results
   dkim-verify [-file message.eml|-]
                               verify every DKIM signature on a received message (needs DNS, not the database)
+  mta-agent [-socket P] [-token-file F] [-group G]   host service behind the dashboard's mail queue controls (run as root on the mail host)
   mta-log [-file /var/log/mail.log|-] [-follow]
                               record delivery evidence (sent, deferred, bounced) from Postfix log lines,
                               correlated to messages by queue ID; "-" reads stdin (journalctl -fu postfix | ...)
@@ -111,6 +116,10 @@ func Run(args []string) {
 	// only -record needs the full configuration.
 	if args[0] == "preflight" && !hasFlag(args[1:], "record") {
 		runPreflight(context.Background(), nil, args[1:])
+		return
+	}
+	if args[0] == "mta-agent" {
+		runMTAAgent(args[1:])
 		return
 	}
 	if args[0] == "dkim-verify" {
@@ -321,7 +330,12 @@ func smtpTransport(cfg *config.Config) *mailer.SMTP {
 }
 
 func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
+	var agent api.MTAAgent
+	if cfg.MTAAgentSocket != "" {
+		agent = mtaagent.NewClient(cfg.MTAAgentSocket, cfg.MTAAgentToken)
+	}
 	app := (&api.Server{
+		MTA: agent,
 		Svc: svc, MaxBodyBytes: cfg.MaxBodyBytes, EmailMaxBytes: 6 << 20,
 		ConsolePassword: cfg.ConsolePassword, SessionTTL: cfg.ConsoleSessionTTL,
 		SMTPConfigured: cfg.SMTP.Configured(),
@@ -1067,4 +1081,54 @@ func runRotation(ctx context.Context, deps *installerDeps, p managed.Params, act
 	default:
 		die(errors.New("usage: njiwa-mail installer dkim-rotate prepare|activate|cancel|retire|status -selector S"))
 	}
+}
+
+// runMTAAgent starts the host-side queue agent (E10). It needs no database and
+// no .env: only a socket path and a token shared with the API.
+func runMTAAgent(args []string) {
+	fs := flag.NewFlagSet("mta-agent", flag.ExitOnError)
+	socket := fs.String("socket", "/run/njiwa-mail/mta-agent.sock", "Unix socket to listen on")
+	tokenFile := fs.String("token-file", "", "file holding the shared token (or set MTA_AGENT_TOKEN)")
+	group := fs.String("group", "", "group allowed to use the socket (name or numeric id); default root only")
+	fs.Parse(args)
+	token := strings.TrimSpace(os.Getenv("MTA_AGENT_TOKEN"))
+	if *tokenFile != "" {
+		b, err := os.ReadFile(*tokenFile)
+		if err != nil {
+			die(err)
+		}
+		token = strings.TrimSpace(string(b))
+	}
+	if os.Geteuid() != 0 {
+		die(errors.New("the mail queue agent must run as root (it runs postqueue and postsuper)"))
+	}
+	mode, gid := os.FileMode(0o600), -1
+	if *group != "" {
+		g, err := lookupGID(*group)
+		if err != nil {
+			die(err)
+		}
+		mode, gid = 0o660, g
+	}
+	if err := os.MkdirAll(filepath.Dir(*socket), 0o755); err != nil {
+		die(err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	a := &mtaagent.Agent{Runner: mtaagent.ExecRunner{}, Token: token}
+	slog.Info("mta agent listening", "socket", *socket)
+	if err := a.Listen(ctx, *socket, mode, gid); err != nil {
+		die(err)
+	}
+}
+
+func lookupGID(s string) (int, error) {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n, nil
+	}
+	g, err := user.LookupGroup(s)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(g.Gid)
 }

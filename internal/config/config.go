@@ -74,10 +74,13 @@ type Config struct {
 	BounceAddress     string // e.g. bounces@notify.example.com; also the SMTP envelope sender
 	// BounceVERP: "auto" (signed return path bounces+<id>.<tag>@... only with the managed Postfix),
 	// "on" (always) or "off" (always the plain bounce address). F06.
-	BounceVERP            string
-	InboundAllowedSources string // Mailcow host IPs / CIDRs allowed to connect to the listener
-	InboundMaxBytes       int
-	DataDir               string
+	BounceVERP string
+
+	// MTA_AGENT_SOCKET / MTA_AGENT_TOKEN: the host agent behind the dashboard's mail queue controls (E10).
+	MTAAgentSocket, MTAAgentToken string
+	InboundAllowedSources         string // Mailcow host IPs / CIDRs allowed to connect to the listener
+	InboundMaxBytes               int
+	DataDir                       string
 
 	// DNS health checker expectations.
 	MailHostname string
@@ -366,6 +369,13 @@ func Load() (*Config, error) {
 	case "auto", "on", "off":
 	default:
 		return nil, fmt.Errorf("BOUNCE_VERP must be auto, on or off")
+	}
+	c.MTAAgentSocket = get("MTA_AGENT_SOCKET", "")
+	if c.MTAAgentToken, err = secret("MTA_AGENT_TOKEN"); err != nil {
+		return nil, err
+	}
+	if c.MTAAgentSocket != "" && len(c.MTAAgentToken) < 16 {
+		return nil, fmt.Errorf("MTA_AGENT_TOKEN (at least 16 characters) is required when MTA_AGENT_SOCKET is set")
 	}
 	c.InboundAllowedSources = get("INBOUND_ALLOWED_SOURCES", "")
 	if c.InboundMaxBytes, err = intVar("INBOUND_MAX_BYTES", 10<<20); err != nil {

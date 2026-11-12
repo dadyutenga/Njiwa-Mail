@@ -1,0 +1,40 @@
+# Mail queue agent (backlog E10): the only thing that lets the dashboard hold,
+# release, re-queue or delete messages in the managed Postfix queue, and see
+# its health. It runs as root on the mail host (postqueue and postsuper need
+# it), listens only on a Unix socket, requires a shared token, and can run
+# exactly five fixed commands (postqueue -j, postqueue -f, postsuper -h/-H/-r/-d,
+# systemctl is-active). No network port is opened.
+#
+# Install on the mail host:
+#   install -d -m 0755 /etc/njiwa-mail
+#   openssl rand -base64 36 > /etc/njiwa-mail/mta-agent.token && chmod 0600 /etc/njiwa-mail/mta-agent.token
+#   cp deploy/njiwa-mail-mta-agent.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now njiwa-mail-mta-agent
+# Then give the API the same token and the socket (compose.mta-agent.yaml):
+#   MTA_AGENT_SOCKET=/run/njiwa-mail/mta-agent.sock   MTA_AGENT_TOKEN=<contents of the token file>
+#
+# -group 10001 is the user id of the API container's user (Dockerfile); the
+# socket is 0660 root:10001, so nothing else on the host can use it.
+[Unit]
+Description=Njiwa Mail queue agent
+After=postfix.service
+Wants=postfix.service
+
+[Service]
+ExecStart=/usr/local/bin/njiwa-mail mta-agent -socket /run/njiwa-mail/mta-agent.sock -token-file /etc/njiwa-mail/mta-agent.token -group 10001
+Restart=always
+RestartSec=5
+RuntimeDirectory=njiwa-mail
+RuntimeDirectoryPreserve=yes
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+# postsuper writes the Postfix spool; leave the rest of the filesystem read-only.
+ProtectSystem=strict
+ReadWritePaths=/var/spool/postfix /var/lib/postfix /run/njiwa-mail
+
+[Install]
+WantedBy=multi-user.target

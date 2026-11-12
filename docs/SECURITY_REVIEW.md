@@ -106,6 +106,14 @@ headers are ignored; no signature falls back to the header method; suppression s
 own. Evidence: `TestSignedReturnPathCorrelation` (envelope sender, correlation, header mismatch, forged tags, fallback, unrelated
 recipient, routing), installer test for `recipient_delimiter`.
 
+## 10. Mail queue agent (E10)
+
+Root-level actions live in a separate host process, not in the API: Unix socket (root:group 0660), bearer token compared in constant time,
+five fixed commands without a shell, queue ids validated before use, one command at a time. The API side is operator-only, audited, masks
+addresses, and requires the queue id typed back to delete. Evidence: `TestAgentRequiresTheToken`, `TestAgentRunsOnlyTheFixedCommands`
+(injection attempts never reach a command), `TestQueueIDValidation`, `TestAgentStatusAndSocketClient`, `TestMTAQueueControls`.
+Not yet exercised against a real Postfix (needs the managed host, E06).
+
 ## Not covered yet
 
 - An external penetration test and the dependency scan (`govulncheck` runs in CI but has not yet had a green run on GitHub).

@@ -1,0 +1,10 @@
+# Mail queue controls (backlog E10), managed mode only. Gives the API container
+# access to the host agent's Unix socket (see deploy/njiwa-mail-mta-agent.service):
+#   docker compose -f compose.yaml -f compose.mta-agent.yaml --profile inbound up -d
+# Put MTA_AGENT_TOKEN (the agent's token) in .env or MTA_AGENT_TOKEN_FILE as a secret.
+services:
+  api:
+    environment:
+      MTA_AGENT_SOCKET: /run/njiwa-mail/mta-agent.sock
+    volumes:
+      - /run/njiwa-mail:/run/njiwa-mail

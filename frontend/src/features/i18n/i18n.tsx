@@ -225,6 +225,15 @@ export function useI18n() {
 }
 
 const swPhrases: Record<string, string> = {
+  "Mail queue": "Foleni ya barua",
+  "The queue is empty": "Foleni haina kitu",
+  "Retry all now": "Jaribu zote sasa",
+  "Queue ID": "Kitambulisho cha foleni",
+  "Recipients and reason": "Wapokeaji na sababu",
+  Hold: "Shikilia",
+  Release: "Achilia",
+  Requeue: "Weka foleni tena",
+  "In queue": "Kwenye foleni",
   "Nothing to reconcile": "Hakuna cha kuthibitisha",
   "No message is waiting for an outcome.": "Hakuna ujumbe unaosubiri matokeo.",
   "What the evidence suggests": "Ushahidi unapendekeza nini",

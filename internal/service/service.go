@@ -255,6 +255,10 @@ func localOK(local string) bool {
 	return true
 }
 
+// MaskEmail hides most of an address (g***@example.org) for views that must
+// show where mail is stuck without exposing who it is for.
+func MaskEmail(e string) string { return maskEmail(e) }
+
 func maskEmail(e string) string {
 	at := strings.LastIndexByte(e, '@')
 	if at < 1 {

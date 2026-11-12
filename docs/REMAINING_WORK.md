@@ -32,7 +32,7 @@ cannot be done from the development container.
 
 | ID | Status | What is missing |
 |---|---|---|
-| E10 | ❌ | MTA queue controls in the dashboard (view, hold, release, retry, purge with confirmation) — today only `postqueue`/`postsuper` on the host. |
+| E10 | 🟡 | Host agent (`njiwa-mail mta-agent`, Unix socket, token, five fixed commands), operator-only API routes with audit, masking and typed delete confirmation, dashboard Mail queue page, systemd unit and compose override. **Still to run on a real managed host** (E06). |
 | E12 | ❌ | Multi-distro clean-install matrix (Debian 12, Ubuntu 22.04, Ubuntu 24.04) with documented results. |
 | — | 🔍 | The installer's **systemd** path (`systemctl enable/restart opendkim`, `reload-or-restart postfix`) has not run: the dev container has no systemd. The new `managed-mta` CI job will exercise it on a hosted runner. |
 | — | 🟡 | The installer does not install packages; the operator runs `apt-get install postfix opendkim` (documented). |

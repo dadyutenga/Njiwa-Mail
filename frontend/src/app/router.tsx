@@ -40,6 +40,7 @@ import SettingsPage from "@/features/mail/Settings";
 import Profile from "@/features/mail/Profile";
 import { Empty } from "@/features/workspace/ui";
 import { DomainClaims } from "@/features/installation/Claims";
+import { MtaQueue } from "@/features/installation/MtaQueue";
 
 const page = (el: ReactNode) => <Suspense fallback={<PageLoader />}>{el}</Suspense>;
 
@@ -90,6 +91,7 @@ const workspacePages: [string, ReactNode][] = [
   ["users", <Users />],
   ["mail-server", <MailServer />],
   ["domain-claims", <DomainClaims />],
+  ["mta-queue", <MtaQueue />],
   ["analytics", <Analytics />],
   ["alerts", <Alerts />],
   ["system", <System />],
