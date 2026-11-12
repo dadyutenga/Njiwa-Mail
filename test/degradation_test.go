@@ -97,3 +97,32 @@ func TestLiveQueueIsBounded(t *testing.T) {
 		t.Fatalf("sandbox refused: %d", r.Code)
 	}
 }
+
+// C08: readiness says whether bounce reports can come back, without making
+// it a requirement for sending.
+func TestBounceVisibilityStep(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.saveSMTP("mail.example.com", "pw")
+	step := func() installation.Step {
+		for _, s := range e.readiness().Steps {
+			if s.ID == "bounce_reports" {
+				return s
+			}
+		}
+		t.Fatal("no bounce step")
+		return installation.Step{}
+	}
+	if s := step(); s.ProblemCode != installation.CodeBounceListener || s.Required {
+		t.Fatalf("bounce address set, no listener: %+v", s) // setup() sets BOUNCE_ADDRESS
+	}
+	e.must(e.svc.HeartbeatRole(ctx, "inbound", "t"))
+	if s := step(); s.Status != installation.Ready || s.CheckedAt != nil {
+		t.Fatalf("listener up: %+v", s)
+	}
+	e.svc.Opts.BounceAddress = ""
+	t.Cleanup(func() { e.svc.Opts.BounceAddress = bounceAddr })
+	if s := step(); s.ProblemCode != installation.CodeBouncesNotSetUp {
+		t.Fatalf("no bounce address: %+v", s)
+	}
+}

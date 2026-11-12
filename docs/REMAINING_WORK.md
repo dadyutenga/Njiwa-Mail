@@ -1,6 +1,6 @@
 # Remaining work — checkpoint
 
-**Checkpoint date:** 2026-11-12 (updated) · **Branch:** `claude/happy-brahmagupta-pbfu6r` (after PRs #1–#5)
+**Checkpoint date:** 2026-11-12 (updated) · **Branch:** `claude/happy-brahmagupta-pbfu6r` (after PRs #1–#7)
 **Reference:** `15_IMPLEMENTATION_BACKLOG` and the master specification. What *is* done, with test evidence, is in
 [`STATUS.md`](../STATUS.md). This file lists only what is **not done**, **partly done**, or **not yet verified**.
 
@@ -21,7 +21,6 @@ cannot be done from the development container.
 | E07 | 🔍 | The bounce route (bounce domain → Postfix port 25 → Njiwa inbound listener) is configured and the DSN parser exists, but a real DSN has not been sent through managed Postfix and correlated end to end. |
 | E05 | 🟡 | Hostname A, PTR/FCrDNS and port-25 checks exist (preflight). Missing: a publicly trusted TLS certificate for inbound port 25 (today it is signed by the installer's private CA, which is acceptable for opportunistic TLS but not ideal), and a HELO check against what remote servers see. |
 | G06 | ❌ | Mode-switch regression and legacy-migration end to end (existing SMTP → managed with a non-empty queue, and back). Unit/integration tests cover the planner and migration, not a full switch with real transports. |
-| F05 | ❌ | Formal security review and regression matrix (open relay, SSRF, CSRF, RBAC, secrets in logs). Pieces exist (SMTP-test SSRF guard, webhook SSRF guard, no open relay verified), but no consolidated review. |
 | C06 | ❌ | Generic Postfix/Exim staging integration test with the same API (the fake SMTP server and Mailcow are the only targets tested so far). |
 | C01 | 🟡 | `internal/transport` defines the interface and an SMTP wrapper, but the worker still sends through `mailer.Transport`/`StoredTransport`. The cut-over to `transport.Transport` is not done. |
 | A02 | 🟡 | Go and frontend suites run in CI on throwaway PostgreSQL. Missing: a container smoke test that brings the Compose stack up and checks `/health/ready`. |
@@ -34,10 +33,10 @@ cannot be done from the development container.
 | ID | Status | What is missing |
 |---|---|---|
 | E10 | ❌ | MTA queue controls in the dashboard (view, hold, release, retry, purge with confirmation) — today only `postqueue`/`postsuper` on the host. |
-| E11 | ❌ | Key and certificate lifecycle: DKIM selector rotation (new key, publish, verify, switch, retire), and renewal of the installer's server/client certificates (issued for 5 years, CA for 10; no renewal command). |
 | E12 | ❌ | Multi-distro clean-install matrix (Debian 12, Ubuntu 22.04, Ubuntu 24.04) with documented results. |
 | — | 🔍 | The installer's **systemd** path (`systemctl enable/restart opendkim`, `reload-or-restart postfix`) has not run: the dev container has no systemd. The new `managed-mta` CI job will exercise it on a hosted runner. |
 | — | 🟡 | The installer does not install packages; the operator runs `apt-get install postfix opendkim` (documented). |
+| — | ❌ | Renewal of the installer's server/client certificates (issued for 5 years, CA for 10; no renewal command yet). |
 | — | 🟡 | New sending domains need the installer to be run again (`plan`/`apply -record`) to get a DKIM key; there is no automatic hand-off from "domain verified" to "key generated". |
 | — | 🟡 | `INBOUND_ALLOWED_SOURCES` must be set by hand (documented). The host firewall table is now installed by the installer. |
 | — | 🟡 | `njiwa-mail mta-log -follow` is a manual process; there is no systemd unit or Compose service for it yet. |
@@ -46,7 +45,6 @@ cannot be done from the development container.
 
 | ID | Status | What is missing |
 |---|---|---|
-| C08 | ❌ | Bounce visibility for existing SMTP: a clear "limited observability" state, and optional DSN intake configuration (bounce mailbox / IMAP / relay). |
 | C05 | 🟡 | Mailcow is optional and works without its API. Missing: moving the adapter under a provider package boundary, and before/after audit records for Mailcow API writes. |
 | C02 | 🟡 | Secrets are sealed, never echoed and kept on blank saves. Missing: secrets from mounted files, and `ENCRYPTION_KEY` rotation with a dual-read window. |
 
@@ -55,7 +53,6 @@ cannot be done from the development container.
 | ID | Status | What is missing |
 |---|---|---|
 | D04 | 🟡 | Requirements follow the actual sender, including an existing server's stated sending facts. Missing: per-domain return-path (bounce) domains — today one installation-wide `BOUNCE_ADDRESS`. |
-| D10 | ❌ | DKIM selector rotation and revocation UI (pairs with E11). |
 | — | 🟡 | The Domains page shows the records saved by the last check; after changing delivery mode or provider, "Check now" is needed to see the new requirements (it is not invalidated automatically). |
 
 ## 5. Setup and dashboard (B-series) gaps
@@ -103,9 +100,8 @@ cannot be done from the development container.
 1. **Real-host verification:** G05 (managed VPS, Gmail/Outlook), G04 (existing SMTP), E06/E07 evidence; make the
    `govulncheck` and `managed-mta` CI jobs blocking after their first green run.
 2. **Safety net:** repeat the G03 restore drill and the firewall check on the production host; ACME automation for the dashboard certificate.
-3. **Truthful authentication:** C08 bounce visibility.
-4. **Operator UI:** E10 queue controls, D10/E11 rotation, B07 accessibility and translations.
-5. **Hardening and release:** F05 review, F09 roles/MFA, F07/F08/F10, C01 cut-over, G06, G08–G10.
+3. **Operator UI:** E10 queue controls, a rotation screen (the CLI exists), B07 accessibility and translations.
+4. **Hardening and release:** F09 roles/MFA, F07/F08/F10, C01 cut-over, G06, G08–G10.
 
 ## Done since the first checkpoint
 
@@ -120,3 +116,7 @@ cannot be done from the development container.
 - **C07** sending facts for existing SMTP servers: real SPF/DKIM requirements and checks.
 - **B08/B09** delivery-profile and mode-switch screen; delivery health card on dashboards.
 - **D09** domain ownership page.
+- **D10/E11** staged DKIM rotation (CLI, DNS-gated switch, retire; verified with real OpenDKIM). Certificate renewal still open.
+- **C08** optional bounce-visibility readiness step (not configured / listener down / last report).
+- **F05** security regression matrix over every route, secrets sweep of every admin `GET`, SSRF guard on real sends;
+  [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).

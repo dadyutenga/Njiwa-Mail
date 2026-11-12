@@ -136,10 +136,13 @@ func classifyPre(err error, stage string) Result {
 }
 
 func (s *SMTP) dial(ctx context.Context) (*smtp.Client, net.Conn, *Result) {
-	d := net.Dialer{Timeout: 10 * time.Second}
+	d := net.Dialer{Timeout: 10 * time.Second, Control: refuseForbidden}
 	addr := net.JoinHostPort(s.cfg.Host, strconv.Itoa(s.cfg.Port))
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
+		if errors.Is(err, errForbiddenTarget) {
+			return nil, nil, &Result{Outcome: PermFailure, Reason: "smtp_host_forbidden"}
+		}
 		r := classifyPre(err, "connect")
 		return nil, nil, &r
 	}

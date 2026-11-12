@@ -197,6 +197,7 @@ FROM installation_checks WHERE profile_id=$1::uuid ORDER BY check_key, checked_a
 	_ = s.Pool.QueryRow(ctx, `SELECT is_active FROM transport_profiles WHERE id=$1::uuid`, id).Scan(&active)
 	if active {
 		f.Delivery = s.deliveryHealth(ctx)
+		f.Bounces = s.bounceFacts(ctx)
 	}
 	return installation.Compute(f), nil
 }
@@ -619,3 +620,11 @@ func isUUID(v string) bool {
 
 // ProblemCode exposes the stable problem code for a diagnosis result.
 func ProblemCode(kind string, detail any) string { return problemCodeFor(kind, detail) }
+
+// bounceFacts reports whether bounce reports can reach Njiwa (C08).
+func (s *Service) bounceFacts(ctx context.Context) *installation.BounceFacts {
+	b := &installation.BounceFacts{Configured: strings.TrimSpace(s.Opts.BounceAddress) != ""}
+	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM worker_heartbeats WHERE role='inbound' AND last_seen > now() - interval '5 minutes')`).Scan(&b.ListenerUp)
+	_ = s.Pool.QueryRow(ctx, `SELECT max(received_at) FROM inbound_spool WHERE kind='bounce'`).Scan(&b.LastReport)
+	return b
+}
