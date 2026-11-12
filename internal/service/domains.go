@@ -120,21 +120,29 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 	}
 	name := d["name"].(string)
 	// Records are shown even before the first check, from the expected values.
+	// After a change of delivery mode, provider, sending facts or DKIM key the
+	// saved check describes different requirements: show the current ones and
+	// say a new check is needed, rather than an old result for old records.
+	var token, purpose string
+	_ = s.Pool.QueryRow(ctx, `SELECT verify_token, purpose FROM domains WHERE id=$1`, id).Scan(&token, &purpose)
+	kind := s.senderKind(ctx)
+	var f *SendingFacts
+	if kind == senderGeneric {
+		f = s.sendingFacts(ctx)
+	}
+	known := ""
+	if kind == senderManaged {
+		known = s.managedDKIM(ctx, name)
+	} else if f != nil {
+		known = f.DKIMKeys[name]
+	}
+	expected := s.expectedRecords(kind, f, s.selectorFor(ctx, kind, f), name, purpose, token, known)
+	d["requirements_changed"] = false
 	if recs, ok := d["records"].([]any); !ok || len(recs) == 0 {
-		var token, purpose string
-		_ = s.Pool.QueryRow(ctx, `SELECT verify_token, purpose FROM domains WHERE id=$1`, id).Scan(&token, &purpose)
-		kind := s.senderKind(ctx)
-		var f *SendingFacts
-		if kind == senderGeneric {
-			f = s.sendingFacts(ctx)
-		}
-		known := ""
-		if kind == senderManaged {
-			known = s.managedDKIM(ctx, name)
-		} else if f != nil {
-			known = f.DKIMKeys[name]
-		}
-		d["records"] = s.expectedRecords(kind, f, s.selectorFor(ctx, kind, f), name, purpose, token, known)
+		d["records"] = expected
+	} else if !sameRequirements(recs, expected) {
+		d["records"] = expected
+		d["requirements_changed"] = true
 	}
 	if d["senders"], err = s.maps(ctx, `SELECT si.id::text AS id, si.email, e.mode FROM sender_identities si JOIN environments e ON e.id=si.environment_id
 WHERE si.project_id=$1 AND split_part(si.email,'@',2)=$2 ORDER BY si.email`, sc.ProjectID, name); err != nil {
@@ -156,6 +164,26 @@ FROM messages WHERE environment_id=$1 AND split_part(sender,'@',2)=$2 ORDER BY c
 	d["sending_profile_id"] = spid
 	d["mail_host"] = s.Opts.MailHost
 	return d, nil
+}
+
+// sameRequirements reports whether saved check results (decoded JSON) ask
+// for exactly the expected records: same keys, hosts, values and priorities.
+func sameRequirements(saved []any, expected []DomainRecord) bool {
+	if len(saved) != len(expected) {
+		return false
+	}
+	for i, r := range saved {
+		m, ok := r.(map[string]any)
+		if !ok {
+			return false
+		}
+		e := expected[i]
+		prio, _ := m["priority"].(float64)
+		if m["key"] != e.Key || m["type"] != e.Type || m["host"] != e.Host || m["value"] != e.Value || int(prio) != e.Priority {
+			return false
+		}
+	}
+	return true
 }
 
 // expectedRecords lists what the domain needs. kind says which server sends

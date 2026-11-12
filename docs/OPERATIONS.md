@@ -45,7 +45,27 @@ Every write from the UI, the CLI or an API key is recorded in `audit_log` (UI: A
 
 ## Alerts
 
-Alerts are rows in the `alerts` table, shown on the Overview page, counted in `/metrics` and logged as `ALERT`. There is no e-mail or chat notification yet: wire your monitoring to the metric.
+Alerts are rows in the `alerts` table, shown on the Overview page, counted in `/metrics` and logged as `ALERT`. Njiwa-Mail does not
+send notifications itself (when sending is broken, so would be that path): scrape `/metrics` with Prometheus and route
+[`deploy/prometheus/njiwa-mail-alerts.yml`](../deploy/prometheus/njiwa-mail-alerts.yml) through Alertmanager to e-mail, chat or a pager.
+
+Delivery-health metrics (F08), all derived from the database so every instance reports the same:
+
+| Metric | Meaning |
+|---|---|
+| `njiwa_mail_installation_ready{mode}`, `njiwa_mail_installation_problem{code}` | readiness of the active delivery profile, and the problem code of each required step that is not ready |
+| `njiwa_mail_transport_failing` | 1 while Live mail cannot reach the mail server (`TRANSPORT_FAILING`) |
+| `njiwa_mail_transport_retries_15m{reason}` | connection-level retries; `smtp_454` on a managed host means the DKIM signer is down |
+| `njiwa_mail_live_backlog`, `njiwa_mail_live_backlog_limit` | Live mail still to hand over, and `LIVE_QUEUE_MAX` |
+| `njiwa_mail_last_live_submission_age_seconds` | time since a Live message was last handed over |
+| `njiwa_mail_delivery_events_1h{event}` | what the mail server reported in the last hour (deferred, remote_accepted, bounced, ...; needs `mta-log`) |
+| `njiwa_mail_client_cert_expiry_seconds` | managed mode: time left on the worker's submission certificate |
+
+The rules file alerts on: API down, transport failing, signer refusing, backlog above 80 % of the limit, a message waiting more than
+30 minutes, deferred rate above 20 % (with at least 20 deliveries), readiness incomplete for 30 minutes, certificate within 30 days,
+a role without heartbeats, and open operator alerts. It was validated with the Prometheus 0.54 rule parser.
+
+Operator alerts in the `alerts` table:
 
 | Kind | Meaning | What to do |
 |---|---|---|
@@ -95,6 +115,25 @@ njiwa-mail installer dkim-rotate retire   -selector <old selector>              
   selector and any prepared rotation.
 - Verified in the development container against OpenDKIM 2.11: before activation mail stayed signed `s=njiwa`; after the switch a
   received message carried a cryptographically verified signature `s=njiwa2`; switching back verified `s=njiwa` again.
+
+## Renewing the submission certificates (managed mode)
+
+The worker hands mail to Postfix over mutual TLS with certificates from the installer's local CA (server and worker certificates:
+5 years; CA: 10 years). `njiwa-mail installer status` lists each certificate and its expiry.
+
+- **Automatic with every apply:** a plan made within 60 days of a leaf certificate's expiry includes `renew` lines; apply it with
+  `-record` as usual. Run `installer plan` from a monthly timer or calendar reminder so this happens in time.
+- **On demand:** `njiwa-mail installer plan -renew-certs` (same flags), then `installer apply -renew-certs -approve <digest> -record`.
+- **No interruption:** after a renewal Postfix keeps accepting the replaced worker certificate for 7 days
+  (`njiwa-worker-previous` in `/etc/postfix/njiwa/relay_clientcerts`), so a worker that has not yet picked up the recorded
+  certificate keeps sending. The next apply after those 7 days drops it.
+- **Readiness:** the Installation page warns `CLIENT_CERT_EXPIRING` 30 days before the recorded worker certificate expires and shows
+  `CLIENT_CERT_EXPIRED` after. Live mail is then refused by Postfix and stays queued until a renewal is recorded.
+- **The CA is not renewed automatically.** `installer plan` warns in its last year. To replace it, back up (see Backups), move
+  `/etc/postfix/njiwa/ca.crt` and `ca.key` aside, and run plan/apply `-record`: a new CA, server and worker certificate are issued
+  together (expect a short refusal window until the worker reloads, about 30 s).
+- Verified in the development container against Postfix 3.8.6: after `-renew-certs` both the new and the replaced worker certificate
+  could send; after the grace period the replaced one was refused `554 5.7.1` and the new one still sent signed mail.
 
 ## HTTPS and the host firewall
 

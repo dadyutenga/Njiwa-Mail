@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/installation"
 	"log/slog"
 	"sort"
 	"strings"
@@ -292,5 +293,114 @@ func (s *Service) Metrics(ctx context.Context) (string, error) {
 		}
 		fmt.Fprintf(&b, "njiwa_mail_role_up{role=%q,instance=%q} %d\n", w.Role, w.Instance, up)
 	}
+	if err := s.deliveryMetrics(ctx, &b, gauge); err != nil {
+		return "", err
+	}
 	return b.String(), nil
+}
+
+// deliveryMetrics adds transport health, the MTA's view of delivery and the
+// managed certificate expiry (F08). Every value is derived from rows the
+// application already keeps, so any API or worker instance reports the same.
+func (s *Service) deliveryMetrics(ctx context.Context, b *strings.Builder, gauge func(name, help string)) error {
+	st, err := s.InstallationState(ctx)
+	if err != nil {
+		return err
+	}
+	rd, _ := st["readiness"].(installation.Readiness)
+	ready, failing := 0, 0
+	if rd.Status == installation.Ready {
+		ready = 1
+	}
+	var problems []string
+	var certNotAfter *time.Time
+	for _, step := range rd.Steps {
+		if step.ID == "live_delivery" {
+			failing = 1
+		}
+		if step.Required && step.ProblemCode != "" {
+			problems = append(problems, step.ProblemCode)
+		}
+	}
+	gauge("njiwa_mail_installation_ready", "1 when every required installation readiness step is ready.")
+	fmt.Fprintf(b, "njiwa_mail_installation_ready{mode=%q} %d\n", rd.Mode, ready)
+	gauge("njiwa_mail_installation_problem", "Required readiness steps with a problem, by problem code.")
+	sort.Strings(problems)
+	for _, p := range problems {
+		fmt.Fprintf(b, "njiwa_mail_installation_problem{code=%q} 1\n", p)
+	}
+	gauge("njiwa_mail_transport_failing", "1 while recent Live sends cannot reach the mail server (TRANSPORT_FAILING).")
+	fmt.Fprintf(b, "njiwa_mail_transport_failing %d\n", failing)
+
+	// Connection-level retries in the last 15 minutes by reason. A managed
+	// Postfix with its DKIM signer down answers 454, so smtp_454 tracks
+	// signer availability.
+	gauge("njiwa_mail_transport_retries_15m", "Live send attempts that could not reach or were refused by the mail server in the last 15 minutes, by reason.")
+	rows, err := s.Pool.Query(ctx, `SELECT r, count(ev.id) FROM unnest($1::text[]) r
+LEFT JOIN message_events ev ON ev.reason_code = r AND ev.event_type='retry_scheduled' AND ev.created_at > now() - interval '15 minutes'
+GROUP BY r ORDER BY r`, transportDownReasons)
+	if err != nil {
+		return unavailable("metrics_retries", err)
+	}
+	for rows.Next() {
+		var r string
+		var n int
+		if err := rows.Scan(&r, &n); err != nil {
+			rows.Close()
+			return unavailable("metrics_retries", err)
+		}
+		fmt.Fprintf(b, "njiwa_mail_transport_retries_15m{reason=%q} %d\n", r, n)
+	}
+	rows.Close()
+
+	var lastSubmitAge *float64
+	var liveBacklog int
+	if err := s.Pool.QueryRow(ctx, `SELECT
+ (SELECT extract(epoch FROM now() - max(m.submitted_at)) FROM messages m JOIN environments e ON e.id=m.environment_id WHERE e.mode='live')::float8,
+ (SELECT count(*) FROM messages m JOIN environments e ON e.id=m.environment_id WHERE e.mode='live' AND m.state IN ('queued','retry_wait','submitting','scheduled'))`).
+		Scan(&lastSubmitAge, &liveBacklog); err != nil {
+		return unavailable("metrics_live", err)
+	}
+	if lastSubmitAge != nil {
+		gauge("njiwa_mail_last_live_submission_age_seconds", "Seconds since a Live message was last handed to the mail server.")
+		fmt.Fprintf(b, "njiwa_mail_last_live_submission_age_seconds %.0f\n", *lastSubmitAge)
+	}
+	gauge("njiwa_mail_live_backlog", "Live messages Njiwa still has to hand over (queued, retrying, sending, scheduled).")
+	fmt.Fprintf(b, "njiwa_mail_live_backlog %d\n", liveBacklog)
+	if s.Opts.LiveQueueMax > 0 {
+		gauge("njiwa_mail_live_backlog_limit", "LIVE_QUEUE_MAX: new Live mail is refused with 503 queue_full at this backlog.")
+		fmt.Fprintf(b, "njiwa_mail_live_backlog_limit %d\n", s.Opts.LiveQueueMax)
+	}
+
+	// What the mail server reported afterwards (mta-log collector, DSNs).
+	gauge("njiwa_mail_delivery_events_1h", "Delivery evidence recorded in the last hour, by event (deferred, remote_accepted, bounced, expired_in_queue, ...).")
+	ev, err := s.Pool.Query(ctx, `SELECT e, count(d.id) FROM unnest(ARRAY['submitted','deferred','remote_accepted','bounced','complaint','expired_in_queue']) e
+LEFT JOIN delivery_events d ON d.event = e AND d.observed_at > now() - interval '1 hour' GROUP BY e ORDER BY e`)
+	if err != nil {
+		return unavailable("metrics_evidence", err)
+	}
+	for ev.Next() {
+		var e string
+		var n int
+		if err := ev.Scan(&e, &n); err != nil {
+			ev.Close()
+			return unavailable("metrics_evidence", err)
+		}
+		fmt.Fprintf(b, "njiwa_mail_delivery_events_1h{event=%q} %d\n", e, n)
+	}
+	ev.Close()
+
+	var raw []byte
+	if s.Pool.QueryRow(ctx, `SELECT config_json FROM transport_profiles WHERE is_active AND mode='managed_mta'`).Scan(&raw) == nil {
+		var na struct {
+			NotAfter *time.Time `json:"client_cert_not_after"`
+		}
+		_ = json.Unmarshal(raw, &na)
+		certNotAfter = na.NotAfter
+	}
+	if certNotAfter != nil {
+		gauge("njiwa_mail_client_cert_expiry_seconds", "Seconds until the worker's managed submission certificate expires (negative when expired).")
+		fmt.Fprintf(b, "njiwa_mail_client_cert_expiry_seconds %.0f\n", time.Until(*certNotAfter).Seconds())
+	}
+	return nil
 }
