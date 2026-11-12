@@ -1,0 +1,251 @@
+openapi: 3.0.3
+info:
+  title: Njiwa-Mail admin API
+  version: "2026-11"
+  description: |
+    The operator API behind the dashboard (`/admin/v1`). Sign in with `POST /admin/v1/auth/login`; the response
+    sets the session cookie `dm_admin` and returns `csrf_token`, which every write must echo in `X-CSRF-Token`.
+    Routes marked **operator** need the installation-operator permission (`403 operator_required` otherwise).
+    The complete route list is generated in [ENDPOINTS.md](ENDPOINTS.md); error codes are explained in
+    [TROUBLESHOOTING.md](TROUBLESHOOTING.md). The application API (sending mail) is in [openapi.yaml](openapi.yaml).
+servers: [{ url: https://mail-api.example.com }]
+security: [{ session: [], csrf: [] }]
+components:
+  securitySchemes:
+    session: { type: apiKey, in: cookie, name: dm_admin }
+    csrf: { type: apiKey, in: header, name: X-CSRF-Token, description: Required on every non-GET request. }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code]
+          properties: { code: { type: string, example: operator_required }, message: { type: string } }
+    AdminUser:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        role: { type: string, enum: [admin] }
+        installation_operator: { type: boolean }
+        mfa_enabled: { type: boolean }
+        mfa_enrollment_required: { type: boolean, description: The operator requires MFA and this user has none; only enrolment and sign-out work. }
+        csrf_token: { type: string }
+        expires_at: { type: string, format: date-time }
+    ProblemStep:
+      type: object
+      properties:
+        key: { type: string }
+        status: { type: string, enum: [ready, needs_action, error, cannot_confirm, skipped_optional, stale] }
+        problem_code: { type: string, description: Stable code; see TROUBLESHOOTING.md. }
+        checked_at: { type: string, format: date-time, nullable: true }
+    TransportProfile:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        mode: { type: string, enum: [managed_mta, existing_smtp] }
+        provider_type: { type: string, enum: [generic, mailcow] }
+        label: { type: string }
+        config_revision: { type: integer }
+        status: { type: string }
+        is_active: { type: boolean }
+        config: { type: object, description: Non-secret settings (host, port, tls_mode, username, submission_host…). Passwords and keys are never returned. }
+    TransportProfileInput:
+      type: object
+      properties:
+        mode: { type: string, enum: [existing_smtp] }
+        label: { type: string }
+        provider_type: { type: string }
+        smtp:
+          type: object
+          properties:
+            host: { type: string }
+            port: { type: integer }
+            tls_mode: { type: string, enum: [starttls, implicit] }
+            username: { type: string }
+            password: { type: string, description: Omit or leave empty on update to keep the stored one. }
+            test_sender: { type: string }
+    ActivationPlan:
+      type: object
+      properties:
+        target_id: { type: string }
+        queued: { type: integer }
+        scheduled: { type: integer }
+        retry_wait: { type: integer }
+        unknown: { type: integer, description: Unknown outcomes always block a switch. }
+        verified: { type: boolean }
+        blockers: { type: array, items: { type: string } }
+        needs_decision: { type: boolean }
+    Queue:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              queue_id: { type: string }
+              queue: { type: string, enum: [active, deferred, hold, incoming] }
+              size: { type: integer }
+              arrived_at: { type: string, format: date-time }
+              sender: { type: string, description: Masked. }
+              recipients: { type: array, items: { type: object, properties: { address: { type: string, description: Masked. }, delay_reason: { type: string } } } }
+              message: { type: object, nullable: true, description: The Njiwa-Mail message this queue entry carries, when known. }
+  responses:
+    Ok: { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
+    Err: { description: error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+paths:
+  /admin/v1/auth/login:
+    post:
+      security: []
+      summary: Sign in
+      description: |
+        Returns `401 mfa_required` when the account uses two-step sign-in and no `code` was sent; repeat the request with `code`
+        (a TOTP code or a recovery code). Attempts are throttled per account and per IP.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string }, code: { type: string } } } } } }
+      responses: { '200': { description: Signed in, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUser' } } } }, '401': { $ref: '#/components/responses/Err' }, '429': { $ref: '#/components/responses/Err' } }
+  /admin/v1/auth/me: { get: { summary: The signed-in user, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AdminUser' } } } } } } }
+  /admin/v1/auth/logout: { post: { summary: Sign out, responses: { '200': { $ref: '#/components/responses/Ok' } } } }
+  /admin/v1/auth/mfa/enroll:
+    post:
+      summary: Start two-step sign-in (returns the secret once)
+      responses: { '200': { description: Pending secret, content: { application/json: { schema: { type: object, properties: { secret: { type: string, description: Base32, shown once. }, otpauth_uri: { type: string } } } } } }, '409': { $ref: '#/components/responses/Err' } }
+  /admin/v1/auth/mfa/confirm:
+    post:
+      summary: Activate two-step sign-in with a code from the app; returns ten recovery codes once
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [code], properties: { code: { type: string } } } } } }
+      responses: { '200': { description: Activated, content: { application/json: { schema: { type: object, properties: { recovery_codes: { type: array, items: { type: string } } } } } } }, '401': { $ref: '#/components/responses/Err' } }
+  /admin/v1/auth/mfa/disable:
+    post:
+      summary: Turn two-step sign-in off (needs password and a code; refused while the operator requires MFA)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [password, code], properties: { password: { type: string }, code: { type: string } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Ok' }, '409': { $ref: '#/components/responses/Err' } }
+  /admin/v1/installation:
+    get:
+      summary: Installation readiness (operator)
+      description: Readiness is computed by the backend; a step is never green without evidence (`cannot_confirm` otherwise).
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { readiness: { type: object, properties: { mode: { type: string }, status: { type: string }, steps: { type: array, items: { $ref: '#/components/schemas/ProblemStep' } } } }, environment_override: { type: boolean } } } } } } }
+  /admin/v1/installation/wizard:
+    put:
+      summary: Persist the confirmed delivery mode (operator); never switches an active transport
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { selected_mode: { type: string, enum: [managed_mta, existing_smtp] } } } } } }
+      responses: { '200': { description: ok } }
+  /admin/v1/installation/mail-host:
+    get:
+      summary: Managed mail host as the installer recorded it (operator)
+      description: Installer receipts, delivery-evidence flow, verified domains without a DKIM key (with the commands to run) and the staged DKIM rotation checked against DNS.
+      responses: { '200': { description: ok } }
+  /admin/v1/installation/transport-profiles:
+    get: { summary: List profiles (operator), responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { profiles: { type: array, items: { $ref: '#/components/schemas/TransportProfile' } } } } } } } } }
+    post:
+      summary: Add an existing-SMTP profile (inactive; operator)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TransportProfileInput' } } } }
+      responses: { '200': { description: created } }
+  /admin/v1/installation/transport-profiles/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get: { summary: One profile, responses: { '200': { description: ok } } }
+    put:
+      summary: Edit a profile in place (operator); bumps its revision, so earlier connection tests stop counting
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TransportProfileInput' } } } }
+      responses: { '200': { description: ok } }
+    delete: { summary: Retire a non-active profile (its secrets are deleted), responses: { '200': { $ref: '#/components/responses/Ok' }, '409': { $ref: '#/components/responses/Err' } } }
+  /admin/v1/installation/transport-profiles/{id}/sending-facts:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    put:
+      summary: Where an existing server sends from (IPs, SPF include, DKIM selector and per-domain keys) so SPF/DKIM checks use real values
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses: { '200': { description: ok } }
+  /admin/v1/installation/transport-profiles/{id}/test:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post: { summary: Connection test; the result is bound to the profile's current revision, responses: { '200': { description: Steps with stable problem codes } } }
+  /admin/v1/installation/transport-profiles/{id}/activation-plan:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get: { summary: What switching to this profile would do, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/ActivationPlan' } } } } } }
+  /admin/v1/installation/transport-profiles/{id}/activate:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      summary: Switch Live mail to this profile (operator)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { migrate_pending: { type: boolean, description: Required to acknowledge queued mail. } } } } } }
+      responses: { '200': { description: switched }, '409': { $ref: '#/components/responses/Err' } }
+  /admin/v1/domain-claims:
+    get: { summary: Installation-wide domain ownership (operator), responses: { '200': { description: ok } } }
+  /admin/v1/domain-claims/transfer:
+    post:
+      summary: Give a domain to another project; every project's ownership proof for it is reset (audited, operator)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name, project], properties: { name: { type: string }, project: { type: string } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Ok' } }
+  /admin/v1/users:
+    get: { summary: Users (operator), responses: { '200': { description: ok } } }
+    post:
+      summary: Add a user (operator)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string, minLength: 12 }, installation_operator: { type: boolean, default: true } } } } } }
+      responses: { '200': { description: created } }
+  /admin/v1/users/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    patch:
+      summary: Disable, change password or permission, or reset a lost second factor (operator)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { disabled: { type: boolean }, password: { type: string }, installation_operator: { type: boolean }, reset_mfa: { type: boolean } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Ok' }, '409': { $ref: '#/components/responses/Err' } }
+  /admin/v1/settings:
+    get: { summary: Settings with effective values, responses: { '200': { description: ok } } }
+    put: { summary: Change settings (operator); `require_mfa` 1 makes two-step sign-in mandatory, requestBody: { content: { application/json: { schema: { type: object, additionalProperties: { type: integer } } } } }, responses: { '200': { description: ok } } }
+  /admin/v1/webhooks/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    patch:
+      summary: Update a webhook endpoint
+      requestBody: { content: { application/json: { schema: { type: object, properties: { url: { type: string }, events: { type: array, items: { type: string } }, enabled: { type: boolean }, schema_version: { type: integer, description: Payload version the endpoint receives (currently 1). } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Ok' }, '422': { $ref: '#/components/responses/Err' } }
+  /admin/v1/mta/status: { get: { summary: Mail queue agent and Postfix/signer health (operator), responses: { '200': { description: '{configured, reachable, status}' } } } }
+  /admin/v1/mta/queue: { get: { summary: Postfix queue with masked addresses (operator), responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Queue' } } } }, '409': { $ref: '#/components/responses/Err' }, '503': { $ref: '#/components/responses/Err' } } } }
+  /admin/v1/mta/queue/{id}/hold:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post: { summary: 'Hold one queued message (audited; operator)', responses: { '200': { $ref: '#/components/responses/Ok' } } }
+  /admin/v1/mta/queue/{id}/release:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post: { summary: 'Release a held message (audited; operator)', responses: { '200': { $ref: '#/components/responses/Ok' } } }
+  /admin/v1/mta/queue/{id}/requeue:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post: { summary: 'Re-queue one message (audited; operator)', responses: { '200': { $ref: '#/components/responses/Ok' } } }
+  /admin/v1/mta/queue/{id}/delete:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Delete one message from the Postfix queue (operator)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [confirm], properties: { confirm: { type: string, description: The queue id, typed back. } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Ok' }, '422': { $ref: '#/components/responses/Err' } }
+  /admin/v1/mta/flush: { post: { summary: Retry all deferred mail now (operator), responses: { '200': { $ref: '#/components/responses/Ok' } } } }
+  /admin/v1/w/{project}/{mode}/transport-test:
+    parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string, enum: [live, sandbox] } }]
+    post: { summary: Send a controlled test through the real queue and worker; the final outcome becomes the profile's test_send check, responses: { '200': { description: queued } } }
+  /admin/v1/w/{project}/{mode}/domains/{id}/return-path:
+    parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    put:
+      summary: Name this domain's own return-path (bounce) domain so SPF aligns for DMARC
+      description: Must be the domain or a subdomain. Withdraws the SPF/DMARC pass until the next check.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { bounce_domain: { type: string, description: Empty clears it. } } } } } }
+      responses: { '200': { description: The domain }, '422': { $ref: '#/components/responses/Err' } }
+  /admin/v1/w/{project}/{mode}/unknown:
+    parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }]
+    get: { summary: Messages with an unknown outcome, each with a suggested resolution from the evidence, responses: { '200': { description: ok } } }
+  /admin/v1/w/{project}/{mode}/messages/{id}/resolve:
+    parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      summary: Record the real outcome of an unknown message (audited; never resends)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [as, note], properties: { as: { type: string, enum: [submitted, failed] }, note: { type: string, maxLength: 120 } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Ok' } }
+  /admin/v1/w/{project}/{mode}/messages/{id}/export: { parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: string, format: uuid } }], get: { summary: Download one message's record as JSON (metadata only), responses: { '200': { description: ok } } } }
+  /admin/v1/w/{project}/{mode}/messages/{id}:
+    parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    delete: { summary: Delete a finished message and its evidence, responses: { '200': { $ref: '#/components/responses/Ok' }, '409': { $ref: '#/components/responses/Err' } } }
+  /admin/v1/w/{project}/{mode}/privacy/export:
+    parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }, { name: format, in: query, schema: { type: string, enum: [json, csv] } }]
+    post:
+      summary: Export everything stored about one recipient (no bodies or variables)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { Email: { type: string } } } } } }
+      responses: { '200': { description: JSON or CSV } }
+  /admin/v1/w/{project}/{mode}/privacy/delete:
+    parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Delete everything stored about one recipient, including inbound attachment files
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { Email: { type: string } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Ok' } }

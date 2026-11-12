@@ -380,13 +380,10 @@ Original list:
   profile in place, a DKIM rotation status screen (CLI exists: `installer dkim-rotate status`).
 - After a new domain is verified in managed mode, show "run the installer again to create its DKIM key" (today a manual step).
 
-### A01 / G08 — documentation
+### A01 / G08 — documentation — **done**
 
-- A01: endpoint list and schema map (`docs/ENDPOINTS.md`): generate the route list from `GetRoutes` (the security matrix test
-  already walks it) and describe each table.
-- G08: OpenAPI for the admin API (installation, transport profiles, wizard, domain claims, transport test, sending facts) in
-  `docs/openapi-admin.yaml`; SDK examples; a troubleshooting guide keyed by problem codes (`SMTP_*`, `CLIENT_CERT_*`,
-  `BOUNCES_NOT_CONFIGURED`, `TRANSPORT_FAILING`, …).
+- `docs/ENDPOINTS.md` (generated; keep current with `UPDATE_DOCS=1 go test ./test -run TestEndpointsAndSchemaDoc`), `docs/openapi-admin.yaml`,
+  `docs/EXAMPLES.md`, `docs/TROUBLESHOOTING.md`.
 
 ### A02 / G07 — CI
 

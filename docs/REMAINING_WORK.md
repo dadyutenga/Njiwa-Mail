@@ -25,8 +25,8 @@ cannot be done from the development container.
 | C01 | ✅ | Worker dispatch uses `transport.Transport`; DB-backed tests verified on PostgreSQL 16 (2026-11-12). |
 | A02 | 🟡 | Go and frontend suites run in CI on throwaway PostgreSQL. Missing: a container smoke test that brings the Compose stack up and checks `/health/ready`. |
 | G07 | 🟡 | `govulncheck` and the `managed-mta` job are **non-blocking** until their first green run on GitHub (the vulnerability database is blocked from the dev container, so the scan has never run). Missing: SBOM, reproducible tagged build, frontend end-to-end tests (browser). |
-| G08 | 🟡 | README and the public OpenAPI describe both modes and the new error codes. Missing: OpenAPI for the admin API (installation, transport profiles, wizard, domain claims, transport test), SDK examples, a troubleshooting guide;  |
-| A01 | ❌ | Baseline endpoint list and schema map document. |
+| G08 | ✅ | `docs/openapi-admin.yaml` (36 admin paths, checked against the route table), `docs/EXAMPLES.md` (curl, Go, Node, Python incl. webhook verification), `docs/TROUBLESHOOTING.md` keyed by problem and API error codes; README and the public OpenAPI describe both modes. |
+| A01 | ✅ | `docs/ENDPOINTS.md` is generated from the route table and the live schema (every table described, sealed columns marked); a test fails when it is stale or a table has no description. |
 
 ## 2. Managed-mode (E-series) gaps and limitations
 
