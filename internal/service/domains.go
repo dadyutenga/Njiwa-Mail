@@ -134,7 +134,7 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 		} else if f != nil {
 			known = f.DKIMKeys[name]
 		}
-		d["records"] = s.expectedRecords(kind, f, name, purpose, token, known)
+		d["records"] = s.expectedRecords(kind, f, s.selectorFor(ctx, kind, f), name, purpose, token, known)
 	}
 	if d["senders"], err = s.maps(ctx, `SELECT si.id::text AS id, si.email, e.mode FROM sender_identities si JOIN environments e ON e.id=si.environment_id
 WHERE si.project_id=$1 AND split_part(si.email,'@',2)=$2 ORDER BY si.email`, sc.ProjectID, name); err != nil {
@@ -150,7 +150,7 @@ FROM messages WHERE environment_id=$1 AND split_part(sender,'@',2)=$2 ORDER BY c
 	}
 	d["mailcow_api"] = s.MailcowConfigured(ctx)
 	d["provider_type"] = s.activeProvider(ctx)
-	d["dkim_selector"] = s.dkimSelector(s.sendingFacts(ctx))
+	d["dkim_selector"] = s.selectorFor(ctx, s.senderKind(ctx), s.sendingFacts(ctx))
 	var spid string
 	_ = s.Pool.QueryRow(ctx, `SELECT COALESCE((SELECT id::text FROM transport_profiles WHERE is_active AND mode='existing_smtp'),'')`).Scan(&spid)
 	d["sending_profile_id"] = spid
@@ -161,8 +161,7 @@ FROM messages WHERE environment_id=$1 AND split_part(sender,'@',2)=$2 ORDER BY c
 // expectedRecords lists what the domain needs. kind says which server sends
 // the mail (see senderKind). dkimValue is the real public key when known
 // (from the Mailcow API); otherwise the DKIM value is a placeholder.
-func (s *Service) expectedRecords(kind string, f *SendingFacts, name, purpose, token, dkimValue string) []DomainRecord {
-	sel := s.dkimSelector(f)
+func (s *Service) expectedRecords(kind string, f *SendingFacts, sel, name, purpose, token, dkimValue string) []DomainRecord {
 	host := fqdn(s.Opts.MailHost)
 	recs := []DomainRecord{{Key: "ownership", Type: "TXT", Host: name, Value: "njiwa-mail-verify=" + token,
 		Hint: "Proves the domain is yours. It can stay published; it does not affect mail."}}
@@ -274,7 +273,7 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	} else if pk, err := s.mailcowDKIM(ctx, name); err == nil && pk != "" {
 		dkimKnown = pk
 	}
-	recs := s.expectedRecords(kind, facts, name, purpose, token, dkimKnown)
+	recs := s.expectedRecords(kind, facts, s.selectorFor(ctx, kind, facts), name, purpose, token, dkimKnown)
 	var sips []net.IP
 	if ip := s.senderIP(kind); ip != nil {
 		sips = []net.IP{ip}

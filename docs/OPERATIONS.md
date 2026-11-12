@@ -76,6 +76,26 @@ A check it cannot verify is reported as `CANNOT_CONFIRM`, never as ready. It exi
 With the database configured, `njiwa-mail preflight -record` stores the result; the Delivery infrastructure page shows it as the
 "Check this server can send directly" step. Managed mode still cannot become ready until the host installer has run.
 
+## Rotating DKIM keys (managed mode)
+
+Rotation is staged so mail is never signed with a key receivers cannot find:
+
+```
+njiwa-mail installer dkim-rotate prepare  -selector s2026b   <same flags as apply>   # new keys; signing unchanged
+#   publish the printed s2026b._domainkey records, keep the old ones
+njiwa-mail installer plan -selector s2026b <same flags>                             # review, note the digest
+njiwa-mail installer dkim-rotate activate -selector s2026b -approve <digest> -record <same flags>
+#   wait at least 7 days (messages in transit and retries), then
+njiwa-mail installer dkim-rotate retire   -selector <old selector>                  # deletes the old private keys
+```
+
+- `activate` refuses until DNS publishes exactly the prepared key for every domain, then switches signing through a normal approved
+  apply (backup, validation, receipt, rollback); `-record` updates the Domains page to the new selector.
+- `retire` refuses for the selector in use. `cancel` abandons a prepared rotation and deletes its keys; `status` shows the signing
+  selector and any prepared rotation.
+- Verified in the development container against OpenDKIM 2.11: before activation mail stayed signed `s=njiwa`; after the switch a
+  received message carried a cryptographically verified signature `s=njiwa2`; switching back verified `s=njiwa` again.
+
 ## HTTPS and the host firewall
 
 **HTTPS.** `deploy/nginx.conf` is the reverse proxy: `/` → dashboard (`127.0.0.1:3000`), `/v1/` and `/admin/v1/` → API

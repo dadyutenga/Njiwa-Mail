@@ -66,6 +66,20 @@ func (s *Service) dkimSelector(f *SendingFacts) string {
 	return s.Opts.DKIMSelector
 }
 
+// selectorFor is the selector the active sender signs with: the managed
+// signer's recorded selector (it changes on a key rotation), the existing
+// server's stated selector, or DKIM_SELECTOR.
+func (s *Service) selectorFor(ctx context.Context, kind string, f *SendingFacts) string {
+	if kind == senderManaged {
+		var sel string
+		_ = s.Pool.QueryRow(ctx, `SELECT COALESCE(config_json->>'selector','') FROM transport_profiles WHERE is_active AND mode='managed_mta'`).Scan(&sel)
+		if sel != "" {
+			return sel
+		}
+	}
+	return s.dkimSelector(f)
+}
+
 // SetSendingFacts validates and stores sending facts on an existing-SMTP
 // profile. Audited. It does not change the profile's revision.
 func (s *Service) SetSendingFacts(ctx context.Context, a Actor, profileID string, in SendingFactsInput) (SendingFacts, error) {

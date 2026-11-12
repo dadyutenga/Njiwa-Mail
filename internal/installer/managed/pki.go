@@ -115,6 +115,9 @@ func newDKIMKey() (privPEM []byte, txt string, err error) {
 	return privPEM, txt, err
 }
 
+// PublicRecord is the DKIM TXT value for a private key file.
+func PublicRecord(privPEM []byte) (string, error) { return dkimTXT(privPEM) }
+
 // dkimTXT derives the public DNS record from an existing private key file, so
 // a re-run republishes exactly the key OpenDKIM signs with.
 func dkimTXT(privPEM []byte) (string, error) {

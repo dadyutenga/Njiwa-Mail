@@ -110,3 +110,33 @@ func TestManagedInstallRecordingAndActivation(t *testing.T) {
 		}
 	}
 }
+
+// After a key rotation the managed profile records the new selector; the
+// Domains page must expect the key there, not at DKIM_SELECTOR.
+func TestManagedSelectorFollowsRotation(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"})
+	cert, key := pemPair(t, "njiwa-worker")
+	ca, _ := pemPair(t, "ca")
+	dkim := dkimRecord(t)
+	e.must(e.svc.RecordManagedInstall(ctx, service.CLIActor, service.ManagedInstall{PlanDigest: "d1", SubmissionHost: "127.0.0.1", SubmissionPort: 10587,
+		ServerName: "mailout.example.com", Selector: "rot2", DKIMRecords: map[string]string{"notify.example.com": dkim},
+		ClientCertPEM: cert, ClientKeyPEM: key, CAPEM: ca}))
+	var id string
+	e.must(e.pool.QueryRow(ctx, `SELECT id::text FROM transport_profiles WHERE mode='managed_mta'`).Scan(&id))
+	_, _, rev, err := e.svc.ProfileSMTP(ctx, id)
+	e.must(err)
+	e.must(e.svc.RecordInstallationCheck(ctx, id, rev, "connection", true, "", nil, false))
+	_, err = e.svc.ActivateTransport(ctx, service.CLIActor, id, false)
+	e.must(err)
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	e.must(e.svc.CreateProject(ctx, "rot"))
+	d := e.admOK(admin, "POST", wsPath("rot", "/domains"), map[string]any{"name": "notify.example.com", "purpose": "sending"})
+	det := e.admOK(admin, "GET", wsPath("rot", "/domains/"+str(d.JSON, "id")), nil)
+	rec := recordByKey(det, "dkim")
+	if str(rec, "host") != "rot2._domainkey.notify.example.com" || str(rec, "value") != dkim || det.JSON["dkim_selector"] != "rot2" {
+		t.Fatalf("selector after rotation: %v %v", rec, det.JSON["dkim_selector"])
+	}
+}
