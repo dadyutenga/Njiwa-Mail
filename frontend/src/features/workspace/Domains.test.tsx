@@ -137,3 +137,15 @@ it("saves the existing server's DKIM key for the domain", async () => {
     }),
   );
 });
+
+it("says when delivery settings changed since the last check", async () => {
+  renderDomain({ requirements_changed: true });
+  const note = await screen.findByText(/Delivery settings changed since the last check/);
+  expect(note).toHaveAttribute("role", "status");
+});
+
+it("shows no change notice for a current check", async () => {
+  renderDomain({ requirements_changed: false });
+  await screen.findByTestId("dkim-proof");
+  expect(screen.queryByText(/Delivery settings changed/)).not.toBeInTheDocument();
+});

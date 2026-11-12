@@ -1,6 +1,6 @@
 # Remaining work — checkpoint
 
-**Checkpoint date:** 2026-11-12 (updated) · **Branch:** `claude/happy-brahmagupta-pbfu6r` (after PRs #1–#7)
+**Checkpoint date:** 2026-11-12 (updated) · **Branch:** `claude/happy-brahmagupta-pbfu6r` (after PRs #1–#8)
 **Reference:** `15_IMPLEMENTATION_BACKLOG` and the master specification. What *is* done, with test evidence, is in
 [`STATUS.md`](../STATUS.md). This file lists only what is **not done**, **partly done**, or **not yet verified**.
 
@@ -36,10 +36,8 @@ cannot be done from the development container.
 | E12 | ❌ | Multi-distro clean-install matrix (Debian 12, Ubuntu 22.04, Ubuntu 24.04) with documented results. |
 | — | 🔍 | The installer's **systemd** path (`systemctl enable/restart opendkim`, `reload-or-restart postfix`) has not run: the dev container has no systemd. The new `managed-mta` CI job will exercise it on a hosted runner. |
 | — | 🟡 | The installer does not install packages; the operator runs `apt-get install postfix opendkim` (documented). |
-| — | ❌ | Renewal of the installer's server/client certificates (issued for 5 years, CA for 10; no renewal command yet). |
 | — | 🟡 | New sending domains need the installer to be run again (`plan`/`apply -record`) to get a DKIM key; there is no automatic hand-off from "domain verified" to "key generated". |
 | — | 🟡 | `INBOUND_ALLOWED_SOURCES` must be set by hand (documented). The host firewall table is now installed by the installer. |
-| — | 🟡 | `njiwa-mail mta-log -follow` is a manual process; there is no systemd unit or Compose service for it yet. |
 
 ## 3. Existing-SMTP (C-series) gaps
 
@@ -53,7 +51,6 @@ cannot be done from the development container.
 | ID | Status | What is missing |
 |---|---|---|
 | D04 | 🟡 | Requirements follow the actual sender, including an existing server's stated sending facts. Missing: per-domain return-path (bounce) domains — today one installation-wide `BOUNCE_ADDRESS`. |
-| — | 🟡 | The Domains page shows the records saved by the last check; after changing delivery mode or provider, "Check now" is needed to see the new requirements (it is not invalidated automatically). |
 
 ## 5. Setup and dashboard (B-series) gaps
 
@@ -69,7 +66,6 @@ cannot be done from the development container.
 |---|---|---|
 | F02 | 🟡 | Operators can resolve unknown outcomes with a required note (audited, recorded as evidence). Missing: suggesting the outcome from MTA log evidence / queue ID, and a dedicated reconciliation queue screen. |
 | F07 | 🟡 | `email.delivery_*` events are documented (`docs/WEBHOOKS.md`). Missing: event schema versioning and retry/idempotency tests for the new events. |
-| F08 | ❌ | Metrics and alerts for transport health, queue growth, deferred rate and signer availability; alert channels for them. |
 | F09 | ❌ | Operator role separation (installation operator vs project roles) and MFA or an equivalent admin-access control. All admins are equal today. |
 | F10 | ❌ | Retention/export/delete for delivery evidence and installer receipts; encryption at rest for inbound attachments (still plain files on disk). |
 | F06 | ✅* | Suppression only for DSNs correlated to our message and its recipient. *Correlation relies on the unguessable message UUID in the returned headers; a signed correlation token (VERP or HMAC) would be stronger. |
@@ -101,7 +97,7 @@ cannot be done from the development container.
    `govulncheck` and `managed-mta` CI jobs blocking after their first green run.
 2. **Safety net:** repeat the G03 restore drill and the firewall check on the production host; ACME automation for the dashboard certificate.
 3. **Operator UI:** E10 queue controls, a rotation screen (the CLI exists), B07 accessibility and translations.
-4. **Hardening and release:** F09 roles/MFA, F07/F08/F10, C01 cut-over, G06, G08–G10.
+4. **Hardening and release:** F09 roles/MFA, F07/F10, C01 cut-over, G06, G08–G10.
 
 ## Done since the first checkpoint
 
@@ -120,3 +116,7 @@ cannot be done from the development container.
 - **C08** optional bounce-visibility readiness step (not configured / listener down / last report).
 - **F05** security regression matrix over every route, secrets sweep of every admin `GET`, SSRF guard on real sends;
   [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
+- **E11** certificate renewal (automatic within 60 days, `-renew-certs`, 7-day grace for the replaced worker certificate, readiness
+  warning; verified against real Postfix). The CA itself is replaced by hand (documented).
+- **F08** delivery-health metrics and Prometheus alert rules.
+- `mta-log` systemd unit (journal based); the Domains page flags requirements that changed since the last check.

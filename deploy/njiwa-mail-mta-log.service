@@ -1,0 +1,33 @@
+# Delivery evidence from the managed Postfix (backlog E08/F01): feeds Postfix
+# delivery results (sent / deferred / bounced / expired) to Njiwa-Mail. Run it
+# on the mail host. Install:
+#   cp deploy/njiwa-mail-mta-log.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now njiwa-mail-mta-log
+#
+# It reads the systemd journal, which exists on every supported distribution
+# (Debian 12 has no /var/log/mail.log unless rsyslog is installed). With
+# rsyslog you may instead use:
+#   ExecStart=/usr/local/bin/njiwa-mail mta-log -follow -file /var/log/mail.log
+# (and SupplementaryGroups=adm).
+#
+# On (re)start it re-reads the last 6 hours: events are de-duplicated, so
+# nothing is counted twice and nothing is lost across a restart.
+[Unit]
+Description=Njiwa Mail delivery evidence from the Postfix log
+After=network-online.target postfix.service
+Wants=network-online.target
+
+[Service]
+User=njiwa-mail
+SupplementaryGroups=systemd-journal
+EnvironmentFile=/etc/njiwa-mail/env
+ExecStart=/bin/sh -c 'journalctl --follow --since=-6h --output=short --no-pager -u postfix.service -u "postfix@*" | /usr/local/bin/njiwa-mail mta-log -file -'
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
