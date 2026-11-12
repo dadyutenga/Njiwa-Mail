@@ -64,7 +64,8 @@ func TestLegacyMailServerMigratesToActiveProfile(t *testing.T) {
 	for _, q := range []string{
 		`DROP TABLE installer_receipts, installation_checks, installation_settings, transport_profiles CASCADE`,
 		`ALTER TABLE messages DROP COLUMN transport_profile_id, DROP COLUMN transport_revision`,
-		`DELETE FROM schema_migrations WHERE version='0010_transport_profiles.sql'`,
+		// Later migrations that alter the dropped table run again too, in order.
+		`DELETE FROM schema_migrations WHERE version IN ('0010_transport_profiles.sql','0015_sending_facts.sql')`,
 	} {
 		_, err := e.pool.Exec(ctx, q)
 		e.must(err)

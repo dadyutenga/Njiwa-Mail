@@ -20,7 +20,6 @@ cannot be done from the development container.
 | E06 | 🔍 | Direct-to-MX delivery is configured but has only been exercised to a local relay. Not verified: delivery to external MX servers, and that the Postfix queue survives a host restart and an upgrade. |
 | E07 | 🔍 | The bounce route (bounce domain → Postfix port 25 → Njiwa inbound listener) is configured and the DSN parser exists, but a real DSN has not been sent through managed Postfix and correlated end to end. |
 | E05 | 🟡 | Hostname A, PTR/FCrDNS and port-25 checks exist (preflight). Missing: a publicly trusted TLS certificate for inbound port 25 (today it is signed by the installer's private CA, which is acceptable for opportunistic TLS but not ideal), and a HELO check against what remote servers see. |
-| G02 | ❌ | HTTPS, certificate and host-firewall defaults: no automated firewall rules (allow 25 in, allow 10587 only from the Compose subnet, block 2525 and 5432 from outside), no ACME/Let's Encrypt automation for the dashboard, no external scan. `deploy/nginx.conf` predates this work. |
 | G06 | ❌ | Mode-switch regression and legacy-migration end to end (existing SMTP → managed with a non-empty queue, and back). Unit/integration tests cover the planner and migration, not a full switch with real transports. |
 | F05 | ❌ | Formal security review and regression matrix (open relay, SSRF, CSRF, RBAC, secrets in logs). Pieces exist (SMTP-test SSRF guard, webhook SSRF guard, no open relay verified), but no consolidated review. |
 | C06 | ❌ | Generic Postfix/Exim staging integration test with the same API (the fake SMTP server and Mailcow are the only targets tested so far). |
@@ -40,14 +39,13 @@ cannot be done from the development container.
 | — | 🔍 | The installer's **systemd** path (`systemctl enable/restart opendkim`, `reload-or-restart postfix`) has not run: the dev container has no systemd. The new `managed-mta` CI job will exercise it on a hosted runner. |
 | — | 🟡 | The installer does not install packages; the operator runs `apt-get install postfix opendkim` (documented). |
 | — | 🟡 | New sending domains need the installer to be run again (`plan`/`apply -record`) to get a DKIM key; there is no automatic hand-off from "domain verified" to "key generated". |
-| — | 🟡 | `INBOUND_ALLOWED_SOURCES` and the host firewall rule for the submission listener must be set by hand (documented in `compose.yaml` and `docs/OPERATIONS.md`). |
+| — | 🟡 | `INBOUND_ALLOWED_SOURCES` must be set by hand (documented). The host firewall table is now installed by the installer. |
 | — | 🟡 | `njiwa-mail mta-log -follow` is a manual process; there is no systemd unit or Compose service for it yet. |
 
 ## 3. Existing-SMTP (C-series) gaps
 
 | ID | Status | What is missing |
 |---|---|---|
-| C07 | ❌ | Provider metadata intake: a way to enter the downstream server's sending IPs / SPF include and its DKIM public key, so SPF/DKIM for a generic SMTP server are checked against real values instead of being shown as templates. |
 | C08 | ❌ | Bounce visibility for existing SMTP: a clear "limited observability" state, and optional DSN intake configuration (bounce mailbox / IMAP / relay). |
 | C05 | 🟡 | Mailcow is optional and works without its API. Missing: moving the adapter under a provider package boundary, and before/after audit records for Mailcow API writes. |
 | C02 | 🟡 | Secrets are sealed, never echoed and kept on blank saves. Missing: secrets from mounted files, and `ENCRYPTION_KEY` rotation with a dual-read window. |
@@ -56,8 +54,7 @@ cannot be done from the development container.
 
 | ID | Status | What is missing |
 |---|---|---|
-| D04 | 🟡 | Requirements follow the actual sender. Missing: provider-specified records (depends on C07); per-domain return-path (bounce) domains — today one installation-wide `BOUNCE_ADDRESS`. |
-| D09 | ❌ | DNS state history, TTL display, recheck schedule, and a **domain-claims UI** (claims and transfers are operator API only: `GET /admin/v1/domain-claims`, `POST /admin/v1/domain-claims/transfer`). |
+| D04 | 🟡 | Requirements follow the actual sender, including an existing server's stated sending facts. Missing: per-domain return-path (bounce) domains — today one installation-wide `BOUNCE_ADDRESS`. |
 | D10 | ❌ | DKIM selector rotation and revocation UI (pairs with E11). |
 | — | 🟡 | The Domains page shows the records saved by the last check; after changing delivery mode or provider, "Check now" is needed to see the new requirements (it is not invalidated automatically). |
 
@@ -66,9 +63,8 @@ cannot be done from the development container.
 | ID | Status | What is missing |
 |---|---|---|
 | B07 | 🟡 | Kiswahili exists for the new installation screens only; older strings untranslated. No full keyboard / screen-reader test pass; the DNS record table is not yet reworked for phones. |
-| B08 | ❌ | Recovery and migration UX (guided mode switch with pending-queue review and rollback, warnings when settings change). The switch planner exists as an API only — there is no switch screen. |
-| B09 | 🟡 | A health banner exists. Missing: the unified "Delivery infrastructure" health card on the dashboard (queue depth, deferred count, signer status for managed; connection/TLS state for existing SMTP). |
-| — | 🟡 | Screens for the new APIs: transport profile list/edit/retire, activation plan and switch, installer receipts, delivery-evidence ingestion status. |
+| B09 | 🟡 | Health card on every dashboard (mode, readiness, queue, retrying, unknown, last hand-over). Missing: managed-specific details (Postfix deferred count, signer status). |
+| — | 🟡 | Screens still missing for: installer receipts, delivery-evidence ingestion status, editing an existing transport profile's settings in place. |
 
 ## 6. Reliability, security, operations (F-series) gaps
 
@@ -106,9 +102,9 @@ cannot be done from the development container.
 
 1. **Real-host verification:** G05 (managed VPS, Gmail/Outlook), G04 (existing SMTP), E06/E07 evidence; make the
    `govulncheck` and `managed-mta` CI jobs blocking after their first green run.
-2. **Safety net:** G02 (firewall/HTTPS defaults); repeat the G03 restore drill on the production host.
-3. **Truthful authentication:** C07 provider metadata, C08 bounce visibility.
-4. **Operator UI:** B08 switch screen, B09 health card, D09 claims UI, E10 queue controls, D10/E11 rotation.
+2. **Safety net:** repeat the G03 restore drill and the firewall check on the production host; ACME automation for the dashboard certificate.
+3. **Truthful authentication:** C08 bounce visibility.
+4. **Operator UI:** E10 queue controls, D10/E11 rotation, B07 accessibility and translations.
 5. **Hardening and release:** F05 review, F09 roles/MFA, F07/F08/F10, C01 cut-over, G06, G08–G10.
 
 ## Done since the first checkpoint
@@ -119,3 +115,8 @@ cannot be done from the development container.
 - **D06** DKIM signature verification of received messages (tested against OpenDKIM 2.11.0), proof recorded per domain from a pasted
   message or the project's own inbox, `njiwa-mail dkim-verify`.
 - Webhook docs for `email.delivery_*`; the signer-down case is diagnosed as `SMTP_SERVER_TEMP_REFUSED`.
+- **G02** host firewall table from the installer (verified from a separate network namespace) and a working HTTPS proxy config
+  (the dashboard was not proxied before; verified with nginx 1.24).
+- **C07** sending facts for existing SMTP servers: real SPF/DKIM requirements and checks.
+- **B08/B09** delivery-profile and mode-switch screen; delivery health card on dashboards.
+- **D09** domain ownership page.

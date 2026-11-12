@@ -5,6 +5,7 @@ import { CheckCircle2, Plus, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
+import { admin } from "@/lib/admin-api";
 import { useWorkspace, useWsKey } from "../context";
 import {
   ConfirmButton,
@@ -456,6 +457,14 @@ export function DomainDetail() {
                 ))}
               </ul>
             </Section>
+            {d.purpose !== "receiving" &&
+              d.provider_type === "generic" &&
+              s(d.sending_profile_id) && (
+                <ServerDKIMKey
+                  d={d}
+                  onSaved={() => client.invalidateQueries({ queryKey: key("domain", id) })}
+                />
+              )}
             {d.purpose !== "receiving" && <SignedProof id={id ?? ""} d={d} />}
             {d.provider_type === "mailcow" ? (
               <Section className="mt-4" title={phrase("Mailcow")}>
@@ -648,6 +657,60 @@ export function DomainDetail() {
         );
       }}
     </DataState>
+  );
+}
+
+/**
+ * For an existing SMTP server: the public key it signs this domain with, as
+ * its operator gives it, so the DKIM check compares the published record with
+ * the real key instead of a template (C07).
+ */
+function ServerDKIMKey({ d, onSaved }: { d: Row; onSaved: () => void }) {
+  const phrase = usePhrase();
+  const [val, setVal] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Section className="mt-4" title={phrase("Your mail server's DKIM key for this domain")}>
+      <p className="mb-2 text-xs text-muted-foreground">
+        {phrase(
+          "Paste the DKIM public key your mail server signs this domain with (its value starts with v=DKIM1). The DKIM check then compares the published record with it. Selector:",
+        )}{" "}
+        <code>{s(d.dkim_selector)}</code>
+      </p>
+      <textarea
+        aria-label={phrase("DKIM public key")}
+        className="h-20 w-full rounded-md border border-input bg-background p-2 font-mono text-xs"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        placeholder="v=DKIM1; k=rsa; p=MIIBIjANBg…"
+      />
+      <Button
+        className="mt-2"
+        variant="outline"
+        disabled={busy || !val.trim()}
+        onClick={async () => {
+          setBusy(true);
+          const r = await run(
+            () =>
+              admin.send(
+                `/installation/transport-profiles/${s(d.sending_profile_id)}/sending-facts`,
+                "PUT",
+                {
+                  dkim_keys: { [s(d.name)]: val.trim() },
+                },
+              ),
+            phrase("Key saved. Run Check now to compare it with DNS."),
+          );
+          setBusy(false);
+          if (r) {
+            setVal("");
+            onSaved();
+          }
+        }}
+      >
+        {busy ? phrase("Saving…") : phrase("Save key")}
+      </Button>
+    </Section>
   );
 }
 

@@ -103,6 +103,9 @@ func (s *Service) InstallationState(ctx context.Context) (map[string]any, error)
 		return nil, unavailable("installation_state", err)
 	}
 	out := map[string]any{"wizard": w, "active_profile": nil, "profile": nil}
+	var prev string
+	_ = s.Pool.QueryRow(ctx, `SELECT COALESCE(previous_profile_id::text,'') FROM installation_settings WHERE id=1`).Scan(&prev)
+	out["previous_profile_id"] = prev // the rollback target after a switch
 	var rd installation.Readiness
 	profileID := id
 	switch {

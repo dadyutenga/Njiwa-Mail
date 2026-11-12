@@ -123,3 +123,17 @@ it("shows recorded signed-mail evidence", async () => {
   renderDomain({ dkim_verified_at: "2026-11-12T08:00:00Z", dkim_verified_selector: "dkim" });
   expect(await screen.findByTestId("dkim-proof")).toHaveTextContent("Signed mail verified");
 });
+
+it("saves the existing server's DKIM key for the domain", async () => {
+  renderDomain({ dkim_verified_at: null, sending_profile_id: "p1", dkim_selector: "s1" });
+  const send = vi.spyOn(admin, "send").mockResolvedValue({} as never);
+  fireEvent.change(await screen.findByLabelText("DKIM public key"), {
+    target: { value: " v=DKIM1; k=rsa; p=ABC " },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith("/installation/transport-profiles/p1/sending-facts", "PUT", {
+      dkim_keys: { "notify.example.com": "v=DKIM1; k=rsa; p=ABC" },
+    }),
+  );
+});

@@ -230,7 +230,18 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 	}
 	sort.Strings(domains)
 	host, ip := fqdn(s.Opts.MailHost), strings.TrimSpace(s.Opts.OutboundIP)
-	sip := s.senderIP(s.senderKind(ctx))
+	kind := s.senderKind(ctx)
+	sip := s.senderIP(kind)
+	var facts *SendingFacts
+	var sips []net.IP
+	include := ""
+	if kind == senderGeneric {
+		if facts = s.sendingFacts(ctx); facts != nil {
+			sips, include = facts.ips(), facts.SPFInclude
+		}
+	} else if sip != nil {
+		sips = []net.IP{sip}
+	}
 	var out []DNSResult
 	seen := map[string]bool{}
 
@@ -262,19 +273,23 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 		if sip != nil {
 			exp = "v=spf1 record that evaluates to pass for " + sip.String()
 		}
-		pass, why, spf := evalSPF(ctx, r, d, sip)
+		pass, why, spf := evalSPFFor(ctx, r, d, sips, include)
 		if why != "" && !pass {
 			exp += " (" + why + ")"
 		}
 		out = append(out, DNSResult{d, "SPF", exp, observed(spf, err), pass})
 
-		name := s.Opts.DKIMSelector + "._domainkey." + d
+		name := s.dkimSelector(facts) + "._domainkey." + d
 		txt, err := r.LookupTXT(ctx, name)
 		dk := pick(txt, "v=dkim1")
 		if len(dk) == 0 {
 			dk = txt
 		}
-		pass, why = evalDKIM(dk, err, "")
+		known := ""
+		if facts != nil {
+			known = facts.DKIMKeys[d]
+		}
+		pass, why = evalDKIM(dk, err, known)
 		dkexp := name + " TXT v=DKIM1; k=rsa; p=<public key of the server that signs your mail>"
 		if !pass {
 			dkexp += " (" + why + ")"

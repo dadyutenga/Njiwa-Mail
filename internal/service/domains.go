@@ -124,11 +124,17 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 		var token, purpose string
 		_ = s.Pool.QueryRow(ctx, `SELECT verify_token, purpose FROM domains WHERE id=$1`, id).Scan(&token, &purpose)
 		kind := s.senderKind(ctx)
+		var f *SendingFacts
+		if kind == senderGeneric {
+			f = s.sendingFacts(ctx)
+		}
 		known := ""
 		if kind == senderManaged {
 			known = s.managedDKIM(ctx, name)
+		} else if f != nil {
+			known = f.DKIMKeys[name]
 		}
-		d["records"] = s.expectedRecords(kind, name, purpose, token, known)
+		d["records"] = s.expectedRecords(kind, f, name, purpose, token, known)
 	}
 	if d["senders"], err = s.maps(ctx, `SELECT si.id::text AS id, si.email, e.mode FROM sender_identities si JOIN environments e ON e.id=si.environment_id
 WHERE si.project_id=$1 AND split_part(si.email,'@',2)=$2 ORDER BY si.email`, sc.ProjectID, name); err != nil {
@@ -144,7 +150,10 @@ FROM messages WHERE environment_id=$1 AND split_part(sender,'@',2)=$2 ORDER BY c
 	}
 	d["mailcow_api"] = s.MailcowConfigured(ctx)
 	d["provider_type"] = s.activeProvider(ctx)
-	d["dkim_selector"] = s.Opts.DKIMSelector
+	d["dkim_selector"] = s.dkimSelector(s.sendingFacts(ctx))
+	var spid string
+	_ = s.Pool.QueryRow(ctx, `SELECT COALESCE((SELECT id::text FROM transport_profiles WHERE is_active AND mode='existing_smtp'),'')`).Scan(&spid)
+	d["sending_profile_id"] = spid
 	d["mail_host"] = s.Opts.MailHost
 	return d, nil
 }
@@ -152,14 +161,30 @@ FROM messages WHERE environment_id=$1 AND split_part(sender,'@',2)=$2 ORDER BY c
 // expectedRecords lists what the domain needs. kind says which server sends
 // the mail (see senderKind). dkimValue is the real public key when known
 // (from the Mailcow API); otherwise the DKIM value is a placeholder.
-func (s *Service) expectedRecords(kind, name, purpose, token, dkimValue string) []DomainRecord {
+func (s *Service) expectedRecords(kind string, f *SendingFacts, name, purpose, token, dkimValue string) []DomainRecord {
+	sel := s.dkimSelector(f)
 	host := fqdn(s.Opts.MailHost)
 	recs := []DomainRecord{{Key: "ownership", Type: "TXT", Host: name, Value: "njiwa-mail-verify=" + token,
 		Hint: "Proves the domain is yours. It can stay published; it does not affect mail."}}
 	if sendingPurpose(purpose) {
 		spf := DomainRecord{Key: "spf", Type: "TXT", Host: name,
 			Hint: "If the domain already has a v=spf1 record, edit that record and add the mechanism; never publish two."}
-		if kind == senderGeneric {
+		if kind == senderGeneric && f != nil && (len(f.EgressIPs) > 0 || f.SPFInclude != "") {
+			// The operator stated where their mail server sends from.
+			parts := []string{"v=spf1"}
+			if f.SPFInclude != "" {
+				parts = append(parts, "include:"+f.SPFInclude)
+			}
+			for _, v := range f.EgressIPs {
+				if strings.Contains(v, ":") {
+					parts = append(parts, "ip6:"+v)
+				} else {
+					parts = append(parts, "ip4:"+v)
+				}
+			}
+			spf.Value = strings.Join(append(parts, "-all"), " ")
+			spf.Hint = "Authorises your mail server's sending addresses as entered under Delivery infrastructure. " + spf.Hint
+		} else if kind == senderGeneric {
 			// Never authorise this host or MAIL_HOSTNAME for a server we cannot see.
 			spf.Value, spf.Placeholder = "v=spf1 <your mail server's sending IPs (ip4:/ip6:) or SPF include> -all", true
 			spf.Hint = "SPF must authorise the server that actually sends your mail: your SMTP server's outbound IP addresses, or the include: its operator documents. Njiwa-Mail cannot see that server, so replace the part in <…>. " + spf.Hint
@@ -175,7 +200,7 @@ func (s *Service) expectedRecords(kind, name, purpose, token, dkimValue string) 
 				spf.Value = "v=spf1 mx a:" + host + " -all"
 			}
 		}
-		dkim := DomainRecord{Key: "dkim", Type: "TXT", Host: s.Opts.DKIMSelector + "._domainkey." + name, Value: dkimValue,
+		dkim := DomainRecord{Key: "dkim", Type: "TXT", Host: sel + "._domainkey." + name, Value: dkimValue,
 			Hint: "Paste the whole key. Some panels split long values into several quoted strings; that is fine."}
 		if dkimValue == "" {
 			dkim.Placeholder = true
@@ -183,7 +208,7 @@ func (s *Service) expectedRecords(kind, name, purpose, token, dkimValue string) 
 				dkim.Value = "v=DKIM1; k=rsa; p=<public key from Mailcow: Configuration → ARC/DKIM keys>"
 			} else {
 				dkim.Value = "v=DKIM1; k=rsa; p=<public key from the server that signs your mail>"
-				dkim.Hint = "Get the public key from the DKIM settings of the server that signs your mail, for selector " + s.Opts.DKIMSelector + ", and publish exactly the value it gives you. Some panels split long values into several quoted strings; that is fine."
+				dkim.Hint = "Get the public key from the DKIM settings of the server that signs your mail, for selector " + sel + ", and publish exactly the value it gives you; also enter it on the Domains page so the check compares it. Some panels split long values into several quoted strings; that is fine."
 			}
 		}
 		recs = append(recs, spf, dkim,
@@ -237,14 +262,29 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	kind := s.senderKind(ctx)
+	var facts *SendingFacts
+	if kind == senderGeneric {
+		facts = s.sendingFacts(ctx)
+	}
 	dkimKnown := ""
 	if kind == senderManaged {
 		dkimKnown = s.managedDKIM(ctx, name)
+	} else if facts != nil && facts.DKIMKeys[name] != "" {
+		dkimKnown = facts.DKIMKeys[name]
 	} else if pk, err := s.mailcowDKIM(ctx, name); err == nil && pk != "" {
 		dkimKnown = pk
 	}
-	recs := s.expectedRecords(kind, name, purpose, token, dkimKnown)
-	sip := s.senderIP(kind)
+	recs := s.expectedRecords(kind, facts, name, purpose, token, dkimKnown)
+	var sips []net.IP
+	if ip := s.senderIP(kind); ip != nil {
+		sips = []net.IP{ip}
+	} else if facts != nil {
+		sips = facts.ips()
+	}
+	include := ""
+	if facts != nil {
+		include = facts.SPFInclude
+	}
 	envDomain := name // the SMTP MAIL FROM domain that SPF authenticates
 	if _, bd, ok := splitAddr(s.Opts.BounceAddress); ok {
 		envDomain = bd
@@ -264,7 +304,7 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 			}
 			verified = rec.Pass
 		case "spf":
-			pass, why, spf := evalSPF(ctx, r, name, sip)
+			pass, why, spf := evalSPFFor(ctx, r, name, sips, include)
 			rec.Found = observed(spf, apexErr)
 			rec.Pass = pass
 			if why != "" {
@@ -284,7 +324,7 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 			// SPF counts for DMARC on the envelope (bounce) domain.
 			envSPF := spfOK
 			if envDomain != name {
-				envSPF, _, _ = evalSPF(ctx, r, envDomain, sip)
+				envSPF, _, _ = evalSPFFor(ctx, r, envDomain, sips, include)
 			}
 			var hint string
 			rec.Pass, rec.Found, hint = evalDMARC(ctx, r, name, envDomain, dkimOK, envSPF)

@@ -76,6 +76,25 @@ A check it cannot verify is reported as `CANNOT_CONFIRM`, never as ready. It exi
 With the database configured, `njiwa-mail preflight -record` stores the result; the Delivery infrastructure page shows it as the
 "Check this server can send directly" step. Managed mode still cannot become ready until the host installer has run.
 
+## HTTPS and the host firewall
+
+**HTTPS.** `deploy/nginx.conf` is the reverse proxy: `/` → dashboard (`127.0.0.1:3000`), `/v1/` and `/admin/v1/` → API
+(`127.0.0.1:8080`); `/metrics` and `/health/*` answer 404 from outside (scrape them on `127.0.0.1:8080`); HTTP redirects to HTTPS
+except the ACME challenge path, so `certbot certonly --webroot -w /var/www/certbot -d <host>` and its renewals work. It sends HSTS,
+`nosniff`, `X-Frame-Options: DENY`, a referrer policy and a permissions policy, and hides the nginx version. Verified with
+`nginx -t` and requests through it on nginx 1.24 (Ubuntu 24.04) with HTTP/2. Restrict `/admin/v1/` and `/` to office/VPN ranges
+where you can (commented `allow`/`deny` lines).
+
+**Firewall (managed mode).** `njiwa-mail installer apply` also installs an nftables table, `inet njiwa_mail`
+(`/etc/njiwa-mail/firewall.nft`, loaded at boot by `njiwa-mail-firewall.service`). Its policy is **accept**: it never blocks SSH or
+other services. It only drops, from anything but the host itself, the worker submission port (open to the Compose network when the
+listener is on its gateway) and Njiwa's private ports 2525, 5432, 8080, 3000 and 8891. Port 25 stays open (bounces; it refuses
+relaying). Inspect with `nft list table inet njiwa_mail`; skip with `-no-firewall`. The installer validates it with `nft -c` and
+rolls back like any other file. Tested from a separate network namespace: port 25 reachable, port 3000 dropped with the table, open
+without it. Your provider's firewall and SSH rules remain yours to manage.
+
+`njiwa-mail preflight` reports any private port listening on a public interface (`PRIVATE_PORT_PUBLIC`).
+
 ## Managed delivery: installing the mail service
 
 The installer is a root-only command on the mail host; the Njiwa web process never changes host configuration. Install the packages
@@ -130,6 +149,19 @@ journalctl -fu postfix | njiwa-mail mta-log -file -
 It correlates lines to messages by queue ID (messages submitted in the last 7 days), ignores everything else, never stores addresses
 or IPs from the log, and records each line once. A permanent MTA bounce marks the message bounced but never suppresses the
 recipient; only a bounce report correlated to the message's own recipient does.
+
+## Existing SMTP: what your mail server sends from
+
+Njiwa-Mail cannot see the egress or the DKIM signer of a server it does not run, so with a generic SMTP server the SPF and DKIM
+records start as templates. Enter the facts your mail server's operator documents and they become real requirements and checks:
+
+- Delivery infrastructure → **What your mail server sends from**: sending IP addresses or ranges (public only, at most /16 or
+  /32 for IPv6), the SPF `include:` domain, and the DKIM selector.
+- Each domain's page → **Your mail server's DKIM key for this domain**: the public key the server signs that domain with.
+
+SPF then must authorise every stated address (or, with only an include, reference that include); DKIM must publish exactly that
+key at that selector. API: `PUT /admin/v1/installation/transport-profiles/{id}/sending-facts` (`dkim_keys` entries are merged;
+an empty value removes one). Facts are audited and never change the connection settings or invalidate a connection test.
 
 ## Proof that mail is signed (DKIM)
 

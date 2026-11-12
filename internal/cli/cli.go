@@ -54,7 +54,8 @@ Runtime:
                               -record stores the result for the Delivery infrastructure page (needs the database)
   installer plan|apply|rollback|status   (root, on the mail host; managed mode only)
        [-hostname H -domains a.example,b.example -bounce-domain D -selector S
-        -submission 127.0.0.1:10587 -inbound 127.0.0.1:2525 -adopt -approve DIGEST -record]
+        -submission 127.0.0.1:10587 -inbound 127.0.0.1:2525 -compose-subnet CIDR -no-firewall
+        -adopt -approve DIGEST -record]
                               plan prints the exact changes and a digest; apply needs -approve with that digest,
                               backs up, validates (postfix check, opendkim -n) and rolls back on failure
   retention                   run the retention job once
@@ -705,6 +706,8 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 	submission := fs.String("submission", "127.0.0.1:10587", "private listener for the Njiwa worker (ip:port, never 0.0.0.0)")
 	inbound := fs.String("inbound", "127.0.0.1:2525", "Njiwa inbound listener that receives DSNs (host:port)")
 	adopt := fs.Bool("adopt", false, "replace an existing Postfix configuration not written by Njiwa-Mail (backed up first)")
+	noFirewall := fs.Bool("no-firewall", false, "do not install the nftables table that drops Njiwa's private ports from outside")
+	subnet := fs.String("compose-subnet", firstNonEmpty(os.Getenv("NJIWA_SUBNET"), "172.30.0.0/24"), "Docker network the worker connects from")
 	approve := fs.String("approve", "", "apply only if the plan digest equals this value")
 	receipt := fs.String("receipt", "", "rollback: receipt id (default: the latest)")
 	record := fs.Bool("record", false, "store the result in the database for the Delivery infrastructure page")
@@ -724,7 +727,7 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		}
 	}
 	p := managed.Params{Hostname: *hostname, BounceDomain: *bounce, Domains: ds, Selector: *selector,
-		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt}
+		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt, NoFirewall: *noFirewall, ComposeSubnet: *subnet}
 	show := func(v any, text string) {
 		if *asJSON {
 			_ = json.NewEncoder(os.Stdout).Encode(v)

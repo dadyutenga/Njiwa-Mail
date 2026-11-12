@@ -10,8 +10,10 @@ import { admin } from "@/lib/admin-api";
 import {
   DeliveryInfrastructure,
   installationKey,
+  SendingFactsForm,
   useInstallation,
 } from "@/features/installation/Installation";
+import { TransportProfiles } from "@/features/installation/Profiles";
 import { useWorkspace, useWsKey, type ProjectRow } from "../context";
 import { NewProjectDialog } from "../Layout";
 import {
@@ -501,8 +503,9 @@ export function MailServer() {
           )
         }
       />
-      <div className="mb-4">
+      <div className="mb-4 space-y-4">
         <DeliveryInfrastructure onRecheck={runTest} rechecking={testing} />
+        <TransportProfiles />
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-4">
@@ -655,6 +658,13 @@ export function MailServer() {
               </Field>
             </fieldset>
           </Section>
+          {!managed && !mailcow && inst.data?.active_profile?.mode === "existing_smtp" && (
+            <SendingFactsForm
+              key={inst.data.active_profile.id}
+              profileId={inst.data.active_profile.id}
+              facts={inst.data.active_profile.sending_facts}
+            />
+          )}
           {!managed && mailcow && (
             <Section title={phrase("Mailcow API (optional)")}>
               <p className="mb-3 text-xs text-muted-foreground">

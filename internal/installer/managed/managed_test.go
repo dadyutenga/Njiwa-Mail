@@ -185,3 +185,63 @@ func TestFailedValidationRollsBackAndForeignConfigIsRefused(t *testing.T) {
 		t.Fatal("double rollback allowed")
 	}
 }
+
+func TestFirewallTableIsSafeAndScoped(t *testing.T) {
+	p := params(t)
+	p.SubmissionBind = "172.30.0.1:10587"
+	pl, err := BuildPlan(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rules string
+	for _, f := range pl.Files {
+		if f.Path == FirewallFile {
+			rules = string(f.Content)
+		}
+	}
+	for _, want := range []string{"policy accept;", `iif "lo" accept`, "tcp dport 10587 ip saddr 172.30.0.0/24 accept",
+		"tcp dport { 10587, 2525, 5432, 8080, 3000, 8891 } counter drop", "delete table inet njiwa_mail"} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("firewall lacks %q:\n%s", want, rules)
+		}
+	}
+	for _, never := range []string{"policy drop", "dport 22", "dport 25 ", "dport { 25"} {
+		if strings.Contains(rules, never) {
+			t.Errorf("firewall must not contain %q", never)
+		}
+	}
+	// Loopback-only submission: no subnet rule.
+	p2 := params(t)
+	pl2, _ := BuildPlan(p2)
+	for _, f := range pl2.Files {
+		if f.Path == FirewallFile && strings.Contains(string(f.Content), "saddr") {
+			t.Fatal("loopback submission opened to a network")
+		}
+	}
+	run := &fakeRun{}
+	if _, err := Apply(p2, pl2.Digest, run, now); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(run.calls, "\n")
+	if !strings.Contains(joined, "nft -c -f "+filepath.Join(p2.Root, FirewallFile)) || !strings.Contains(joined, "nft -f "+filepath.Join(p2.Root, FirewallFile)) {
+		t.Fatalf("firewall not validated and loaded: %s", joined)
+	}
+	// A failing rules check rolls back like any other validation failure.
+	p3 := params(t)
+	pl3, _ := BuildPlan(p3)
+	if _, err := Apply(p3, pl3.Digest, &fakeRun{fail: "nft -c"}, now); err == nil {
+		t.Fatal("invalid firewall rules applied")
+	}
+	if _, err := os.Stat(filepath.Join(p3.Root, FirewallFile)); !os.IsNotExist(err) {
+		t.Fatal("firewall file left behind after rollback")
+	}
+	// -no-firewall: no table, and nothing loaded.
+	p4 := params(t)
+	p4.NoFirewall = true
+	pl4, _ := BuildPlan(p4)
+	for _, f := range pl4.Files {
+		if f.Path == FirewallFile {
+			t.Fatal("firewall planned with NoFirewall")
+		}
+	}
+}
