@@ -1,7 +1,7 @@
 # Njiwa-Mail — handoff: everything still to do
 
 **Date:** 2026-11-12 · **Written for:** continuing the work from the office PC (which can reach the server).
-**Current branch:** `main` · **Worker cut-over commit:** `9ed3800` (after the author-history rewrite).
+**Current branch:** `main`.
 
 The `main` and `claude/happy-brahmagupta-pbfu6r` branches were rewritten on 2026-11-12 to assign the 33 former
 Claude-authored commits to `Dadi Nasser Utenga <dadyutenga@yahoo.com>`. Existing clones must fetch and reconcile their local
@@ -12,11 +12,22 @@ each item. The detailed history of what is already done (with test evidence) is 
 gaps is [`REMAINING_WORK.md`](docs/REMAINING_WORK.md); operating instructions are in [`OPERATIONS.md`](docs/OPERATIONS.md); the security
 review is [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md).
 
-**Update on 2026-11-12:** C01 code was committed and pushed to `main` as `9ed3800`. Production worker dispatch now uses
-`transport.Transport`. The stored-profile adapter implements that interface and preserves the profile revision used for each
-send; environment SMTP still uses its existing failover client. The old `mailer.Transport` field remains as a compatibility seam
-for existing tests and callers. Focused worker and transport tests, `go vet ./...`, integration-test compilation, and
-`git diff --check` passed. The database-backed C01 tests were later run and pass (see C01 below).
+**Update on 2026-11-12 (long autonomous session):** every item in section 4 that does not need a real mail host is now implemented, tested and
+pushed, one commit per objective: C01 verified, F09 (operator permission + optional TOTP), F10 (sealed attachments, retention, export/delete),
+F07 (webhook `schema_version`; it also fixed `email.delivery_*` events being impossible to subscribe to), F02 (reconciliation queue), C02
+(key rotation, `rekey`), F06 (signed VERP return path), E10 (queue agent + dashboard; real-host run pending), D04 (per-domain return path),
+C05 (provider boundary, audited writes), B07/B09 (Kiswahili for 722 strings with a coverage test, accessibility, Mail host page, profile
+editing), A01/G08 (generated endpoint/schema docs, admin OpenAPI, examples, troubleshooting), A02/G07 (smoke, Playwright e2e, reproducible
+build + SBOM, release workflow; `govulncheck` found and we fixed Go stdlib, brotli and Fiber advisories; both it and `managed-mta` are now
+blocking and green on GitHub) and G10 (release report with compatibility table and rollback runbook).
+
+**What is NOT done, and why it cannot be done by an assistant:** everything in section 3 (real server) and G09 (a non-author install).
+`rida-server` turned out to be a live multi-service host: Mailcow owns ports 25/465/587 and the installer correctly refuses such a host, so
+managed mode (G05) and the other real-delivery items need a **clean VPS** plus DNS and Gmail/Outlook mailboxes. Also still open: a manual
+screen-reader/phone pass and a native-speaker review of the Kiswahili; Fiber v2 is deprecated upstream (migrate to v3 some day).
+How the work was verified: Go and frontend suites, Playwright and a Compose smoke stack were run in throwaway Docker containers on
+`rida-server` (nothing installed on the workstation, no production container touched; the throwaway containers, volumes and images were
+removed afterwards), and by GitHub Actions on every push.
 
 ---
 
@@ -29,8 +40,10 @@ for existing tests and callers. Focused worker and transport tests, `go vet ./..
   1. **Kinahitaji server halisi** (sehemu ya 3): G05 (managed mode kwenye VPS + Gmail/Outlook), G04 (existing SMTP halisi),
      E06/E07 (delivery na bounce halisi), E12 (Debian/Ubuntu tofauti), G06 (kubadilisha mode na barua kwenye foleni), systemd path,
      CI jobs kuwa blocking.
-  2. **Hakihitaji server** (sehemu ya 4): C01 (integration tests bado), E10 (queue controls
-     kwenye dashboard), F07, F02, G08/A01 (docs), B07 (Kiswahili + accessibility), C02, C05, D04, F06, A02/G07, G09/G10.
+  2. **Hakihitaji server** (sehemu ya 4): **yote yamekamilika na kupimwa** (F09, F10, F07, F02, C02, F06, E10, D04, C05, B07/B09,
+     A01/G08, A02/G07, G10). Kinachobaki ni G09 (mtu mwingine afanye usakinishaji kwa kutumia nyaraka tu), pamoja na majaribio ya
+     screen reader na mapitio ya Kiswahili na mzungumzaji wa asili.
+- **Muhimu:** `rida-server` ni seva ya kazi yenye Mailcow (port 25/465/587): usakinishaji wa managed mode haufai hapo. Tumia VPS safi.
 - **Anza hivi ofisini:** clone → fuata sehemu ya 1 (setup) → sehemu ya 3.1 (G05) hatua kwa hatua.
 - Ukitumia Claude Code kwenye PC, mpe maelekezo ya sehemu ya 7.
 
@@ -393,7 +406,7 @@ Original list:
 - SBOM (`syft` or `go version -m`), reproducible tagged build, browser end-to-end tests (Playwright) for login, installation
   wizard, domains.
 
-### G09 / G10 — release
+### G09 / G10 — release — G10 written; G09 needs a person
 
 - G09: someone who did not write the code installs both modes from a clean server using only the docs; note every place they got
   stuck.

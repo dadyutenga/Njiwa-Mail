@@ -1,4 +1,94 @@
-# Release report — Njiwa Mail v1 (2026-11-09)
+# Release report — Njiwa-Mail (main, 2026-11-12)
+
+## Decision: **Release candidate for a controlled staging install — NOT released for production traffic**
+
+Everything that can be proven without a dedicated mail host is implemented, tested and green in CI. What is **not** proven is the part
+that needs a real server with outbound port 25, DNS you control and a Gmail and an Outlook mailbox: managed mode sending real mail
+(G05), real delivery and bounces (E06/E07), other distributions (E12), a real Mailcow or generic SMTP server (G04), a mode switch with
+real queued mail (G06), and an install by someone who did not write the code (G09). Until those are done and their evidence is in
+`docs/evidence/`, this must not carry production mail. No claim is made that mail reaches an inbox.
+
+The development server (`rida-server`) could not be used for the managed-mode proof: it is a live multi-service host whose ports 25/465/587
+belong to Mailcow, and the installer (correctly) refuses a host that already runs a mail server. Use a clean VPS.
+
+## What is verified, and where
+
+| Claim | Evidence |
+|---|---|
+| Go suite, race detector, real PostgreSQL 16 | CI job `test` (`go test ./... -race`); also run on a throwaway PostgreSQL 16 in Docker on the development server |
+| Frontend: typecheck, 67 unit tests, lint (0 errors), build | CI job `frontend` |
+| Browser tests (Chromium) against the Compose stack: wrong password, sign-in and reload, protected redirect, delivery-mode wizard, add domain | CI job `e2e`; also run on the development server against an isolated Compose project |
+| The shipped stack starts from nothing, is ready, accepts a sign-in, refuses an unauthenticated admin call, runs `rekey -check` and `retention` | CI job `smoke` |
+| Managed installer against **real Postfix and OpenDKIM**: no open relay, mutual-TLS-only submission, sender restrictions, DKIM-signed mail | CI job `managed-mta` (Ubuntu 26.04 runner: Postfix 3.10.6, OpenDKIM 2.11.0~beta2); earlier on Postfix 3.8.6 |
+| No known vulnerabilities in dependencies and standard library | CI job `govulncheck` (blocking; it found Go 1.26.0 stdlib, brotli and Fiber advisories on its first run, all fixed) |
+| Reproducible build; dependency inventory | CI job `supply-chain` (two builds from different directories are byte-identical; SBOM artifact) |
+| Security matrix over every route (auth, CSRF, no secrets in any GET) | `TestEveryRouteRequiresAuthAndCSRF`, `TestNoSecretInAnyAdminResponse`; `docs/SECURITY_REVIEW.md` |
+
+The detailed ticket-by-ticket record is `STATUS.md`; open items are `docs/REMAINING_WORK.md` and `HANDOFF.md`.
+
+## What changed in this release (since the first build)
+
+Operator permission and optional two-step sign-in (F09); sealed attachments, retention and data-subject export/delete (F10); webhook
+`schema_version` (F07); reconciliation queue (F02); signed bounce return paths (F06) and per-domain return paths (D04); encryption-key
+rotation (C02); the mail queue agent and dashboard page (E10); the Mailcow provider boundary with audited writes (C05); Mail host,
+profile editing and Kiswahili for every string (B07/B09); generated endpoint/schema docs, admin OpenAPI, examples and troubleshooting
+(A01/G08); CI hardening (A02/G07). Migrations `0016`–`0021` are additive.
+
+## Compatibility
+
+Only what has actually been run is listed as verified.
+
+| Component | Verified | Not verified |
+|---|---|---|
+| Host OS for managed mode | Ubuntu 26.04 (CI runner, installer + real Postfix/OpenDKIM e2e); a distribution shipping Postfix 3.8.6 (earlier build container) | **Debian 12, Ubuntu 22.04, Ubuntu 24.04 on a real VPS** (E12) |
+| Postfix | 3.10.6 (CI), 3.8.6 (earlier) | 3.7 (Debian 12), 3.6 (Ubuntu 22.04) |
+| OpenDKIM | 2.11.0~beta2 (CI), 2.11.0 (earlier) | other packages |
+| PostgreSQL | 16 (CI and test runs), 18 (earlier build) | 14, 15, 17 |
+| Go | 1.26.11 (`go.mod` toolchain) | older than 1.26.11 (advisories) |
+| Node (dashboard build) | 22 (CI), 24 (development server) | — |
+| Docker Compose | v2 syntax; v5.7 and the GitHub runner's version | older than v2.24 for `!override` use in overrides (not needed by the shipped files) |
+| Existing SMTP | a protocol-level fake with real STARTTLS and TLS verification | a real Mailcow, Postfix or Exim server (G04) |
+| Browser (e2e) | Chromium via Playwright 1.49.1 | Firefox, Safari |
+
+## Rollback runbook
+
+**Before every upgrade:** `scripts/backup.sh` (with `BACKUP_QUEUE=1` on a managed host), copy it off the machine, and keep the current image tag.
+Back up `ENCRYPTION_KEY`, `HMAC_KEY` and, during a rotation, `ENCRYPTION_KEY_PREVIOUS`, separately from the database backup.
+
+1. **Application rollback:** deploy the previous image tag (`docker compose up -d` with the old tag). Migrations are additive, so an older binary
+   starts against the newer schema and ignores what it does not know. The database does not need to be restored for a code-only rollback.
+2. **What an older binary cannot do after this release** (data is not lost; rolling forward again restores it):
+   - *Attachments written after F10 are sealed on disk.* A pre-F10 binary would serve the sealed file as if it were the attachment; downloads
+     are broken until you roll forward again.
+   - *Two-step sign-in and the operator flag are ignored* by a pre-F09 binary: a user with MFA could sign in with a password alone, and every
+     admin is an operator. Do not leave a rolled-back install exposed; if MFA matters, restore access controls (IP allowlist) first.
+   - *Signed return paths (`bounces+<id>.<tag>@…`)*: a pre-F06 binary does not recognise them, so a bounce for a message sent just before the
+     rollback is refused with "user unknown". Set `BOUNCE_VERP=off` **before** rolling back and let in-flight mail drain.
+   - *Webhook `schema_version`, per-domain return paths, DKIM rotation state* are simply unused.
+   - *Rotated keys:* a binary started without `ENCRYPTION_KEY_PREVIOUS` cannot open data still sealed under the old key. Finish `rekey`, or keep both keys.
+3. **Database restore** (data loss or a bad migration): stop the stack, `scripts/restore.sh <backup>`, start the previous image, run `njiwa-mail installer plan`
+   (it must report no change), then send a sandbox test. On a managed host the restore also puts back the Postfix/OpenDKIM configuration, keys and certificates.
+4. **Mode rollback without code rollback:** Installation → Delivery profiles → *Review switching back*; the previous profile is kept for this.
+   Messages already sent keep the profile that actually sent them.
+5. **Managed host change gone wrong:** `njiwa-mail installer rollback` restores the previous Postfix/OpenDKIM files from the backup the last `apply` took;
+   every apply also rolls itself back automatically when `postfix check` or `opendkim -n` fails.
+
+## What a person must still do before production
+
+1. A clean VPS, then `HANDOFF.md` section 3 in order (G05), with the evidence written into `docs/evidence/`.
+2. E06/E07 (real delivery, queue durability across reboot and upgrade, a real bounce — including `correlated_by = verp`).
+3. E12 on Debian 12 and Ubuntu 22.04/24.04, then fill the compatibility table above.
+4. G04: a real Mailcow and a generic Postfix/Exim server; G06: a mode switch with queued mail.
+5. G09: someone who did not write the code installs both modes using only the documents; fix every place they get stuck.
+6. A screen-reader and phone pass, and a native-speaker review of the Kiswahili.
+7. An external penetration test (`docs/SECURITY_REVIEW.md`, "Not covered yet").
+
+
+---
+
+# History: the first build (v1, 2026-11-09)
+
+Kept as the original record; the current status is above.
 
 ## Decision: **Working staging build — NOT released for production traffic**
 

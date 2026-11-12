@@ -75,7 +75,7 @@ cannot be done from the development container.
 | ID | Status | What is missing |
 |---|---|---|
 | G09 | ❌ | First-time user acceptance: a non-author completes both modes from a clean install. |
-| G10 | ❌ | Versioned release report (`docs/RELEASE_REPORT.md` predates this work), rollback runbook, compatibility table (distros, Postfix/OpenDKIM versions, PostgreSQL). |
+| G10 | 🟡 | `docs/RELEASE_REPORT.md` rewritten for this version: honest decision, evidence table, compatibility table (verified vs not), rollback runbook including what an older binary cannot do. The compatibility table's real-host rows (E12) and the evidence files remain to be filled on real servers. |
 
 ## 8. Known limitations to keep in mind (by design, documented)
 
