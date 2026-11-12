@@ -783,17 +783,126 @@ export function MessageLog() {
   );
 }
 
+type Suggestion = { outcome: string; strength: string; basis: string; note: string };
+
+/**
+ * Messages whose acceptance by the mail server could not be confirmed. Each row
+ * says what the evidence suggests; nothing changes until an operator confirms,
+ * and the suggestion's basis is recorded as the note.
+ */
 export function UnknownQueue() {
   const phrase = usePhrase();
+  const [env, setEnv] = useSendingModeParam();
+  const { api, key } = useSendingEnvironment(env);
+  const { to: workspaceTo } = useWorkspace();
+  const client = useQueryClient();
+  const q = useQuery({
+    queryKey: key("unknown"),
+    queryFn: () => api.get<Page>("/unknown?limit=100"),
+  });
+  const sg = (r: Row) => r.suggestion as Suggestion;
   return (
     <>
       <PageHeader
         title={phrase("Unknown queue")}
         description={phrase(
-          "The mail server may or may not have accepted these. They are never retried automatically. Check the mail server log, then record the outcome on each message.",
+          "The mail server may or may not have accepted these. They are never retried automatically. Each row suggests an outcome from the evidence we hold; you decide.",
         )}
       />
-      <MessageList preset={{ state: "unknown" }} />
+      <SendingMode value={env} onChange={setEnv} />
+      <DataState q={q}>
+        {(d) =>
+          d.items.length === 0 ? (
+            <Empty
+              title={phrase("Nothing to reconcile")}
+              description={phrase("No message is waiting for an outcome.")}
+            />
+          ) : (
+            <Table
+              rows={d.items}
+              rowKey={(r) => s(r.id)}
+              columns={[
+                {
+                  key: "id",
+                  label: phrase("Message"),
+                  render: (r) => (
+                    <Link
+                      className="text-primary"
+                      to={withSendingMode(workspaceTo(`messages/${s(r.id)}`), env)}
+                    >
+                      {s(r.template) || s(r.id).slice(0, 8)}
+                    </Link>
+                  ),
+                },
+                { key: "recipient", label: phrase("Recipient") },
+                {
+                  key: "updated_at",
+                  label: phrase("Waiting since"),
+                  render: (r) => <Time value={r.updated_at} relative />,
+                },
+                {
+                  key: "suggestion",
+                  label: phrase("What the evidence suggests"),
+                  render: (r) => (
+                    <span className="block max-w-md text-xs">
+                      <strong>
+                        {sg(r).outcome === "submitted"
+                          ? phrase("Looks accepted")
+                          : sg(r).outcome === "failed"
+                            ? phrase("Looks failed")
+                            : phrase("No suggestion")}
+                        {sg(r).outcome && sg(r).strength === "weak" ? ` (${phrase("weak")})` : ""}
+                      </strong>{" "}
+                      {phrase(sg(r).basis)}
+                    </span>
+                  ),
+                },
+                {
+                  key: "x",
+                  label: <span className="sr-only">{phrase("Actions")}</span>,
+                  render: (r) =>
+                    sg(r).outcome ? (
+                      <ConfirmButton
+                        destructive={false}
+                        title={`${phrase("Record this message as")} ${sg(r).outcome}?`}
+                        description={
+                          <>
+                            <p>{phrase(sg(r).basis)}</p>
+                            <p className="mt-2">
+                              {phrase("Note recorded:")} <code>{sg(r).note}</code>
+                            </p>
+                          </>
+                        }
+                        confirm="Record outcome"
+                        onConfirm={async () => {
+                          await run(
+                            () =>
+                              api.send(`/messages/${s(r.id)}/resolve`, "POST", {
+                                as: sg(r).outcome,
+                                note: sg(r).note,
+                              }),
+                            phrase("Outcome recorded."),
+                          );
+                          client.invalidateQueries({ queryKey: key("unknown") });
+                          client.invalidateQueries({ queryKey: key("messages") });
+                        }}
+                      >
+                        {phrase("Accept suggestion")}
+                      </ConfirmButton>
+                    ) : (
+                      <Link
+                        className="text-primary text-xs"
+                        to={withSendingMode(workspaceTo(`messages/${s(r.id)}`), env)}
+                      >
+                        {phrase("Review")}
+                      </Link>
+                    ),
+                },
+              ]}
+            />
+          )
+        }
+      </DataState>
     </>
   );
 }

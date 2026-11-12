@@ -134,6 +134,11 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "message.retry", "message", acc.ID, scoped(sc, map[string]any{"original": c.Params("id")}))
 		return acc, nil
 	})
+	// F02: unknown messages with a suggested outcome from the evidence we hold.
+	h("GET", "/unknown", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, more, err := svc.ReconciliationQueue(ctx(c), sc, pageOf(c))
+		return list(c, items, more, err)
+	})
 	h("POST", "/messages/:id/resolve", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			As   string `json:"as"`

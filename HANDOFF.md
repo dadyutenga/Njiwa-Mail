@@ -347,10 +347,9 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 
 - `schema_version` in every event; see `docs/WEBHOOKS.md` (Schema versions). Retry and idempotency tests added.
 
-### F02 — reconciliation queue
+### F02 — reconciliation queue — **done**
 
-- A dashboard screen listing `unknown` messages; suggest an outcome from MTA log evidence (queue id from "queued as" +
-  `delivery_events`); operator confirms with a note (already audited).
+- Unknown queue screen suggests an outcome from the evidence; the operator confirms. Rules are in `internal/service/reconcile.go`.
 
 ### F06 — stronger bounce correlation
 

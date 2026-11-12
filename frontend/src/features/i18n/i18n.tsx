@@ -225,6 +225,15 @@ export function useI18n() {
 }
 
 const swPhrases: Record<string, string> = {
+  "Nothing to reconcile": "Hakuna cha kuthibitisha",
+  "No message is waiting for an outcome.": "Hakuna ujumbe unaosubiri matokeo.",
+  "What the evidence suggests": "Ushahidi unapendekeza nini",
+  "Looks accepted": "Inaonekana imekubaliwa",
+  "Looks failed": "Inaonekana imeshindwa",
+  "No suggestion": "Hakuna pendekezo",
+  "Accept suggestion": "Kubali pendekezo",
+  "Waiting since": "Inasubiri tangu",
+  "Outcome recorded.": "Matokeo yamerekodiwa.",
   "Export CSV": "Pakua CSV",
   "Export record": "Pakua rekodi",
   "Delete record": "Futa rekodi",

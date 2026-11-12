@@ -64,7 +64,7 @@ cannot be done from the development container.
 
 | ID | Status | What is missing |
 |---|---|---|
-| F02 | 🟡 | Operators can resolve unknown outcomes with a required note (audited, recorded as evidence). Missing: suggesting the outcome from MTA log evidence / queue ID, and a dedicated reconciliation queue screen. |
+| F02 | ✅ | Unknown queue screen with a suggested outcome per message from the queue id and delivery evidence (`GET .../unknown`); the operator confirms and the basis is recorded as the note; evidence never decides by itself. |
 | F07 | ✅ | `schema_version` in every event (body and `X-DM-Schema-Version`), per-endpoint pin, version stamped per delivery (migration 0018); `email.delivery_*` events can now be subscribed to; retry/idempotency tests. |
 | F09 | ✅ | Installation-operator permission (migration 0016, default true so nobody loses access) and optional TOTP with recovery codes, replay protection, lockout and a `require_mfa` policy. |
 | F10 | ✅ | Retention for delivery evidence and installer receipts (settings), per-message and per-recipient export (JSON/CSV) and delete incl. attachment files, inbound attachments sealed at rest with a legacy converter (`attachments encrypt`). |

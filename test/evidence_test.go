@@ -121,3 +121,59 @@ func TestQueueIDFromReply(t *testing.T) {
 		}
 	}
 }
+
+// F02: the reconciliation queue lists unknown messages, suggests an outcome
+// from the evidence, and changes nothing until an operator confirms with a note.
+func TestReconciliationQueueSuggestsButNeverDecides(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	k := e.provision("rec")
+	mk := func(key string) string {
+		r := e.post(k.live, idem(key), otpBody(testRcpt))
+		e.runWorker()
+		id := str(r.JSON, "id")
+		_, err := e.pool.Exec(ctx, `UPDATE messages SET state='unknown' WHERE id=$1`, id)
+		e.must(err)
+		return id
+	}
+	none, accepted, bounced := mk("rq1"), mk("rq2"), mk("rq3")
+	e.must(execOK(e, `UPDATE messages SET mta_queue_id='AAAA111122' WHERE id='`+accepted+`'`))
+	e.must(execOK(e, `UPDATE messages SET mta_queue_id='BBBB333344' WHERE id='`+bounced+`'`))
+	e.must(execOK(e, `DELETE FROM delivery_events WHERE message_id='`+none+`'`))
+	e.must(execOK(e, `INSERT INTO delivery_events(message_id, source, event, dedupe_key) VALUES
+('`+accepted+`','mta_log','remote_accepted','rq-a'), ('`+bounced+`','dsn','bounced','rq-b')`))
+
+	by := map[string]map[string]any{}
+	for _, it := range items(e.admOK(admin, "GET", "/admin/v1/w/rec/live/unknown", nil)) {
+		by[str(it, "id")] = it["suggestion"].(map[string]any)
+	}
+	if len(by) != 3 {
+		t.Fatalf("queue length %d", len(by))
+	}
+	if by[none]["outcome"] != "" || by[accepted]["outcome"] != "submitted" || by[bounced]["outcome"] != "failed" || by[accepted]["strength"] != "strong" {
+		t.Fatalf("suggestions: %v", by)
+	}
+	for id, st := range map[string]string{none: "unknown", accepted: "unknown", bounced: "unknown"} {
+		if e.state(id) != st {
+			t.Fatalf("a suggestion changed %s to %s", id, e.state(id))
+		}
+	}
+	// Another project's operator view of the queue is scoped.
+	e.provision("rec2")
+	if n := len(items(e.admOK(admin, "GET", "/admin/v1/w/rec2/live/unknown", nil))); n != 0 {
+		t.Fatalf("queue leaked across projects: %d", n)
+	}
+	// Confirming with the suggested note resolves and is audited.
+	sg := by[accepted]
+	e.admOK(admin, "POST", "/admin/v1/w/rec/live/messages/"+accepted+"/resolve", map[string]any{"as": sg["outcome"], "note": sg["note"]})
+	if e.state(accepted) != "submitted" {
+		t.Fatalf("state %s", e.state(accepted))
+	}
+	if n := len(items(e.admOK(admin, "GET", "/admin/v1/w/rec/live/unknown", nil))); n != 2 {
+		t.Fatalf("resolved message still queued: %d", n)
+	}
+	if e.count(`SELECT count(*) FROM audit_log WHERE action='message.resolve_unknown'`) != 1 {
+		t.Fatal("resolution not audited")
+	}
+}
