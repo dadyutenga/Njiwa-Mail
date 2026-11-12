@@ -1,12 +1,20 @@
 # Njiwa-Mail — handoff: everything still to do
 
 **Date:** 2026-11-12 · **Written for:** continuing the work from the office PC (which can reach the server).
-**Branch used so far:** `claude/happy-brahmagupta-pbfu6r` · **Merged:** PRs #1–#9 (everything is on `main`).
+**Current branch:** `main` · **Latest implementation commit:** `539078a` (worker transport cut-over and handoff documents).
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
-each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](../STATUS.md); the short list of
-gaps is [`REMAINING_WORK.md`](REMAINING_WORK.md); operating instructions are in [`OPERATIONS.md`](OPERATIONS.md); the security
-review is [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
+each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of
+gaps is [`REMAINING_WORK.md`](docs/REMAINING_WORK.md); operating instructions are in [`OPERATIONS.md`](docs/OPERATIONS.md); the security
+review is [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md).
+
+**Update on 2026-11-12:** C01 code was committed and pushed to `main` as `539078a`. Production worker dispatch now uses
+`transport.Transport`. The stored-profile adapter implements that interface and preserves the profile revision used for each
+send; environment SMTP still uses its existing failover client. The old `mailer.Transport` field remains as a compatibility seam
+for existing tests and callers. Focused worker and transport tests, `go vet ./...`, integration-test compilation, and
+`git diff --check` passed. The database-backed integration tests named in C01 **have not run**: no disposable PostgreSQL server
+was listening on port 5433 in this workspace. Run them on the office PC before marking C01 complete. No real-server task was
+completed in this update.
 
 ---
 
@@ -19,7 +27,7 @@ review is [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
   1. **Kinahitaji server halisi** (sehemu ya 3): G05 (managed mode kwenye VPS + Gmail/Outlook), G04 (existing SMTP halisi),
      E06/E07 (delivery na bounce halisi), E12 (Debian/Ubuntu tofauti), G06 (kubadilisha mode na barua kwenye foleni), systemd path,
      CI jobs kuwa blocking.
-  2. **Hakihitaji server** (sehemu ya 4): F09 (roles + MFA), F10 (retention/encryption), C01 (worker cut-over), E10 (queue controls
+  2. **Hakihitaji server** (sehemu ya 4): F09 (roles + MFA), F10 (retention/encryption), C01 (integration tests bado), E10 (queue controls
      kwenye dashboard), F07, F02, G08/A01 (docs), B07 (Kiswahili + accessibility), C02, C05, D04, F06, A02/G07, G09/G10.
 - **Anza hivi ofisini:** clone → fuata sehemu ya 1 (setup) → sehemu ya 3.1 (G05) hatua kwa hatua.
 - Ukitumia Claude Code kwenye PC, mpe maelekezo ya sehemu ya 7.
@@ -321,12 +329,14 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 
 ### C01 — worker cut-over to `transport.Transport`
 
-- Today: `internal/transport` defines the interface and an SMTP wrapper, but the worker still uses `mailer.Transport` /
-  `StoredTransport`.
-- Build: the worker resolves the active profile to a `transport.Transport` (existing SMTP, managed MTA), keeps the outcome
-  classification, profile pinning, circuit breaker and failover exactly as now.
-- Tests: all existing worker tests unchanged and green (`TestWorkerUsesActiveProfileAndPinsMessages`,
-  `TestUnknownOutcomeIsPinnedAndNotResent`, `TestTransportOutageBreakerAndDegradedReadiness`).
+- **Code landed (`539078a`):** production worker dispatch uses `transport.Transport`; `StoredTransport` implements the
+  contract and pins the active profile revision. The environment SMTP path wraps the same failover client. Legacy
+  `mailer.Transport` callers still work through a compatibility field.
+- **Verified:** focused worker and transport tests, `go vet ./...`, and compilation of the integration test package passed.
+- **Still required before closing C01:** run the database-backed worker tests with a throwaway PostgreSQL database, including
+  `TestWorkerUsesActiveProfileAndPinsMessages`, `TestUnknownOutcomeIsPinnedAndNotResent`, and
+  `TestTransportOutageBreakerAndDegradedReadiness`; run the full section 1.3 Go suite. Confirm the managed and existing SMTP
+  profiles each submit and pin correctly in those tests.
 
 ### F10 — retention, export, delete; encryption at rest
 
