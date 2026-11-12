@@ -76,6 +76,25 @@ A check it cannot verify is reported as `CANNOT_CONFIRM`, never as ready. It exi
 With the database configured, `njiwa-mail preflight -record` stores the result; the Delivery infrastructure page shows it as the
 "Check this server can send directly" step. Managed mode still cannot become ready until the host installer has run.
 
+## HTTPS and the host firewall
+
+**HTTPS.** `deploy/nginx.conf` is the reverse proxy: `/` → dashboard (`127.0.0.1:3000`), `/v1/` and `/admin/v1/` → API
+(`127.0.0.1:8080`); `/metrics` and `/health/*` answer 404 from outside (scrape them on `127.0.0.1:8080`); HTTP redirects to HTTPS
+except the ACME challenge path, so `certbot certonly --webroot -w /var/www/certbot -d <host>` and its renewals work. It sends HSTS,
+`nosniff`, `X-Frame-Options: DENY`, a referrer policy and a permissions policy, and hides the nginx version. Verified with
+`nginx -t` and requests through it on nginx 1.24 (Ubuntu 24.04) with HTTP/2. Restrict `/admin/v1/` and `/` to office/VPN ranges
+where you can (commented `allow`/`deny` lines).
+
+**Firewall (managed mode).** `njiwa-mail installer apply` also installs an nftables table, `inet njiwa_mail`
+(`/etc/njiwa-mail/firewall.nft`, loaded at boot by `njiwa-mail-firewall.service`). Its policy is **accept**: it never blocks SSH or
+other services. It only drops, from anything but the host itself, the worker submission port (open to the Compose network when the
+listener is on its gateway) and Njiwa's private ports 2525, 5432, 8080, 3000 and 8891. Port 25 stays open (bounces; it refuses
+relaying). Inspect with `nft list table inet njiwa_mail`; skip with `-no-firewall`. The installer validates it with `nft -c` and
+rolls back like any other file. Tested from a separate network namespace: port 25 reachable, port 3000 dropped with the table, open
+without it. Your provider's firewall and SSH rules remain yours to manage.
+
+`njiwa-mail preflight` reports any private port listening on a public interface (`PRIVATE_PORT_PUBLIC`).
+
 ## Managed delivery: installing the mail service
 
 The installer is a root-only command on the mail host; the Njiwa web process never changes host configuration. Install the packages

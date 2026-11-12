@@ -8,6 +8,7 @@ package preflight
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -42,6 +43,7 @@ const (
 	CodeEgressBlocked     = "SMTP_EGRESS_BLOCKED"
 	CodeMTAConflict       = "MTA_CONFLICT"
 	CodeMissingParameters = "PREFLIGHT_PARAMETERS_MISSING"
+	CodePrivatePortPublic = "PRIVATE_PORT_PUBLIC"
 )
 
 type Check struct {
@@ -108,7 +110,7 @@ func Run(ctx context.Context, env Env, p Params) []Check {
 	} else {
 		out = append(out, checkLocalIP(env, ip), checkHostnameA(ctx, env, p.Hostname, ip), checkPTR(ctx, env, p.Hostname, ip))
 	}
-	out = append(out, checkEgress(ctx, env, p.ProbeMX), checkConflicts(ctx, env))
+	out = append(out, checkEgress(ctx, env, p.ProbeMX), checkConflicts(ctx, env), checkPrivatePorts(env))
 	return out
 }
 
@@ -397,4 +399,72 @@ func HostEnv() Env {
 			return strings.TrimSpace(line), err
 		},
 	}
+}
+
+// privatePorts must listen on loopback (or a private Docker gateway) only:
+// the inbound listener, PostgreSQL, the API, the dashboard, the DKIM milter.
+var privatePorts = map[int]string{2525: "Njiwa inbound listener", 5432: "PostgreSQL", 8080: "Njiwa API", 3000: "Njiwa dashboard", 8891: "DKIM signer"}
+
+// checkPrivatePorts reads the kernel's listening sockets and reports any
+// private port bound to all interfaces or a public address. The HTTPS proxy
+// is the only way the API and dashboard should be reached from outside.
+func checkPrivatePorts(env Env) Check {
+	c := Check{Key: "private_ports", Title: "Private ports are not public", Required: true}
+	var found []string
+	read := false
+	for _, f := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		b, err := env.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		read = true
+		for _, line := range strings.Split(string(b), "\n")[1:] {
+			fs := strings.Fields(line)
+			if len(fs) < 4 || fs[3] != "0A" { // 0A = LISTEN
+				continue
+			}
+			ip, port, ok := parseProcAddr(fs[1])
+			if !ok {
+				continue
+			}
+			name, private := privatePorts[port]
+			if !private || ip.IsLoopback() || (ip.IsPrivate() && !ip.IsUnspecified()) {
+				continue
+			}
+			found = append(found, fmt.Sprintf("%s (port %d) listens on %s", name, port, ip))
+		}
+	}
+	if !read {
+		c.Status, c.Detail = CannotConfirm, "the listening sockets could not be read"
+		return c
+	}
+	if len(found) == 0 {
+		c.Status, c.Detail = Ready, "no private port listens on a public interface"
+		return c
+	}
+	c.Status, c.Code, c.Detail = NeedsAction, CodePrivatePortPublic, strings.Join(found, "; ")
+	c.Fix = "Bind these to 127.0.0.1 (the provided compose.yaml does), and reach the API and dashboard only through the HTTPS proxy. The installer's firewall table also drops them from outside."
+	return c
+}
+
+// parseProcAddr decodes "0100007F:1F90" (little-endian IPv4) or the 32-hex
+// IPv6 form from /proc/net/tcp*.
+func parseProcAddr(s string) (net.IP, int, bool) {
+	h, p, ok := strings.Cut(s, ":")
+	if !ok {
+		return nil, 0, false
+	}
+	port, err := strconv.ParseUint(p, 16, 16)
+	if err != nil {
+		return nil, 0, false
+	}
+	raw, err := hex.DecodeString(h)
+	if err != nil || (len(raw) != 4 && len(raw) != 16) {
+		return nil, 0, false
+	}
+	ip := make(net.IP, len(raw))
+	for i := 0; i < len(raw); i += 4 { // each 32-bit word is little-endian
+		ip[i], ip[i+1], ip[i+2], ip[i+3] = raw[i+3], raw[i+2], raw[i+1], raw[i]
+	}
+	return ip, int(port), true
 }

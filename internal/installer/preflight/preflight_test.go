@@ -48,6 +48,8 @@ func goodHost() (Env, Params) {
 	files := map[string]string{
 		"/etc/os-release": "PRETTY_NAME=\"Debian GNU/Linux 12 (bookworm)\"\nID=debian\nVERSION_ID=\"12\"\n",
 		"/proc/meminfo":   "MemTotal: 2048000 kB\nMemAvailable: 1500000 kB\n",
+		// postgres on 127.0.0.1:5432, API on 127.0.0.1:8080, smtp on 0.0.0.0:25
+		"/proc/net/tcp": "  sl  local_address rem_address   st\n   0: 0100007F:1538 00000000:0000 0A\n   1: 0100007F:1F90 00000000:0000 0A\n   2: 00000000:0019 00000000:0000 0A\n",
 	}
 	exists := map[string]bool{"/run/systemd/system": true, "/run/systemd/timesync/synchronized": true}
 	env := Env{
@@ -152,6 +154,19 @@ func TestEachProblemIsReportedWithCodeAndFix(t *testing.T) {
 			}
 		}, "clock", CannotConfirm, CodeClockUnsynced},
 		{"missing parameters", func(_ *Env, p *Params) { p.IP = "" }, "parameters", NeedsAction, CodeMissingParameters},
+		{"PostgreSQL on all interfaces", func(e *Env, _ *Params) {
+			orig := e.ReadFile
+			e.ReadFile = func(p string) ([]byte, error) {
+				if p == "/proc/net/tcp" {
+					// 0.0.0.0:5432 listening, and an IPv6 [::]:8080
+					return []byte("  sl  local_address rem_address   st\n   0: 00000000:1538 00000000:0000 0A\n"), nil
+				}
+				if p == "/proc/net/tcp6" {
+					return []byte("  sl  local_address rem_address   st\n   0: 00000000000000000000000000000000:1F90 00000000000000000000000000000000:0000 0A\n"), nil
+				}
+				return orig(p)
+			}
+		}, "private_ports", NeedsAction, CodePrivatePortPublic},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
