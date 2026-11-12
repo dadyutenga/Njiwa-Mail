@@ -132,7 +132,7 @@ func Run(args []string) {
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
 		PublicURL: cfg.PublicURL, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
-		LiveDomainPerMinute: cfg.LiveDomainPerMinute, LiveDomainPerHour: cfg.LiveDomainPerHour})
+		LiveDomainPerMinute: cfg.LiveDomainPerMinute, LiveDomainPerHour: cfg.LiveDomainPerHour, LiveQueueMax: cfg.LiveQueueMax})
 	if cfg.AllowUnregisteredLiveDomains {
 		slog.Warn("ALLOW_UNREGISTERED_LIVE_DOMAINS is on: Live mail may use sending domains that no project has registered. Register and verify every sending domain, then turn this off.")
 	}
