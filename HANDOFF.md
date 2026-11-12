@@ -309,9 +309,7 @@ versions and any differences in a compatibility table (also needed for G10).
 
 ### 3.9 CI and supply chain (G07)
 
-- [ ] Look at the `govulncheck` and `managed-mta` jobs on GitHub Actions. When both are green once, remove `continue-on-error`
-      in `.github/workflows/ci.yml` so they block merges.
-- [ ] Fix any reported vulnerability (`govulncheck ./...`).
+- [x] `govulncheck` and `managed-mta` are green on GitHub Actions and blocking (2026-11-12); the advisories found were fixed.
 
 ---
 
@@ -385,9 +383,9 @@ Original list:
 - `docs/ENDPOINTS.md` (generated; keep current with `UPDATE_DOCS=1 go test ./test -run TestEndpointsAndSchemaDoc`), `docs/openapi-admin.yaml`,
   `docs/EXAMPLES.md`, `docs/TROUBLESHOOTING.md`.
 
-### A02 / G07 — CI — **mostly done; check the first GitHub runs**
+### A02 / G07 — CI — **done** (all jobs green on GitHub, govulncheck and managed-mta blocking)
 
-Done: `smoke`, `e2e` (Playwright), `supply-chain` (reproducibility + SBOM), `release.yml`, `managed-mta` blocking, and the vulnerabilities govulncheck found are fixed. **Left:** look at the first runs of `smoke`, `e2e` and `supply-chain` on GitHub; when `govulncheck` is green remove its `continue-on-error`.
+Done: `smoke`, `e2e` (Playwright), `supply-chain` (reproducibility + SBOM), `release.yml`, `managed-mta` blocking, and the vulnerabilities govulncheck found are fixed. Verified on GitHub (run 43276949239): every job green. Fiber v2 is deprecated upstream (v3 exists); migrating is future work.
 
 Original list:
 

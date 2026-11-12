@@ -61,11 +61,10 @@ jobs:
           if docker compose --profile inbound config | grep -qi mailcow; then echo "core compose references Mailcow"; exit 1; fi
 
   # Known-vulnerability scan of the Go dependencies and standard library.
-  # Non-blocking until its first run on main is clean; then remove
-  # continue-on-error so findings block merges.
+  # Blocking: the first run found real advisories (Go 1.26.0 stdlib, brotli,
+  # Fiber); they were fixed and it has been clean since.
   govulncheck:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
