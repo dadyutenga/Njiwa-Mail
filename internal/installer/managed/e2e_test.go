@@ -139,6 +139,11 @@ func TestE2EAcceptedMailIsDKIMSigned(t *testing.T) {
 			t.Fatalf("received message is not signed for notify.example.test/njiwa:\n%s", h)
 		}
 		t.Logf("received with a DKIM signature for d=notify.example.test s=njiwa (queue reply %q)", res.Reply)
+		if path := os.Getenv("NJIWA_E2E_CAPTURE"); path != "" {
+			if err := os.WriteFile(path, got, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the message did not arrive at the inbound listener")
 	}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/api"
 	"github.com/njiwa-tz/mail/internal/config"
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/dnsauth"
 	"github.com/njiwa-tz/mail/internal/inbound"
 	"github.com/njiwa-tz/mail/internal/installer/managed"
 	"github.com/njiwa-tz/mail/internal/installer/preflight"
@@ -41,6 +43,8 @@ Runtime:
   worker-health [-max 60s]    exit non-zero if no worker heartbeat (for container healthchecks)
   role-health -role R [-max 60s]   same, for worker | inbound | scheduler
   dns-check                   run the read-only DNS health check now and print the results
+  dkim-verify [-file message.eml|-]
+                              verify every DKIM signature on a received message (needs DNS, not the database)
   mta-log [-file /var/log/mail.log|-] [-follow]
                               record delivery evidence (sent, deferred, bounced) from Postfix log lines,
                               correlated to messages by queue ID; "-" reads stdin (journalctl -fu postfix | ...)
@@ -98,6 +102,10 @@ func Run(args []string) {
 	// only -record needs the full configuration.
 	if args[0] == "preflight" && !hasFlag(args[1:], "record") {
 		runPreflight(context.Background(), nil, args[1:])
+		return
+	}
+	if args[0] == "dkim-verify" {
+		runDKIMVerify(args[1:])
 		return
 	}
 	if args[0] == "installer" && !hasFlag(args[1:], "record") {
@@ -866,4 +874,37 @@ func runMTALog(ctx context.Context, svc *service.Service, args []string) {
 func offset(f *os.File) int64 {
 	o, _ := f.Seek(0, io.SeekCurrent)
 	return o
+}
+
+// runDKIMVerify prints the result of every DKIM signature on a message, for
+// example the "original" of a test message downloaded from a mailbox.
+func runDKIMVerify(args []string) {
+	fs := flag.NewFlagSet("dkim-verify", flag.ExitOnError)
+	file := fs.String("file", "-", `message file, or "-" for stdin`)
+	fs.Parse(args)
+	var raw []byte
+	var err error
+	if *file == "-" {
+		raw, err = io.ReadAll(io.LimitReader(os.Stdin, service.MaxVerifyBytes+1))
+	} else {
+		raw, err = os.ReadFile(*file)
+	}
+	if err != nil {
+		die(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	res := dnsauth.VerifyDKIM(ctx, net.DefaultResolver, raw, time.Now())
+	if len(res) == 0 {
+		fmt.Println("no DKIM-Signature header: the message is not signed")
+		os.Exit(1)
+	}
+	ok := false
+	for _, r := range res {
+		fmt.Printf("%-9s d=%s s=%s %s\n", strings.ToUpper(r.Result), r.Domain, r.Selector, r.Reason)
+		ok = ok || r.Result == "pass"
+	}
+	if !ok {
+		os.Exit(1)
+	}
 }

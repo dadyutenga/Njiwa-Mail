@@ -292,6 +292,8 @@ type Processor struct {
 	Poll  time.Duration
 	Lease time.Duration
 	Batch int
+	// Resolver looks up DKIM keys for signed-mail evidence; nil = system DNS.
+	Resolver service.Resolver
 }
 
 func (p *Processor) Run(ctx context.Context) {
@@ -364,6 +366,9 @@ func (p *Processor) process(ctx context.Context, it service.SpoolItem) (code str
 		slog.Error("storing inbound message failed", "spool", it.ID, "err", err)
 		return "store_failed"
 	}
+	// Mail from one of the project's own domains is evidence about its DKIM
+	// signing (D06). Best effort; it never affects what was stored.
+	p.Svc.RecordInboundDKIM(ctx, it.To, raw, p.Resolver)
 	slog.Info("inbound processed", "spool", it.ID, "stored", n, "attachments", len(parsed.Attachments))
 	return ""
 }
