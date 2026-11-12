@@ -148,6 +148,7 @@ ON CONFLICT (id) DO UPDATE SET smtp_host=EXCLUDED.smtp_host, smtp_port=EXCLUDED.
 // legacy singleton row (no profile exists).
 type ActiveSMTP struct {
 	Cfg       mailer.SMTPConfig
+	Mode      string
 	Sender    string
 	ProfileID string
 	Revision  int64
@@ -178,12 +179,14 @@ func (s *Service) LoadActiveSMTP(ctx context.Context) (ActiveSMTP, error) {
 	err := s.Pool.QueryRow(ctx, `SELECT id::text, config_revision, mode, config_json, encrypted_secret, updated_at FROM transport_profiles WHERE is_active`).
 		Scan(&a.ProfileID, &a.Revision, &mode, &cj, &pwEnc, &a.Updated)
 	if errors.Is(err, db.ErrNoRows) {
+		a.Mode = "existing_smtp"
 		a.Cfg, a.Sender, a.Updated, a.OK, err = s.legacyStoredSMTP(ctx)
 		return a, err
 	}
 	if err != nil {
 		return a, err
 	}
+	a.Mode = mode
 	switch mode {
 	case "existing_smtp":
 		a.Cfg, a.Sender, _, a.OK, err = s.openSMTPProfile(cj, pwEnc, a.Updated)

@@ -14,11 +14,13 @@ import (
 
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/transport"
 )
 
 type Worker struct {
 	Svc               *service.Service
-	SMTP              mailer.Transport // nil => live messages are not claimed
+	SMTP              mailer.Transport    // nil => live messages are not claimed
+	Transport         transport.Transport // production dispatch; SMTP remains for legacy callers
 	ID                string
 	Poll              time.Duration
 	Batch             int
@@ -45,14 +47,14 @@ type Worker struct {
 // transport-level failures the worker stops claiming Live mail for a while,
 // so queued messages wait (keeping their attempts and TTL) instead of each
 // failing against a server that is down. One success closes it again.
-func (w *Worker) breaker(res mailer.Result) {
+func (w *Worker) breaker(res transport.Receipt) {
 	w.breakerMu.Lock()
 	defer w.breakerMu.Unlock()
-	if res.Outcome == mailer.Accepted {
+	if res.Outcome == transport.Accepted {
 		w.failStreak, w.pauses = 0, 0
 		return
 	}
-	if res.Outcome != mailer.TempFailure || !service.TransportDown(res.Reason) {
+	if res.Outcome != transport.Temporary || !service.TransportDown(res.SafeReason) {
 		return
 	}
 	w.failStreak++
@@ -66,7 +68,7 @@ func (w *Worker) breaker(res mailer.Result) {
 	w.pauses++
 	w.failStreak = 0
 	w.pauseUntil = time.Now().Add(d)
-	slog.Warn("mail server unreachable: pausing live sends", "reason", res.Reason, "pause", d.String())
+	slog.Warn("mail server unreachable: pausing live sends", "reason", res.SafeReason, "pause", d.String())
 }
 
 // LivePaused reports whether the breaker is holding Live claims.
@@ -90,7 +92,36 @@ type PinnedSender interface {
 	SendPinned(ctx context.Context, e mailer.Envelope) (mailer.Result, service.TransportPin)
 }
 
+// PinnedTransport reports the exact profile revision used for a submission.
+type PinnedTransport interface {
+	SubmitPinned(ctx context.Context, s transport.Submission) (transport.Receipt, service.TransportPin)
+}
+
+func (w *Worker) submit(ctx context.Context, sub transport.Submission) (transport.Receipt, service.TransportPin) {
+	if ps, ok := w.Transport.(PinnedTransport); ok {
+		return ps.SubmitPinned(ctx, sub)
+	}
+	if w.Transport != nil {
+		return w.Transport.Submit(ctx, sub), service.TransportPin{}
+	}
+	e := mailer.Envelope{From: sub.EnvelopeFrom, Recipients: sub.Recipients, Raw: sub.RFC5322}
+	if len(sub.Recipients) > 0 {
+		e.To = sub.Recipients[0]
+	}
+	if ps, ok := w.SMTP.(PinnedSender); ok {
+		r, pin := ps.SendPinned(ctx, e)
+		return transport.FromMailer(r, time.Now().UTC()), pin
+	}
+	return transport.FromMailer(w.SMTP.Send(ctx, e), time.Now().UTC()), service.TransportPin{}
+}
+
 func (w *Worker) liveReady(ctx context.Context) bool {
+	if w.Transport != nil {
+		if r, ok := w.Transport.(Readiness); ok {
+			return r.Ready(ctx)
+		}
+		return true
+	}
 	if r, ok := w.SMTP.(Readiness); ok {
 		return r.Ready(ctx)
 	}
@@ -145,7 +176,7 @@ func (w *Worker) backoff(attempts int) time.Duration {
 // Run loops until ctx is cancelled.
 func (w *Worker) Run(ctx context.Context) {
 	w.defaults()
-	slog.Info("worker started", "id", w.ID, "live_enabled", w.SMTP != nil)
+	slog.Info("worker started", "id", w.ID, "live_enabled", w.Transport != nil || w.SMTP != nil)
 	lastRet := time.Time{}
 	lastBeat := time.Time{}
 	for ctx.Err() == nil {
@@ -192,7 +223,7 @@ func (w *Worker) RunOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	modes := []string{"sandbox"}
-	if w.SMTP != nil && !w.LivePaused() && w.liveReady(ctx) {
+	if (w.Transport != nil || w.SMTP != nil) && !w.LivePaused() && w.liveReady(ctx) {
 		modes = append(modes, "live")
 	}
 	claimed, err := w.Svc.Claim(ctx, w.Batch, w.Lease, modes)
@@ -298,22 +329,18 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	if w.BounceAddress != "" {
 		envFrom = w.BounceAddress
 	}
-	envl := mailer.Envelope{From: envFrom, To: pl.To, Recipients: rcpts, Raw: raw}
-	var res mailer.Result
-	if ps, ok := w.SMTP.(PinnedSender); ok {
-		res, c.Pin = ps.SendPinned(sctx, envl)
-	} else {
-		res = w.SMTP.Send(sctx, envl)
-	}
+	sub := transport.Submission{MessageID: msgID, EnvelopeFrom: envFrom, Recipients: rcpts, RFC5322: raw}
+	res, pin := w.submit(sctx, sub)
+	c.Pin = pin
 	cancel()
 	w.breaker(res)
 
 	switch res.Outcome {
-	case mailer.Accepted:
+	case transport.Accepted:
 		var ok bool
 		var perr error
 		for i := 0; i < 5; i++ { // the message IS accepted; keep trying to record that
-			if ok, perr = w.Svc.MarkSubmitted(context.WithoutCancel(ctx), c, res.Reason, res.Reply, msgID); ok || (perr == nil && !ok) {
+			if ok, perr = w.Svc.MarkSubmitted(context.WithoutCancel(ctx), c, res.SafeReason, res.TransportID, msgID); ok || (perr == nil && !ok) {
 				break
 			}
 			time.Sleep(time.Duration(i+1) * 200 * time.Millisecond)
@@ -321,19 +348,19 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 		if !ok {
 			w.lost(c, perr) // lease reaper will mark unknown; never resubmitted
 		}
-		w.log(c, "submitted", res.Reason)
-	case mailer.TempFailure:
-		st, err := w.Svc.ScheduleRetry(ctx, c, res.Reason, w.backoff(c.Attempts))
+		w.log(c, "submitted", res.SafeReason)
+	case transport.Temporary:
+		st, err := w.Svc.ScheduleRetry(ctx, c, res.SafeReason, w.backoff(c.Attempts))
 		if err != nil {
 			w.lost(c, err)
 		}
-		w.log(c, st, res.Reason)
-	case mailer.PermFailure:
-		fail(res.Reason)
+		w.log(c, st, res.SafeReason)
+	case transport.Permanent:
+		fail(res.SafeReason)
 	default:
-		if ok, err := w.Svc.MarkUnknown(ctx, c, res.Reason); !ok {
+		if ok, err := w.Svc.MarkUnknown(ctx, c, res.SafeReason); !ok {
 			w.lost(c, err)
 		}
-		w.log(c, "unknown", res.Reason)
+		w.log(c, "unknown", res.SafeReason)
 	}
 }

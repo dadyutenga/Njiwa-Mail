@@ -28,6 +28,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/secure"
 	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/transport"
 	"github.com/njiwa-tz/mail/internal/webhook"
 	"github.com/njiwa-tz/mail/internal/worker"
 )
@@ -289,9 +290,9 @@ func runWorker(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	// Webhook deliveries share the worker role: one process drains both outboxes.
 	go (&webhook.Deliverer{Svc: svc}).Run(ctx)
 	if cfg.SMTP.Configured() {
-		w.SMTP = smtpTransport(cfg)
+		w.Transport = &transport.ExistingSMTPTransport{SMTP: smtpTransport(cfg)}
 	} else {
-		w.SMTP = &worker.StoredTransport{Svc: svc, Timeout: cfg.SMTP.Timeout}
+		w.Transport = &worker.StoredTransport{Svc: svc, Timeout: cfg.SMTP.Timeout}
 		slog.Warn("SMTP_HOST not set: live mail uses the settings saved on the Mail server page; until they are saved, live messages stay queued")
 	}
 	w.Run(ctx)

@@ -3,11 +3,13 @@ package worker
 import (
 	"context"
 	"crypto/x509"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/transport"
 )
 
 // StoredTransport sends with the SMTP settings saved on the Mail server page.
@@ -25,6 +27,7 @@ type StoredTransport struct {
 	updated time.Time
 	smtp    *mailer.SMTP
 	pin     service.TransportPin
+	mode    transport.Mode
 }
 
 func (t *StoredTransport) load(ctx context.Context) (*mailer.SMTP, service.TransportPin) {
@@ -46,12 +49,44 @@ func (t *StoredTransport) load(ctx context.Context) (*mailer.SMTP, service.Trans
 		a.Cfg.Timeout, a.Cfg.RootCAs = t.Timeout, t.RootCAs
 		t.smtp, t.updated, t.pin = mailer.NewSMTP(a.Cfg), a.Updated, a.Pin()
 	}
+	t.mode = transport.Mode(a.Mode)
 	return t.smtp, t.pin
 }
 
 func (t *StoredTransport) Ready(ctx context.Context) bool {
 	s, _ := t.load(ctx)
 	return s != nil
+}
+
+func (t *StoredTransport) Mode() transport.Mode {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.mode == "" {
+		return transport.ExistingSMTP
+	}
+	return t.mode
+}
+
+func (t *StoredTransport) Check(ctx context.Context) (transport.Capability, error) {
+	s, _ := t.load(ctx)
+	if s == nil {
+		return transport.Capability{}, fmt.Errorf("smtp_not_configured")
+	}
+	return transport.Capability{}, s.Check(ctx)
+}
+
+func (t *StoredTransport) Submit(ctx context.Context, sub transport.Submission) transport.Receipt {
+	r, _ := t.SubmitPinned(ctx, sub)
+	return r
+}
+
+func (t *StoredTransport) SubmitPinned(ctx context.Context, sub transport.Submission) (transport.Receipt, service.TransportPin) {
+	e := mailer.Envelope{From: sub.EnvelopeFrom, Recipients: sub.Recipients, Raw: sub.RFC5322}
+	if len(sub.Recipients) > 0 {
+		e.To = sub.Recipients[0]
+	}
+	r, pin := t.SendPinned(ctx, e)
+	return transport.FromMailer(r, time.Now().UTC()), pin
 }
 
 func (t *StoredTransport) Send(ctx context.Context, e mailer.Envelope) mailer.Result {
