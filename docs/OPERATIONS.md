@@ -45,7 +45,27 @@ Every write from the UI, the CLI or an API key is recorded in `audit_log` (UI: A
 
 ## Alerts
 
-Alerts are rows in the `alerts` table, shown on the Overview page, counted in `/metrics` and logged as `ALERT`. There is no e-mail or chat notification yet: wire your monitoring to the metric.
+Alerts are rows in the `alerts` table, shown on the Overview page, counted in `/metrics` and logged as `ALERT`. Njiwa-Mail does not
+send notifications itself (when sending is broken, so would be that path): scrape `/metrics` with Prometheus and route
+[`deploy/prometheus/njiwa-mail-alerts.yml`](../deploy/prometheus/njiwa-mail-alerts.yml) through Alertmanager to e-mail, chat or a pager.
+
+Delivery-health metrics (F08), all derived from the database so every instance reports the same:
+
+| Metric | Meaning |
+|---|---|
+| `njiwa_mail_installation_ready{mode}`, `njiwa_mail_installation_problem{code}` | readiness of the active delivery profile, and the problem code of each required step that is not ready |
+| `njiwa_mail_transport_failing` | 1 while Live mail cannot reach the mail server (`TRANSPORT_FAILING`) |
+| `njiwa_mail_transport_retries_15m{reason}` | connection-level retries; `smtp_454` on a managed host means the DKIM signer is down |
+| `njiwa_mail_live_backlog`, `njiwa_mail_live_backlog_limit` | Live mail still to hand over, and `LIVE_QUEUE_MAX` |
+| `njiwa_mail_last_live_submission_age_seconds` | time since a Live message was last handed over |
+| `njiwa_mail_delivery_events_1h{event}` | what the mail server reported in the last hour (deferred, remote_accepted, bounced, ...; needs `mta-log`) |
+| `njiwa_mail_client_cert_expiry_seconds` | managed mode: time left on the worker's submission certificate |
+
+The rules file alerts on: API down, transport failing, signer refusing, backlog above 80 % of the limit, a message waiting more than
+30 minutes, deferred rate above 20 % (with at least 20 deliveries), readiness incomplete for 30 minutes, certificate within 30 days,
+a role without heartbeats, and open operator alerts. It was validated with the Prometheus 0.54 rule parser.
+
+Operator alerts in the `alerts` table:
 
 | Kind | Meaning | What to do |
 |---|---|---|
