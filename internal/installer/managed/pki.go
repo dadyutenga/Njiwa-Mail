@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"os"
 	"strings"
 	"time"
 )
@@ -88,6 +89,53 @@ func parseCA(certPEM, keyPEM []byte) (*x509.Certificate, *rsa.PrivateKey, error)
 	return c, rk, nil
 }
 
+// Leaf certificates are reissued by a normal plan/apply once they are within
+// RenewBefore of expiry. The CA lives for ten years and is not renewed
+// automatically; plan warns within CAWarnBefore.
+const (
+	RenewBefore  = 60 * 24 * time.Hour
+	CAWarnBefore = 365 * 24 * time.Hour
+	// PreviousClientGrace is how long Postfix keeps accepting the replaced
+	// client certificate, so a worker still holding it keeps sending until
+	// it picks up the recorded new one.
+	PreviousClientGrace = 7 * 24 * time.Hour
+)
+
+// CertExpiry returns a PEM certificate file's NotAfter.
+func CertExpiry(path string) (time.Time, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return PEMExpiry(b)
+}
+
+// PEMExpiry returns a PEM certificate's NotAfter.
+func PEMExpiry(certPEM []byte) (time.Time, error) {
+	blk, _ := pem.Decode(certPEM)
+	if blk == nil {
+		return time.Time{}, errors.New("certificate is not PEM")
+	}
+	c, err := x509.ParseCertificate(blk.Bytes)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return c.NotAfter, nil
+}
+
+// certDue reports whether a leaf certificate must be (re)issued.
+func certDue(path string, now time.Time, force bool) bool {
+	exp, err := CertExpiry(path)
+	return err != nil || force || exp.Sub(now) < RenewBefore
+}
+
+func (p Params) now() time.Time {
+	if p.Now.IsZero() {
+		return time.Now()
+	}
+	return p.Now
+}
+
 // Fingerprint is the colon-separated upper-case SHA-256 digest of a
 // certificate, as Postfix prints it with smtpd_tls_fingerprint_digest=sha256.
 func Fingerprint(certPEM []byte) (string, error) {
@@ -142,4 +190,42 @@ func dkimTXT(privPEM []byte) (string, error) {
 		return "", err
 	}
 	return "v=DKIM1; k=rsa; p=" + base64.StdEncoding.EncodeToString(der), nil
+}
+
+// CertInfo describes one installer certificate for `installer status`.
+type CertInfo struct {
+	Name     string    `json:"name"`
+	NotAfter time.Time `json:"not_after"`
+	Note     string    `json:"note,omitempty"`
+}
+
+// Certificates lists the installer's certificates with their expiry.
+func Certificates(p Params) []CertInfo {
+	now := p.now()
+	var out []CertInfo
+	for _, c := range []struct {
+		name, path string
+		window     time.Duration
+		auto       bool
+	}{
+		{"local submission CA", njDir + "/ca.crt", CAWarnBefore, false},
+		{"submission server certificate", njDir + "/server.crt", RenewBefore, true},
+		{"worker client certificate", clientDir + "/client.crt", RenewBefore, true},
+	} {
+		exp, err := CertExpiry(p.path(c.path))
+		if err != nil {
+			continue
+		}
+		ci := CertInfo{Name: c.name, NotAfter: exp}
+		switch {
+		case !now.Before(exp):
+			ci.Note = " (EXPIRED)"
+		case exp.Sub(now) < c.window && c.auto:
+			ci.Note = " (due: the next plan/apply renews it)"
+		case exp.Sub(now) < c.window:
+			ci.Note = " (expiring: see OPERATIONS.md)"
+		}
+		out = append(out, ci)
+	}
+	return out
 }

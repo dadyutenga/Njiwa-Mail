@@ -2,6 +2,8 @@ package managed
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
@@ -29,7 +31,7 @@ func (f *fakeRun) Run(name string, args ...string) (string, error) {
 
 func params(t *testing.T) Params {
 	return Params{Hostname: "MailOut.Example.com.", BounceDomain: "bounce.example.com", Domains: []string{"notify.example.com", "Notify.Example.com", "other.example.org"},
-		Selector: "njiwa", SubmissionBind: "127.0.0.1:10587", InboundRelay: "127.0.0.1:2525", Root: t.TempDir(), StateDir: "/var/lib/njiwa-mail/installer"}
+		Selector: "njiwa", SubmissionBind: "127.0.0.1:10587", InboundRelay: "127.0.0.1:2525", Root: t.TempDir(), StateDir: "/var/lib/njiwa-mail/installer", Now: now}
 }
 
 var now = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
@@ -379,5 +381,123 @@ func TestRotationUsesDefaultStateDir(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(run.calls, "\n"), "opendkim -x "+filepath.Join(p.Root, "/etc/opendkim.conf")) {
 		t.Fatalf("signer not restarted without systemd: %v", run.calls)
+	}
+}
+
+// E11: leaf certificates are renewed by a normal plan/apply within
+// RenewBefore of expiry; the replaced client certificate stays accepted for a
+// grace period so a running worker is not cut off.
+func TestCertificateRenewal(t *testing.T) {
+	p := params(t)
+	run := &fakeRun{}
+	pl, _ := BuildPlan(p)
+	rc1, err := Apply(p, pl.Digest, run, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server1 := read(t, p, "/etc/postfix/njiwa/server.crt")
+	ca1 := read(t, p, "/etc/postfix/njiwa/ca.crt")
+
+	// Not due yet: nothing to renew.
+	p.Now = now.AddDate(1, 0, 0)
+	pl, _ = BuildPlan(p)
+	for _, a := range pl.Actions {
+		if strings.HasPrefix(a.Kind, "renew_") {
+			t.Fatalf("renewal planned a year in: %+v", a)
+		}
+	}
+	// 30 days before expiry: both leaves are renewed, the CA is kept.
+	exp, _ := CertExpiry(filepath.Join(p.Root, "/etc/njiwa-mail/submission/client.crt"))
+	later := exp.Add(-30 * 24 * time.Hour)
+	p.Now = later
+	pl, _ = BuildPlan(p)
+	kinds := map[string]bool{}
+	for _, a := range pl.Actions {
+		kinds[a.Kind] = a.Needed
+	}
+	if !kinds["renew_server_certificate"] || !kinds["renew_client_certificate"] || !strings.Contains(pl.Summary(), "renew") {
+		t.Fatalf("renewal not planned: %+v", pl.Actions)
+	}
+	rc2, err := Apply(p, pl.Digest, run, later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read(t, p, "/etc/postfix/njiwa/server.crt") == server1 || read(t, p, "/etc/postfix/njiwa/ca.crt") != ca1 {
+		t.Fatal("server certificate not renewed, or CA replaced")
+	}
+	if rc2.ClientFingerprint == rc1.ClientFingerprint {
+		t.Fatal("client certificate not renewed")
+	}
+	if e2, _ := CertExpiry(filepath.Join(p.Root, "/etc/njiwa-mail/submission/client.crt")); !e2.After(later.AddDate(4, 0, 0)) {
+		t.Fatalf("renewed certificate expires %s", e2)
+	}
+	relay := read(t, p, "/etc/postfix/njiwa/relay_clientcerts")
+	if !strings.Contains(relay, rc2.ClientFingerprint+" njiwa-worker\n") || !strings.Contains(relay, rc1.ClientFingerprint+" njiwa-worker-previous") {
+		t.Fatalf("both client certificates must be accepted during the grace period:\n%s", relay)
+	}
+	// After the grace period the previous certificate is dropped.
+	p.Now = later.Add(PreviousClientGrace + time.Hour)
+	pl, _ = BuildPlan(p)
+	if _, err := Apply(p, pl.Digest, run, p.Now); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(read(t, p, "/etc/postfix/njiwa/relay_clientcerts"), rc1.ClientFingerprint) {
+		t.Fatal("previous client certificate still accepted after the grace period")
+	}
+	// Forced renewal works any time.
+	p.RenewCerts = true
+	if pl, _ = BuildPlan(p); !strings.Contains(pl.Summary(), "renew") {
+		t.Fatal("forced renewal not planned")
+	}
+}
+
+func TestCAExpiryWarning(t *testing.T) {
+	p := params(t)
+	pl, _ := BuildPlan(p)
+	if _, err := Apply(p, pl.Digest, &fakeRun{}, now); err != nil {
+		t.Fatal(err)
+	}
+	if pl, _ = BuildPlan(p); len(pl.Warnings) != 0 {
+		t.Fatalf("%v", pl.Warnings)
+	}
+	p.Now = now.AddDate(9, 6, 0)
+	if pl, _ = BuildPlan(p); len(pl.Warnings) != 1 || !strings.Contains(pl.Summary(), "WARNING: the local submission CA expires") {
+		t.Fatalf("%v", pl.Warnings)
+	}
+}
+
+// Replacing the CA reissues both leaf certificates from the new CA.
+func TestNewCAReissuesLeaves(t *testing.T) {
+	p := params(t)
+	pl, _ := BuildPlan(p)
+	if _, err := Apply(p, pl.Digest, &fakeRun{}, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"ca.crt", "ca.key"} {
+		if err := os.Rename(filepath.Join(p.Root, "/etc/postfix/njiwa", f), filepath.Join(p.Root, "/etc/postfix/njiwa", f+".old")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pl, _ = BuildPlan(p)
+	if _, err := Apply(p, pl.Digest, &fakeRun{}, now); err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM([]byte(read(t, p, "/etc/postfix/njiwa/ca.crt")))
+	for _, c := range []struct {
+		path  string
+		usage x509.ExtKeyUsage
+	}{{"/etc/postfix/njiwa/server.crt", x509.ExtKeyUsageServerAuth}, {"/etc/njiwa-mail/submission/client.crt", x509.ExtKeyUsageClientAuth}} {
+		blk, _ := pem.Decode([]byte(read(t, p, c.path)))
+		cert, err := x509.ParseCertificate(blk.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{c.usage}}); err != nil {
+			t.Fatalf("%s not issued by the new CA: %v", c.path, err)
+		}
+	}
+	if read(t, p, "/etc/njiwa-mail/submission/ca.crt") != read(t, p, "/etc/postfix/njiwa/ca.crt") {
+		t.Fatal("worker CA copy not updated")
 	}
 }

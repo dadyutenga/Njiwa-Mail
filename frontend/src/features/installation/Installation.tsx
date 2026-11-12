@@ -214,6 +214,10 @@ export const problemFixes: Record<string, string> = {
     "Set BOUNCE_ADDRESS to an address on a domain whose MX reaches Njiwa-Mail (your mail server relays it to the inbound listener), and run the inbound role. Sending works without it, but hard bounces are not suppressed automatically.",
   BOUNCE_LISTENER_DOWN:
     "Start the inbound role (docker compose --profile inbound up -d) so bounce reports can be received.",
+  CLIENT_CERT_EXPIRING:
+    "On the mail host run the installer again (njiwa-mail installer plan, then installer apply -record with the new digest). It renews the certificate and records it; mail keeps flowing during the change.",
+  CLIENT_CERT_EXPIRED:
+    "On the mail host run njiwa-mail installer plan -renew-certs, then installer apply -record with the new digest. Live mail stays queued until the new certificate is recorded.",
   TRANSPORT_FAILING:
     "Live mail is not reaching the mail server right now. Messages stay queued and are retried, nothing is lost. Run the connection test to see what is wrong.",
   SMTP_SERVER_TEMP_REFUSED:
