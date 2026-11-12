@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"syscall"
@@ -39,6 +40,10 @@ const (
 	CodeSenderRejected   = "SMTP_SENDER_REJECTED"
 	CodeGreetingMissing  = "SMTP_NO_GREETING"
 	CodeConnectionFailed = "SMTP_CONNECTION_FAILED"
+	// CodeServerTempRefused: the server answered a 4xx (for example 454 to
+	// STARTTLS). A managed Postfix does this when its DKIM signer is down: it
+	// refuses mail rather than send it unsigned.
+	CodeServerTempRefused = "SMTP_SERVER_TEMP_REFUSED"
 )
 
 // forbiddenTarget reports addresses a connection test must never reach:
@@ -180,6 +185,11 @@ func Diagnose(ctx context.Context, cfg SMTPConfig, sender string) []Step {
 }
 
 func tlsDetail(err error) (string, string) {
+	var te *textproto.Error
+	if errors.As(err, &te) && te.Code >= 400 && te.Code < 500 {
+		return CodeServerTempRefused, "the server answered " + strconv.Itoa(te.Code) + " " + te.Msg +
+			": it is temporarily refusing mail. On a managed host, check that the DKIM signer (opendkim) is running"
+	}
 	r := classifyPre(err, "tls")
 	if r.Reason == "smtp_tls_verification_failed" {
 		return CodeTLSCertInvalid, "the certificate is not valid for this host name or is not trusted: " + err.Error()
