@@ -395,6 +395,16 @@ export function DomainDetail() {
                 </Link>
               }
             >
+              {d.requirements_changed === true && (
+                <p
+                  role="status"
+                  className="mb-3 rounded-lg border border-warning/40 bg-warning/15 p-3 text-sm"
+                >
+                  {phrase(
+                    "Delivery settings changed since the last check, so these are the records needed now. Publish any that changed, then run Check now.",
+                  )}
+                </p>
+              )}
               <ul className="space-y-3">
                 {records.map((r) => (
                   <li key={r.key} className="rounded-lg border p-3">
