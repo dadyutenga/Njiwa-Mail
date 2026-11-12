@@ -10,6 +10,7 @@ import { admin } from "@/lib/admin-api";
 import {
   DeliveryInfrastructure,
   installationKey,
+  SendingFactsForm,
   useInstallation,
 } from "@/features/installation/Installation";
 import { useWorkspace, useWsKey, type ProjectRow } from "../context";
@@ -655,6 +656,13 @@ export function MailServer() {
               </Field>
             </fieldset>
           </Section>
+          {!managed && !mailcow && inst.data?.active_profile?.mode === "existing_smtp" && (
+            <SendingFactsForm
+              key={inst.data.active_profile.id}
+              profileId={inst.data.active_profile.id}
+              facts={inst.data.active_profile.sending_facts}
+            />
+          )}
           {!managed && mailcow && (
             <Section title={phrase("Mailcow API (optional)")}>
               <p className="mb-3 text-xs text-muted-foreground">

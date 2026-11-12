@@ -224,7 +224,7 @@ WHERE e.mode='live' AND ev.created_at > now() - interval '15 minutes'`, transpor
 // ---------------------------------------------------------------- registry
 
 const profileCols = `id::text AS id, mode, provider_type, label, config_revision, config_json AS config, encrypted_secret IS NOT NULL AS secret_set,
-  encrypted_provider_secret IS NOT NULL AS provider_secret_set, status, is_active, source, last_tested_at, created_at, updated_at`
+  encrypted_provider_secret IS NOT NULL AS provider_secret_set, status, is_active, source, last_tested_at, created_at, updated_at, sending_facts`
 
 func (s *Service) ListTransportProfiles(ctx context.Context) ([]map[string]any, error) {
 	return s.maps(ctx, `SELECT `+profileCols+` FROM transport_profiles WHERE status <> 'retired' ORDER BY is_active DESC, created_at`)
