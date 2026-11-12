@@ -43,7 +43,7 @@ cannot be done from the development container.
 
 | ID | Status | What is missing |
 |---|---|---|
-| C05 | 🟡 | Mailcow is optional and works without its API. Missing: moving the adapter under a provider package boundary, and before/after audit records for Mailcow API writes. |
+| C05 | ✅ | Mailcow sits behind `internal/provider` (interface + Mailcow adapter, injectable factory); every provider write is audited with before/after state, no secrets (`provider.mailcow.add_domain|add_dkim|add_transport`). |
 | C02 | ✅ | `ENCRYPTION_KEY_PREVIOUS` (also `_FILE`) and `njiwa-mail rekey [-check]` re-seal every sealed column and attachment file; profile secrets are sealed in the database (file-mounted env secrets already existed). |
 
 ## 4. Domains and DNS (D-series) gaps

@@ -128,3 +128,35 @@ func (c *Client) AddTransport(ctx context.Context, destination, nexthop string) 
 		"destination": destination, "nexthop": nexthop, "active": "1",
 	}, nil)
 }
+
+// GetDomain reads one domain. ok is false when Mailcow does not know it
+// (it answers an empty object or list).
+func (c *Client) GetDomain(ctx context.Context, domain string) (map[string]any, bool, error) {
+	var out map[string]any
+	path := "/api/v1/get/domain/" + url.PathEscape(domain)
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		var arr []any // an unknown domain is answered with []
+		if c.do(ctx, http.MethodGet, path, nil, &arr) == nil {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if len(out) == 0 {
+		return nil, false, nil
+	}
+	return out, true, nil
+}
+
+// GetTransport finds the transport map entry for destination.
+func (c *Client) GetTransport(ctx context.Context, destination string) (map[string]any, bool, error) {
+	var all []map[string]any
+	if err := c.do(ctx, http.MethodGet, "/api/v1/get/transport/all", nil, &all); err != nil {
+		return nil, false, err
+	}
+	for _, t := range all {
+		if d, _ := t["destination"].(string); strings.EqualFold(d, destination) {
+			return t, true, nil
+		}
+	}
+	return nil, false, nil
+}

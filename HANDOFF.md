@@ -359,10 +359,9 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 
 - Key rotation procedure is in `docs/OPERATIONS.md` ("Rotating ENCRYPTION_KEY"). HMAC_KEY rotation is intentionally unsupported.
 
-### C05 — Mailcow adapter boundary
+### C05 — Mailcow adapter boundary — **done**
 
-- Move `internal/mailcow` behind a provider package/interface; audit records with before/after (no secrets) for every Mailcow API
-  write.
+- `internal/provider` (interface, Mailcow adapter); writes audited with before/after. See `docs/SECURITY_REVIEW.md` section 12.
 
 ### D04 — per-domain return path — **done (code); real-host check with E07**
 

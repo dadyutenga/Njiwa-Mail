@@ -121,6 +121,14 @@ may not be the inbound domain or the default bounce domain. Changing it withdraw
 `TestPerDomainReturnPath` (alignment before and after, validation, cross-project refusal, routing, envelope sender plain and signed, signed
 DSN correlation), `TestSeveralBounceDomains`.
 
+## 12. Provider boundary (C05)
+
+The Mailcow API is reached only through `provider.Provider`. Each write (domain, DKIM key, relay transport) records `provider.mailcow.<op>`
+in the audit log with the object's state before and after (existence, activity, a fingerprint of the DKIM record), whether anything
+changed, the actor, and a bounded error text from which the API key is removed. The key and the public DKIM value are never stored in
+audit details. Evidence: `TestProviderWritesAreAuditedWithBeforeAndAfter` (includes a scan of the whole audit log for the key and an SMTP
+password), `TestMailcowAdapterReadsAndWrites`.
+
 ## Not covered yet
 
 - An external penetration test and the dependency scan (`govulncheck` runs in CI but has not yet had a green run on GitHub).

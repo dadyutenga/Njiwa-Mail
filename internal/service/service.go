@@ -16,10 +16,15 @@ import (
 
 	"golang.org/x/net/idna"
 
+	"github.com/njiwa-tz/mail/internal/provider"
 	"github.com/njiwa-tz/mail/internal/secure"
 )
 
 type Options struct {
+	// NewProvider builds the mail server management client (Mailcow when nil).
+	// Tests replace it; see internal/provider.
+	NewProvider provider.Factory
+
 	MetadataRetention time.Duration
 	CaptureRetention  time.Duration
 	UnknownPurge      time.Duration

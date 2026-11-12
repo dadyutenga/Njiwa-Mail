@@ -410,7 +410,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		return map[string]any{"records": recs}, nil
 	})
 	h("POST", "/domains/:id/mailcow", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
-		steps, err := svc.ProvisionDomain(ctx(c), sc, c.Params("id"))
+		steps, err := svc.ProvisionDomain(ctx(c), sc, u.Actor(), c.Params("id"))
 		if err != nil {
 			return nil, err
 		}

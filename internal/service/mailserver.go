@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/njiwa-tz/mail/internal/db"
-	"github.com/njiwa-tz/mail/internal/mailcow"
 	"github.com/njiwa-tz/mail/internal/mailer"
+	"github.com/njiwa-tz/mail/internal/provider"
 	"github.com/njiwa-tz/mail/internal/secure"
 )
 
@@ -336,18 +336,30 @@ func (s *Service) MailServerStatus(ctx context.Context) (map[string]any, error) 
 
 // ---------------------------------------------------------------- Mailcow API
 
-func (s *Service) mailcowClient(ctx context.Context) (*mailcow.Client, error) {
+// provider builds the mail server's management API client from the stored
+// settings (C05). Only Mailcow exists today; tests inject another through
+// Options.NewProvider.
+func (s *Service) provider(ctx context.Context) (provider.Provider, error) {
+	p, _, err := s.providerWithKey(ctx)
+	return p, err
+}
+
+// providerWithKey also returns the API key so error text can be redacted before it is stored.
+func (s *Service) providerWithKey(ctx context.Context) (provider.Provider, string, error) {
 	var u string
 	var enc []byte
 	err := s.Pool.QueryRow(ctx, `SELECT mailcow_api_url, mailcow_api_key_enc FROM mail_server WHERE id=1`).Scan(&u, &enc)
 	if err != nil || u == "" || enc == nil {
-		return nil, newErr(409, "mailcow_api_not_configured")
+		return nil, "", newErr(409, "mailcow_api_not_configured")
 	}
 	key, err := s.Box.Open(enc, []byte(mailcowAPIKeyAAD))
 	if err != nil {
-		return nil, unavailable("mailcow_key", err)
+		return nil, "", unavailable("mailcow_key", err)
 	}
-	return mailcow.New(u, string(key)), nil
+	if s.Opts.NewProvider != nil {
+		return s.Opts.NewProvider(u, string(key)), string(key), nil
+	}
+	return provider.NewMailcow(u, string(key)), string(key), nil
 }
 
 // activeProvider is the provider label of the active existing-SMTP profile:
@@ -362,12 +374,12 @@ func (s *Service) activeProvider(ctx context.Context) string {
 }
 
 func (s *Service) MailcowConfigured(ctx context.Context) bool {
-	_, err := s.mailcowClient(ctx)
+	_, err := s.provider(ctx)
 	return err == nil
 }
 
 func (s *Service) MailcowPing(ctx context.Context) error {
-	c, err := s.mailcowClient(ctx)
+	c, err := s.provider(ctx)
 	if err != nil {
 		return err
 	}
@@ -375,25 +387,26 @@ func (s *Service) MailcowPing(ctx context.Context) error {
 }
 
 func (s *Service) mailcowDKIM(ctx context.Context, domain string) (string, error) {
-	c, err := s.mailcowClient(ctx)
+	c, err := s.provider(ctx)
 	if err != nil {
 		return "", err
 	}
-	return c.GetDKIM(ctx, domain)
+	return c.DKIMRecord(ctx, domain)
 }
 
 // ProvisionDomain uses the Mailcow API to add the domain, create its DKIM
 // key and, for receiving domains, add the relay transport to the inbound
 // listener. Each step is reported separately; a step that fails does not
 // undo earlier ones (each is idempotent on Mailcow's side or reports "exists").
-func (s *Service) ProvisionDomain(ctx context.Context, sc *Scope, id string) ([]map[string]any, error) {
-	c, err := s.mailcowClient(ctx)
-	if err != nil {
-		return nil, &Error{Status: 409, Code: "mailcow_api_not_configured", Message: "set the Mailcow API URL and key on the Mail server page, or follow the manual steps"}
-	}
+func (s *Service) ProvisionDomain(ctx context.Context, sc *Scope, actor Actor, id string) ([]map[string]any, error) {
 	var name, purpose, listener string
 	if err := s.Pool.QueryRow(ctx, `SELECT name, purpose FROM domains WHERE id=$1 AND project_id=$2`, id, sc.ProjectID).Scan(&name, &purpose); err != nil {
 		return nil, notFound(err)
+	}
+	// Every write below is audited with the object's state before and after (C05).
+	c, err := s.audited(ctx, actor, name)
+	if err != nil {
+		return nil, &Error{Status: 409, Code: "mailcow_api_not_configured", Message: "set the Mailcow API URL and key on the Mail server page, or follow the manual steps"}
 	}
 	_ = s.Pool.QueryRow(ctx, `SELECT inbound_listener FROM mail_server WHERE id=1`).Scan(&listener)
 	var steps []map[string]any
@@ -411,7 +424,7 @@ func (s *Service) ProvisionDomain(ctx context.Context, sc *Scope, id string) ([]
 	}
 	if sendingPurpose(purpose) {
 		if step("dkim", "Create DKIM key", ignoreExists(c.AddDKIM(ctx, name, s.Opts.DKIMSelector))) {
-			txt, err := c.GetDKIM(ctx, name)
+			txt, err := c.DKIMRecord(ctx, name)
 			if err == nil && txt == "" {
 				err = errors.New("Mailcow returned no DKIM key")
 			}
