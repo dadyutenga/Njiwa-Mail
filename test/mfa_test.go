@@ -131,7 +131,8 @@ func TestMFAEnrolLoginReplayAndRecovery(t *testing.T) {
 	if r := e.loginWith("mfa@njiwa.co.tz", ""); r.Code != 200 {
 		t.Fatalf("not enabled yet, password-only login must work: %d", r.Code)
 	}
-	r := e.admOK(s, "POST", "/admin/v1/auth/mfa/confirm", map[string]any{"code": totpCode(t, secret, 0)})
+	spent := totpCode(t, secret, 0) // the exact code used to confirm (a later "current" code may belong to the next 30 s step)
+	r := e.admOK(s, "POST", "/admin/v1/auth/mfa/confirm", map[string]any{"code": spent})
 	recovery := r.JSON["recovery_codes"].([]any)
 	if len(recovery) != 10 {
 		t.Fatalf("recovery codes: %v", recovery)
@@ -151,7 +152,7 @@ func TestMFAEnrolLoginReplayAndRecovery(t *testing.T) {
 		t.Fatalf("wrong code: %d %s", res.Code, res.Raw)
 	}
 	// Confirmation used the current step, so that code is spent; the next step works once.
-	if res := e.loginWith("mfa@njiwa.co.tz", totpCode(t, secret, 0)); res.Code != 401 {
+	if res := e.loginWith("mfa@njiwa.co.tz", spent); res.Code != 401 {
 		t.Fatalf("code used at confirmation must not be accepted again: %d %s", res.Code, res.Raw)
 	}
 	next := totpCode(t, secret, 1)

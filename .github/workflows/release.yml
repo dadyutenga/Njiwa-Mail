@@ -1,0 +1,38 @@
+name: Release
+# Runs when a version tag is pushed (git tag v1.2.3 && git push origin v1.2.3). It builds the
+# binary reproducibly, checksums it, writes the dependency inventory, and attaches all of it to a
+# GitHub release. It does not push container images anywhere.
+on:
+  push: { tags: ["v*"] }
+
+permissions: { contents: write }
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Test
+        run: go vet ./... && go build ./...
+      - name: Build (reproducible)
+        run: |
+          mkdir dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o dist/njiwa-mail-linux-amd64 ./cmd/njiwa-mail
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o dist/njiwa-mail-linux-arm64 ./cmd/njiwa-mail
+      - name: Dashboard bundle
+        run: |
+          cd frontend && npm ci --no-audit --no-fund && npm run build
+          tar -C dist -czf ../dist/dashboard.tar.gz .
+      - name: Checksums and inventory
+        run: |
+          go list -m -json all > dist/go-modules.json
+          go version -m dist/njiwa-mail-linux-amd64 > dist/binary-build-info.txt
+          (cd frontend && npm ls --all --json > ../dist/npm-packages.json || true)
+          (cd dist && sha256sum * > SHA256SUMS)
+      - name: Publish the release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --title "${GITHUB_REF_NAME}" --generate-notes

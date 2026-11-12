@@ -2,6 +2,8 @@ module github.com/njiwa-tz/mail
 
 go 1.26.0
 
+toolchain go1.26.11
+
 require (
 	github.com/emersion/go-smtp v0.24.0
 	github.com/gofiber/fiber/v2 v2.52.9
@@ -14,7 +16,7 @@ require (
 )
 
 require (
-	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/cention-sany/utf7 v0.0.0-20170124080048-26cad61bd60a // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect

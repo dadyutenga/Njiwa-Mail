@@ -74,10 +74,9 @@ jobs:
 
   # Managed mode against real Postfix and OpenDKIM: installer plan/apply, then
   # no open relay, mutual-TLS-only submission, sender restrictions and DKIM
-  # signing end to end. Non-blocking until it has run green on a hosted runner.
+  # signing end to end. Blocking: it has run green on hosted runners.
   managed-mta:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -95,3 +94,98 @@ jobs:
           sudo ./njiwa-mail installer apply $F -approve "$D"
       - name: End-to-end checks
         run: sudo env "PATH=$PATH" go test -tags managed_e2e ./internal/installer/managed -run E2E -count=1 -v
+
+  # The shipped stack starts from nothing: build the images, bring Compose up,
+  # wait for readiness, sign in, take it down. Catches a broken Dockerfile,
+  # migration, healthcheck or Compose file that unit tests cannot see.
+  smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack
+        run: |
+          {
+            echo "POSTGRES_PASSWORD=ci-postgres-password"
+            echo "ENCRYPTION_KEY=$(openssl rand -base64 32)"
+            echo "HMAC_KEY=$(openssl rand -base64 48)"
+          } > .env
+          docker compose up -d --build
+          ok=""
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8080/health/ready && ok=1 && break; sleep 2; done
+          [ -n "$ok" ] || { docker compose logs; exit 1; }
+      - name: Sign in, protected routes, operator commands
+        run: |
+          printf 'ci-password-12345\n' | docker compose exec -T api njiwa-mail user create -email ci@example.com
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/admin/v1/auth/login -H 'Content-Type: application/json' -d '{"email":"ci@example.com","password":"ci-password-12345"}')
+          [ "$code" = 200 ] || { echo "login answered $code"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/admin/v1/installation)
+          [ "$code" = 401 ] || { echo "an unauthenticated admin route answered $code"; exit 1; }
+          docker compose exec -T api njiwa-mail rekey -check
+          docker compose exec -T api njiwa-mail retention
+      - if: failure()
+        run: docker compose logs --no-color | tail -200
+      - if: always()
+        run: docker compose down -v
+
+  # Browser end-to-end tests (Playwright, Chromium) against the Compose stack:
+  # sign-in, the delivery-mode wizard, adding a domain.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [test, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Start the stack
+        run: |
+          {
+            echo "POSTGRES_PASSWORD=ci-postgres-password"
+            echo "ENCRYPTION_KEY=$(openssl rand -base64 32)"
+            echo "HMAC_KEY=$(openssl rand -base64 48)"
+            echo "ADMIN_INSECURE_COOKIES=true"   # the tests use plain HTTP
+          } > .env
+          docker compose up -d --build
+          ok=""
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8080/health/ready && ok=1 && break; sleep 2; done
+          [ -n "$ok" ] || { docker compose logs; exit 1; }
+          printf 'ci-password-12345\n' | docker compose exec -T api njiwa-mail user create -email ci@example.com
+          curl -fsS -o /dev/null http://127.0.0.1:3000/login
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run e2e
+        working-directory: frontend
+        env: { CI: "1", E2E_BASE_URL: "http://127.0.0.1:3000" }
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: "frontend/playwright-report\nfrontend/test-results", retention-days: 7 }
+      - if: always()
+        run: docker compose down -v
+
+  # Two builds of the same source from different directories must be identical,
+  # and the dependency inventory (SBOM) is kept with every run.
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Reproducible build
+        run: |
+          mkdir -p /tmp/one /tmp/two && cp -r . /tmp/one && cp -r . /tmp/two
+          (cd /tmp/one && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /tmp/a ./cmd/njiwa-mail)
+          (cd /tmp/two && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /tmp/b ./cmd/njiwa-mail)
+          sha256sum /tmp/a /tmp/b
+          cmp /tmp/a /tmp/b
+      - name: Software bill of materials
+        run: |
+          mkdir sbom
+          go list -m -json all > sbom/go-modules.json
+          go version -m /tmp/a > sbom/binary-build-info.txt
+          (cd frontend && npm ci --ignore-scripts --no-audit --no-fund && npm ls --all --json > ../sbom/npm-packages.json || true)
+      - uses: actions/upload-artifact@v4
+        with: { name: sbom, path: sbom, retention-days: 90 }

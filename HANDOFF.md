@@ -385,7 +385,11 @@ Original list:
 - `docs/ENDPOINTS.md` (generated; keep current with `UPDATE_DOCS=1 go test ./test -run TestEndpointsAndSchemaDoc`), `docs/openapi-admin.yaml`,
   `docs/EXAMPLES.md`, `docs/TROUBLESHOOTING.md`.
 
-### A02 / G07 — CI
+### A02 / G07 — CI — **mostly done; check the first GitHub runs**
+
+Done: `smoke`, `e2e` (Playwright), `supply-chain` (reproducibility + SBOM), `release.yml`, `managed-mta` blocking, and the vulnerabilities govulncheck found are fixed. **Left:** look at the first runs of `smoke`, `e2e` and `supply-chain` on GitHub; when `govulncheck` is green remove its `continue-on-error`.
+
+Original list:
 
 - Container smoke test in CI: `docker compose up -d`, wait for `/health/ready`, `docker compose down -v`.
 - SBOM (`syft` or `go version -m`), reproducible tagged build, browser end-to-end tests (Playwright) for login, installation

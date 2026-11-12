@@ -3,3 +3,6 @@
 !.env.example
 /bin/
 /dm
+
+frontend/playwright-report/
+frontend/test-results/
