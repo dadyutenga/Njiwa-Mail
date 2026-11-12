@@ -31,6 +31,8 @@ const (
 	CodeInstallerMissing = "INSTALLER_NOT_AVAILABLE"
 	CodeEgressBlocked    = "SMTP_EGRESS_BLOCKED"
 	CodeTransportFailing = "TRANSPORT_FAILING"
+	CodeBouncesNotSetUp  = "BOUNCES_NOT_CONFIGURED"
+	CodeBounceListener   = "BOUNCE_LISTENER_DOWN"
 )
 
 // DefaultCheckTTL is how long a passing check stays trustworthy.
@@ -62,6 +64,17 @@ type Facts struct {
 	// Delivery is what the worker saw recently on the active profile. Checks
 	// can pass while mail is not going out; this keeps the status honest.
 	Delivery *DeliveryHealth
+	// Bounces says whether bounce reports can reach Njiwa (C08). Optional:
+	// sending works without it, but hard bounces are then not suppressed
+	// automatically and delivery evidence is limited.
+	Bounces *BounceFacts
+}
+
+// BounceFacts describe the bounce path.
+type BounceFacts struct {
+	Configured bool       // BOUNCE_ADDRESS is set
+	ListenerUp bool       // the inbound listener reported in recently
+	LastReport *time.Time // the last bounce report received
 }
 
 // DeliveryHealth summarises recent Live send attempts.
@@ -156,6 +169,28 @@ func Compute(f Facts) Readiness {
 		}
 		r.Steps = append(r.Steps, pre, inst,
 			checkStep(f, "verify_transport", "Verify local submission", "connection", f.ManagedInstalled))
+	}
+	if b := f.Bounces; b != nil {
+		st := Step{ID: "bounce_reports", Title: "Bounce reports reach Njiwa-Mail", Required: false,
+			Action: &Action{Label: "How to set up bounces", Route: "/app/installation"}}
+		switch {
+		case !b.Configured:
+			st.Status, st.ProblemCode = NeedsAction, CodeBouncesNotSetUp
+			st.Message = "No bounce address is set, so bounce reports do not come back to Njiwa-Mail. Mail is still sent, but hard bounces are not suppressed automatically and you see less delivery evidence."
+		case !b.ListenerUp:
+			st.Status, st.ProblemCode = NeedsAction, CodeBounceListener
+			st.Message = "A bounce address is set, but the inbound listener has not reported in. Bounce reports cannot be received until it runs."
+		default:
+			st.Status = Ready
+			if b.LastReport != nil {
+				t := *b.LastReport
+				st.CheckedAt = &t
+				st.Message = "Bounce reports are received."
+			} else {
+				st.Message = "Ready to receive bounce reports; none has arrived yet."
+			}
+		}
+		r.Steps = append(r.Steps, st)
 	}
 	// Shown only while mail is failing to go out, so a quiet installation is
 	// not given a green it has no evidence for.
