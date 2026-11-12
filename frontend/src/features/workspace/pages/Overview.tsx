@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, FolderKanban, Plus } from "lucide-react";
 import { usePhrase } from "@/features/i18n/i18n";
 import { statusLabels, type StepStatus } from "@/features/installation/Installation";
+import { DeliveryHealthCard } from "@/features/installation/Profiles";
 import { Button } from "@/components/ui/button";
 import { lastWorkspace, useProjects, useWorkspace, useWsKey } from "../context";
 import { FirstRunShell, NewProjectDialog, useCompose } from "../Layout";
@@ -164,6 +165,9 @@ export function Dashboard() {
         action={<Button onClick={() => compose.open()}>{phrase("Compose")}</Button>}
       />
       {checklist.data && <InstallationBanner inst={checklist.data.installation} />}
+      <div className="mb-6">
+        <DeliveryHealthCard />
+      </div>
       <DataState q={q} rows={4}>
         {(d) => {
           const cards: [string, number, string][] = [

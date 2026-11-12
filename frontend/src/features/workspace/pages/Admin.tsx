@@ -13,6 +13,7 @@ import {
   SendingFactsForm,
   useInstallation,
 } from "@/features/installation/Installation";
+import { TransportProfiles } from "@/features/installation/Profiles";
 import { useWorkspace, useWsKey, type ProjectRow } from "../context";
 import { NewProjectDialog } from "../Layout";
 import {
@@ -502,8 +503,9 @@ export function MailServer() {
           )
         }
       />
-      <div className="mb-4">
+      <div className="mb-4 space-y-4">
         <DeliveryInfrastructure onRecheck={runTest} rechecking={testing} />
+        <TransportProfiles />
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-4">
