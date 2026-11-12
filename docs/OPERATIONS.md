@@ -147,6 +147,18 @@ njiwa-mail installer apply -hostname mailout.example.com -domains notify.example
 - Verification on a host: `go test -tags managed_e2e ./internal/installer/managed -run E2E -v` (as root, after apply with the test
   domains in that file) checks no open relay, mTLS-only submission, sender restrictions and DKIM signing end to end.
 
+## Bounce reports
+
+Sending works without a bounce path, but then hard bounces are not suppressed automatically and delivery evidence is limited to
+what the mail server answered. The Delivery infrastructure page shows an optional step, **Bounce reports reach Njiwa-Mail**:
+
+- `BOUNCES_NOT_CONFIGURED`: set `BOUNCE_ADDRESS` (the envelope sender of every Live message) on a domain whose MX reaches a mail
+  server that relays it to the Njiwa inbound listener. Managed mode does this for the bounce domain given to the installer; with an
+  existing SMTP server, configure that server to relay the bounce domain to the listener (or poll a bounce mailbox with `IMAP_HOST`).
+- `BOUNCE_LISTENER_DOWN`: the inbound role has not reported in for 5 minutes; start it (`docker compose --profile inbound up -d`).
+- Ready: shows when the last bounce report arrived. Some providers never return DSNs to a custom envelope sender; then this stays
+  "none has arrived yet" and bounce visibility is limited by design.
+
 ## Delivery evidence from the mail server log
 
 A message's state says what Njiwa-Mail did: `submitted` means your mail server (managed Postfix or an existing SMTP server)
