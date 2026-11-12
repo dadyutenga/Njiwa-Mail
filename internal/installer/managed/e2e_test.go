@@ -24,8 +24,14 @@ import (
 	"time"
 
 	gosmtp "github.com/emersion/go-smtp"
+	"github.com/njiwa-tz/mail/internal/dnsauth"
+	"github.com/njiwa-tz/mail/internal/installer/managed"
 	"github.com/njiwa-tz/mail/internal/mailer"
 )
+
+type staticTXT map[string][]string
+
+func (m staticTXT) LookupTXT(_ context.Context, n string) ([]string, error) { return m[n], nil }
 
 type sink struct{ got chan []byte }
 
@@ -135,10 +141,27 @@ func TestE2EAcceptedMailIsDKIMSigned(t *testing.T) {
 	case got := <-s.got:
 		hdr, _, _ := bytes.Cut(got, []byte("\r\n\r\n"))
 		h := string(hdr)
-		if !strings.Contains(h, "DKIM-Signature:") || !strings.Contains(h, "d=notify.example.test") || !strings.Contains(h, "s=njiwa") {
-			t.Fatalf("received message is not signed for notify.example.test/njiwa:\n%s", h)
+		sel := os.Getenv("NJIWA_E2E_SELECTOR")
+		if sel == "" {
+			sel = "njiwa"
 		}
-		t.Logf("received with a DKIM signature for d=notify.example.test s=njiwa (queue reply %q)", res.Reply)
+		if !strings.Contains(h, "DKIM-Signature:") || !strings.Contains(h, "d=notify.example.test") || !strings.Contains(h, "s="+sel+";") {
+			t.Fatalf("received message is not signed for notify.example.test/%s:\n%s", sel, h)
+		}
+		// Verify the real signature cryptographically against the key on disk.
+		priv, err := os.ReadFile("/etc/opendkim/keys/notify.example.test/" + sel + ".private")
+		if err != nil {
+			t.Fatal(err)
+		}
+		txt, err := managed.PublicRecord(priv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		vr := dnsauth.VerifyDKIM(context.Background(), staticTXT{sel + "._domainkey.notify.example.test": {txt}}, got, time.Now())
+		if len(vr) != 1 || vr[0].Result != "pass" {
+			t.Fatalf("the OpenDKIM signature does not verify: %+v", vr)
+		}
+		t.Logf("received with a verified DKIM signature for d=notify.example.test s=%s (queue reply %q)", sel, res.Reply)
 		if path := os.Getenv("NJIWA_E2E_CAPTURE"); path != "" {
 			if err := os.WriteFile(path, got, 0o644); err != nil {
 				t.Fatal(err)

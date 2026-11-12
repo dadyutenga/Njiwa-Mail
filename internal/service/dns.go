@@ -279,7 +279,7 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 		}
 		out = append(out, DNSResult{d, "SPF", exp, observed(spf, err), pass})
 
-		name := s.dkimSelector(facts) + "._domainkey." + d
+		name := s.selectorFor(ctx, kind, facts) + "._domainkey." + d
 		txt, err := r.LookupTXT(ctx, name)
 		dk := pick(txt, "v=dkim1")
 		if len(dk) == 0 {
