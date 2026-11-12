@@ -68,7 +68,7 @@ cannot be done from the development container.
 | F07 | ✅ | `schema_version` in every event (body and `X-DM-Schema-Version`), per-endpoint pin, version stamped per delivery (migration 0018); `email.delivery_*` events can now be subscribed to; retry/idempotency tests. |
 | F09 | ✅ | Installation-operator permission (migration 0016, default true so nobody loses access) and optional TOTP with recovery codes, replay protection, lockout and a `require_mfa` policy. |
 | F10 | ✅ | Retention for delivery evidence and installer receipts (settings), per-message and per-recipient export (JSON/CSV) and delete incl. attachment files, inbound attachments sealed at rest with a legacy converter (`attachments encrypt`). |
-| F06 | ✅* | Suppression only for DSNs correlated to our message and its recipient. *Correlation relies on the unguessable message UUID in the returned headers; a signed correlation token (VERP or HMAC) would be stronger. |
+| F06 | ✅ | Signed VERP return path `bounces+<id>.<tag>@domain` (`BOUNCE_VERP=auto|on|off`), verified on intake, header method kept as fallback, `bounces.correlated_by`; installer sets `recipient_delimiter = +`. Real-host check is part of E07. |
 
 ## 7. Release (G-series) — not started
 

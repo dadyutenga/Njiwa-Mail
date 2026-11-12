@@ -268,7 +268,7 @@ addresses removed), the systemd path worked (or was fixed), and `STATUS.md` has 
 ### 3.3 E07 — real bounce through managed Postfix
 
 - [ ] Send Live mail to a non-existent address at Gmail (`does-not-exist-xyz@gmail.com`).
-- [ ] The DSN arrives at `bounces@bounce.example.com` → port 25 → relayed to `127.0.0.1:2525` → inbound listener.
+- [ ] The DSN arrives at `bounces+<id>.<tag>@bounce.example.com` (signed return path, F06) → port 25 → relayed to `127.0.0.1:2525` → inbound listener.
 - [ ] The message shows `bounced`, the recipient is suppressed (hard bounce), a `email.bounced` webhook fires, the Installation
       page `bounce_reports` step shows "Bounce reports are received" with the time.
 - **Done when:** recorded in `STATUS.md` (E07 row).
@@ -351,11 +351,10 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 
 - Unknown queue screen suggests an outcome from the evidence; the operator confirms. Rules are in `internal/service/reconcile.go`.
 
-### F06 — stronger bounce correlation
+### F06 — stronger bounce correlation — **code done; real-host check pending (with E07)**
 
-- Today DSN correlation uses the unguessable message UUID in returned headers. Add a signed VERP-style return path
-  (`bounces+<id>.<hmac>@bounce…`) or an HMAC header, verify on intake, keep the old method as fallback.
-  Postfix side: `recipient_delimiter = +` on the bounce domain (installer change + test).
+- Signed return path implemented and tested; see `docs/OPERATIONS.md`. During E07 also confirm `correlated_by = verp` on the real
+  bounce and that Postfix relays `bounces+<id>.<tag>@bounce-domain` to the inbound listener.
 
 ### C02 — secrets — **done**
 

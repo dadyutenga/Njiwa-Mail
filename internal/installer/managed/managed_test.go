@@ -68,7 +68,7 @@ func TestPlanIsDeterministicAndSafe(t *testing.T) {
 		}
 	}
 	// No open relay: relaying is never granted by network membership on port 25.
-	for _, want := range []string{"smtpd_relay_restrictions = reject_unauth_destination", "mydestination =\n", "relay_domains = bounce.example.com",
+	for _, want := range []string{"smtpd_relay_restrictions = reject_unauth_destination", "mydestination =\n", "recipient_delimiter = +", "relay_domains = bounce.example.com",
 		"local_transport = error:", "njiwa_submission_relay_restrictions = permit_tls_clientcerts, reject"} {
 		if !strings.Contains(main, want) {
 			t.Errorf("main.cf lacks %q", want)

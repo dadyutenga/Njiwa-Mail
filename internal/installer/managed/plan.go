@@ -324,6 +324,8 @@ inet_protocols = all
 # covers the host itself for the local pickup daemon; relaying is granted by
 # the worker's client certificate on the private submission listener.
 mydestination =
+# Signed return paths (bounces+<id>.<tag>@bounce-domain) are relayed like the plain address.
+recipient_delimiter = +
 mynetworks = 127.0.0.0/8 [::1]/128
 local_transport = error:local delivery is disabled
 alias_maps =

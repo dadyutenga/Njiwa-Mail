@@ -346,7 +346,7 @@ func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 func runWorker(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	w := &worker.Worker{Svc: svc, ID: hostID(), Poll: cfg.WorkerPoll, Batch: cfg.WorkerBatch, Concurrency: cfg.WorkerConcurrency,
 		Lease: cfg.LeaseDuration, SendTimeout: cfg.SMTP.Timeout + 5*time.Second, RetentionInterval: cfg.RetentionInterval,
-		BounceAddress: cfg.BounceAddress}
+		BounceAddress: cfg.BounceAddress, VERP: cfg.BounceVERP}
 	// Webhook deliveries share the worker role: one process drains both outboxes.
 	go (&webhook.Deliverer{Svc: svc}).Run(ctx)
 	if cfg.SMTP.Configured() {

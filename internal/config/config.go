@@ -69,9 +69,12 @@ type Config struct {
 	MetricsToken string
 
 	// Inbound mail and bounces.
-	InboundListenAddr     string
-	InboundDomain         string // e.g. in.example.com
-	BounceAddress         string // e.g. bounces@notify.example.com; also the SMTP envelope sender
+	InboundListenAddr string
+	InboundDomain     string // e.g. in.example.com
+	BounceAddress     string // e.g. bounces@notify.example.com; also the SMTP envelope sender
+	// BounceVERP: "auto" (signed return path bounces+<id>.<tag>@... only with the managed Postfix),
+	// "on" (always) or "off" (always the plain bounce address). F06.
+	BounceVERP            string
 	InboundAllowedSources string // Mailcow host IPs / CIDRs allowed to connect to the listener
 	InboundMaxBytes       int
 	DataDir               string
@@ -358,6 +361,11 @@ func Load() (*Config, error) {
 	c.BounceAddress = strings.ToLower(get("BOUNCE_ADDRESS", ""))
 	if c.BounceAddress != "" && (strings.Count(c.BounceAddress, "@") != 1 || strings.ContainsAny(c.BounceAddress, " <>\r\n")) {
 		return nil, fmt.Errorf("BOUNCE_ADDRESS must be a bare email address")
+	}
+	switch c.BounceVERP = strings.ToLower(get("BOUNCE_VERP", "auto")); c.BounceVERP {
+	case "auto", "on", "off":
+	default:
+		return nil, fmt.Errorf("BOUNCE_VERP must be auto, on or off")
 	}
 	c.InboundAllowedSources = get("INBOUND_ALLOWED_SOURCES", "")
 	if c.InboundMaxBytes, err = intVar("INBOUND_MAX_BYTES", 10<<20); err != nil {

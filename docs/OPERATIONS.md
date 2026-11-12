@@ -193,6 +193,15 @@ njiwa-mail installer apply -hostname mailout.example.com -domains notify.example
 Sending works without a bounce path, but then hard bounces are not suppressed automatically and delivery evidence is limited to
 what the mail server answered. The Delivery infrastructure page shows an optional step, **Bounce reports reach Njiwa-Mail**:
 
+- **Signed return path (F06, `BOUNCE_VERP`).** With the managed Postfix every message leaves with the envelope sender
+  `bounces+<message id>.<signature>@<bounce domain>`; a returned notification is matched to the message by that address (HMAC with
+  `HMAC_KEY`), which a remote server cannot rewrite and a third party cannot forge. A bounce whose signature does not verify is stored
+  as uncorrelated (`correlated_by=verp_invalid`) and never suppresses anyone, even if its headers name a real message. Bounces
+  without a signed address (messages sent before the change, existing SMTP servers) are still matched by the message id in the returned
+  headers (`correlated_by=header`). `BOUNCE_VERP=auto` (default) enables it only on the managed transport; set `on` for an existing SMTP
+  server **after** confirming `bounces+test@<bounce domain>` is delivered to the bounce mailbox (Mailcow's Postfix accepts `+`
+  extensions; an alias or a custom server may not), or `off` to keep the plain address. The installer sets `recipient_delimiter = +`.
+  Check on a real managed host: send to a non-existent address and see `correlated_by = verp` in Bounces (E07).
 - `BOUNCES_NOT_CONFIGURED`: set `BOUNCE_ADDRESS` (the envelope sender of every Live message) on a domain whose MX reaches a mail
   server that relays it to the Njiwa inbound listener. Managed mode does this for the bounce domain given to the installer; with an
   existing SMTP server, configure that server to relay the bounce domain to the listener (or poll a bounce mailbox with `IMAP_HOST`).

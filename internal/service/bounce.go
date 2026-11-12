@@ -60,8 +60,18 @@ func (s *Service) RecordBounce(ctx context.Context, it SpoolItem, reports []Boun
 		return err
 	}
 	defer tx.Rollback(ctx)
+	verpID, verp := s.verifyVERP(it.To)
 	for _, r := range reports {
-		if err := s.recordOne(ctx, tx, r); err != nil {
+		how := "none"
+		switch {
+		case verp == verpValid:
+			r.MessageID, how = verpID, "verp" // the envelope we signed beats any header
+		case verp == verpInvalid:
+			r.MessageID, how = "", "verp_invalid" // forged or damaged: trust nothing from the headers either
+		case uuidRe.MatchString(r.MessageID):
+			how = "header"
+		}
+		if err := s.recordOne(ctx, tx, r, how); err != nil {
 			return err
 		}
 	}
@@ -71,7 +81,7 @@ func (s *Service) RecordBounce(ctx context.Context, it SpoolItem, reports []Boun
 	return tx.Commit(ctx)
 }
 
-func (s *Service) recordOne(ctx context.Context, tx *db.Tx, r BounceReport) error {
+func (s *Service) recordOne(ctx context.Context, tx *db.Tx, r BounceReport, correlatedBy string) error {
 	typ := ClassifyBounce(r.Status)
 	if r.Action == "delayed" && typ != "soft" {
 		typ = "unknown"
@@ -111,9 +121,12 @@ func (s *Service) recordOne(ctx context.Context, tx *db.Tx, r BounceReport) erro
 		h.Write([]byte{0})
 	}
 	var bounceID string
-	err := tx.QueryRow(ctx, `INSERT INTO bounces(message_id, project_id, environment_id, recipient_hash, recipient_masked, type, status_code, diagnostic, dedupe_hash)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (dedupe_hash) DO NOTHING RETURNING id::text`,
-		msgID, pid, eid, rcptHash, masked, typ, clean(r.Status, 20), clean(r.Diagnostic, 500), h.Sum(nil)).Scan(&bounceID)
+	if msgID == nil && correlatedBy != "verp_invalid" {
+		correlatedBy = "none"
+	}
+	err := tx.QueryRow(ctx, `INSERT INTO bounces(message_id, project_id, environment_id, recipient_hash, recipient_masked, type, status_code, diagnostic, dedupe_hash, correlated_by)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (dedupe_hash) DO NOTHING RETURNING id::text`,
+		msgID, pid, eid, rcptHash, masked, typ, clean(r.Status, 20), clean(r.Diagnostic, 500), h.Sum(nil), correlatedBy).Scan(&bounceID)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil // this DSN was already processed
 	}
@@ -176,7 +189,7 @@ VALUES ($1,$2,$3,$4,'spam complaint','complaint',$5) ON CONFLICT (environment_id
 
 func (s *Service) ListBounces(ctx context.Context, typ string, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT b.id::text AS id, b.message_id::text AS message_id, p.name AS project, e.mode, b.recipient_masked AS recipient,
-  b.type, b.status_code, b.diagnostic, b.received_at
+  b.type, b.status_code, b.diagnostic, b.correlated_by, b.received_at
 FROM bounces b LEFT JOIN projects p ON p.id=b.project_id LEFT JOIN environments e ON e.id=b.environment_id
 WHERE ($1='' OR b.type=$1) ORDER BY b.received_at DESC`, typ)
 }

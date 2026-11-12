@@ -31,6 +31,10 @@ type Worker struct {
 	Backoff           []time.Duration
 	// BounceAddress, when set, is used as the SMTP envelope sender (MAIL FROM).
 	BounceAddress string
+	// VERP selects the signed per-message return path (F06): "on", "off", or
+	// "auto"/"" = only when the active transport is the managed Postfix, whose
+	// bounce domain is known to accept plus-addressed recipients.
+	VERP string
 	// BreakerThreshold consecutive connection-level failures pause Live claims
 	// (0 = 5). BreakerBase is the first pause, doubled up to BreakerMax.
 	BreakerThreshold        int
@@ -328,6 +332,11 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	envFrom := pl.From
 	if w.BounceAddress != "" {
 		envFrom = w.BounceAddress
+		if w.useVERP() {
+			if v := w.Svc.VerpAddress(c.ID); v != "" {
+				envFrom = v
+			}
+		}
 	}
 	sub := transport.Submission{MessageID: msgID, EnvelopeFrom: envFrom, Recipients: rcpts, RFC5322: raw}
 	res, pin := w.submit(sctx, sub)
@@ -363,4 +372,15 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 		}
 		w.log(c, "unknown", res.SafeReason)
 	}
+}
+
+// useVERP reports whether messages go out with a signed per-message return path.
+func (w *Worker) useVERP() bool {
+	switch w.VERP {
+	case "on":
+		return true
+	case "off":
+		return false
+	}
+	return w.Transport != nil && w.Transport.Mode() == transport.ManagedMTA
 }

@@ -99,7 +99,13 @@ complete. Evidence: `TestEncryptionKeyRotation` (every kind of sealed value read
 the new key: MFA login, attachment download, queued payload sent, webhook secret), `TestRekeyReportsUnreadableAndChangesNothing`,
 `TestEverySealedColumnIsRekeyed`, `TestPreviousKeysOpenButNeverSeal`. `HMAC_KEY` rotation is not supported.
 
+## 9. Bounce correlation (F06)
+
+Return paths are signed (`bounces+<id>.<HMAC-64>@domain`). A valid signature wins over headers; an invalid one is never trusted and its
+headers are ignored; no signature falls back to the header method; suppression still needs the report's recipient to be the message's
+own. Evidence: `TestSignedReturnPathCorrelation` (envelope sender, correlation, header mismatch, forged tags, fallback, unrelated
+recipient, routing), installer test for `recipient_delimiter`.
+
 ## Not covered yet
 
-- A signed (VERP/HMAC) bounce correlation token (F06 note).
 - An external penetration test and the dependency scan (`govulncheck` runs in CI but has not yet had a green run on GitHub).
