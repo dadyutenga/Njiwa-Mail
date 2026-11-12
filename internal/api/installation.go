@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/service"
 )
@@ -13,17 +13,19 @@ import (
 // registry. These are operator-only (adm) and independent of any project.
 func (s *Server) installationRoutes(app *fiber.App) {
 	svc := s.Svc
-	h := func(method, path string, fn adminFn) { app.Add(method, "/admin/v1/installation"+path, s.adm(s.op(fn))) }
+	h := func(method, path string, fn adminFn) {
+		app.Add([]string{method}, "/admin/v1/installation"+path, s.adm(s.op(fn)))
+	}
 
 	// Installation-wide domain claims (operator only).
-	app.Add("GET", "/admin/v1/domain-claims", s.adm(s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	app.Add([]string{"GET"}, "/admin/v1/domain-claims", s.adm(s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		l, err := svc.DomainClaims(reqCtx(c))
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"items": l}, nil
 	})))
-	app.Add("POST", "/admin/v1/domain-claims/transfer", s.adm(s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	app.Add([]string{"POST"}, "/admin/v1/domain-claims/transfer", s.adm(s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Name    string `json:"name"`
 			Project string `json:"project"`
@@ -35,7 +37,7 @@ func (s *Server) installationRoutes(app *fiber.App) {
 	})))
 	// The managed mail host as the installer recorded it: receipts, delivery evidence flow,
 	// signing domains without a key yet, and a staged DKIM rotation.
-	h("GET", "/mail-host", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "/mail-host", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		receipts, err := svc.InstallerReceipts(reqCtx(c), 50)
 		if err != nil {
 			return nil, err
@@ -55,7 +57,7 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		return map[string]any{"receipts": receipts, "evidence": evidence, "domains_missing_key": missing,
 			"suggested_commands": svc.SuggestedInstallerCommands(reqCtx(c)), "dkim_rotation": rotation}, nil
 	})
-	h("GET", "", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		st, err := svc.InstallationState(reqCtx(c))
 		if err != nil {
 			return nil, err
@@ -66,7 +68,7 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		return st, nil
 	})
 	// The operator's confirmed delivery-mode choice, persisted server-side.
-	h("PUT", "/wizard", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PUT", "/wizard", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			SelectedMode string `json:"selected_mode"`
 		}
@@ -80,14 +82,14 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		st["environment_override"] = s.EnvSMTP != nil
 		return st, nil
 	})
-	h("GET", "/transport-profiles", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "/transport-profiles", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		l, err := svc.ListTransportProfiles(reqCtx(c))
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"profiles": l}, nil
 	})
-	h("POST", "/transport-profiles", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST", "/transport-profiles", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in service.TransportProfileInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -98,21 +100,21 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		}
 		return p, nil
 	})
-	h("GET", "/transport-profiles/:id", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "/transport-profiles/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return svc.TransportProfile(reqCtx(c), c.Params("id"))
 	})
-	h("PUT", "/transport-profiles/:id", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PUT", "/transport-profiles/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in service.TransportProfileInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
 		return svc.UpdateTransportProfile(reqCtx(c), u.Actor(), c.Params("id"), in)
 	})
-	h("DELETE", "/transport-profiles/:id", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("DELETE", "/transport-profiles/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return nil, svc.RetireTransportProfile(reqCtx(c), u.Actor(), c.Params("id"))
 	})
 	// What an existing SMTP server sends from (C07).
-	h("PUT", "/transport-profiles/:id/sending-facts", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PUT", "/transport-profiles/:id/sending-facts", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in service.SendingFactsInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -120,7 +122,7 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		return svc.SetSendingFacts(reqCtx(c), u.Actor(), c.Params("id"), in)
 	})
 	// Connection diagnosis for one profile, recorded against its exact revision.
-	h("POST", "/transport-profiles/:id/test", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST", "/transport-profiles/:id/test", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		id := c.Params("id")
 		cfg, sender, rev, err := svc.ProfileSMTP(reqCtx(c), id)
 		if err != nil {
@@ -139,10 +141,10 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		s.audit(c, u, "transport.test", "transport_profile", id, map[string]any{"ok": ok, "revision": rev})
 		return map[string]any{"ok": ok, "steps": steps, "config_revision": rev}, nil
 	})
-	h("GET", "/transport-profiles/:id/activation-plan", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "/transport-profiles/:id/activation-plan", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return svc.PlanTransportSwitch(reqCtx(c), c.Params("id"))
 	})
-	h("POST", "/transport-profiles/:id/activate", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST", "/transport-profiles/:id/activate", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			MigratePending bool `json:"migrate_pending"`
 		}

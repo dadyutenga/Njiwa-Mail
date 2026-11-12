@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/jhillyerd/enmime/v2"
 	"github.com/njiwa-tz/mail/internal/service"
 	"github.com/njiwa-tz/mail/internal/tmpl"
@@ -16,16 +16,16 @@ import (
 
 func (s *Server) adminRoutes(app *fiber.App) {
 	svc := s.Svc
-	q := func(c *fiber.Ctx, k string) string { return c.Query(k) }
+	q := func(c fiber.Ctx, k string) string { return c.Query(k) }
 	h := func(pattern string, fn adminFn) {
 		method, path, _ := strings.Cut(pattern, " ")
 		path = strings.ReplaceAll(strings.ReplaceAll(path, "{", ":"), "}", "")
-		app.Add(method, "/admin/v1"+path, s.adm(fn))
+		app.Add([]string{method}, "/admin/v1"+path, s.adm(fn))
 	}
 
 	// ---- auth
 	app.Post("/admin/v1/auth/login", s.adminLogin)
-	h("POST /auth/logout", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /auth/logout", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		tok, _ := cookieVal(c, adminCookie)
 		if err := svc.Logout(reqCtx(c), tok); err != nil {
 			return nil, &service.Error{Status: 503, Code: "service_unavailable"}
@@ -35,11 +35,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 			"Set-Cookie": (&http.Cookie{Name: adminCookie, Path: "/admin", HttpOnly: true, Secure: !s.InsecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: -1}).String()},
 			body: []byte(`{"ok":true}`)}, nil
 	})
-	h("GET /auth/me", func(c *fiber.Ctx, u *service.AdminUser) (any, error) { return u, nil })
+	h("GET /auth/me", func(c fiber.Ctx, u *service.AdminUser) (any, error) { return u, nil })
 
 	// ---- second factor (F09): enrol, confirm, disable for the signed-in user
-	h("POST /auth/mfa/enroll", func(c *fiber.Ctx, u *service.AdminUser) (any, error) { return svc.MFAStart(reqCtx(c), u) })
-	h("POST /auth/mfa/confirm", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /auth/mfa/enroll", func(c fiber.Ctx, u *service.AdminUser) (any, error) { return svc.MFAStart(reqCtx(c), u) })
+	h("POST /auth/mfa/confirm", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Code string `json:"code"`
 		}
@@ -52,7 +52,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		}
 		return map[string]any{"recovery_codes": codes}, nil
 	})
-	h("POST /auth/mfa/disable", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /auth/mfa/disable", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Password string `json:"password"`
 			Code     string `json:"code"`
@@ -64,7 +64,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- overview
-	h("GET /overview", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /overview", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		st, err := svc.Stats(reqCtx(c))
 		if err != nil {
 			return nil, err
@@ -76,11 +76,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 			BounceAddress  string `json:"bounce_address"`
 		}{st, s.SMTPConfigured, svc.Opts.InboundDomain, svc.Opts.BounceAddress}, nil
 	})
-	h("GET /alerts", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /alerts", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListAlerts(reqCtx(c), q(c, "open") == "true", pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /alerts/{id}/ack", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /alerts/{id}/ack", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		id, _ := strconv.ParseInt(c.Params("id"), 10, 64)
 		if err := svc.AckAlert(reqCtx(c), id, u.Email); err != nil {
 			return nil, err
@@ -90,7 +90,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- messages (metadata only: never variables or body)
-	h("GET /messages", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /messages", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		from, err := timeParam(c, "from")
 		if err != nil {
 			return nil, err
@@ -103,10 +103,10 @@ func (s *Server) adminRoutes(app *fiber.App) {
 			Template: q(c, "template"), Recipient: q(c, "recipient"), Bounce: q(c, "bounce_state"), From: from, To: to}, pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET /messages/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /messages/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return svc.AdminMessage(reqCtx(c), c.Params("id"))
 	})
-	h("POST /messages/{id}/resolve", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /messages/{id}/resolve", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			As   string `json:"as"`
 			Note string `json:"note"`
@@ -120,20 +120,20 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "message.resolve_unknown", "message", c.Params("id"), map[string]any{"as": in.As})
 		return nil, nil
 	})
-	h("GET /bounces", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /bounces", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListBounces(reqCtx(c), q(c, "type"), pageOf(c))
 		return list(c, items, more, err)
 	})
 
 	// ---- inbound (all admins can read bodies; HTML is still served sandboxed)
-	h("GET /inbound", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /inbound", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListInbound(reqCtx(c), "", q(c, "project"), q(c, "mode"), q(c, "q"), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET /inbound/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /inbound/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return svc.GetInbound(reqCtx(c), "", c.Params("id"), true)
 	})
-	h("GET /inbound/{id}/html", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /inbound/{id}/html", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		m, err := svc.GetInbound(reqCtx(c), "", c.Params("id"), true)
 		if err != nil {
 			return nil, err
@@ -149,7 +149,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 			"Referrer-Policy":         "no-referrer",
 		}}, nil
 	})
-	h("GET /inbound/{id}/attachments/{aid}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /inbound/{id}/attachments/{aid}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		f, err := svc.OpenAttachment(reqCtx(c), "", c.Params("id"), c.Params("aid"))
 		if err != nil {
 			return nil, err
@@ -157,11 +157,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "inbound.attachment_download", "inbound_attachment", c.Params("aid"), nil)
 		return download(f), nil
 	})
-	h("GET /inbound-addresses", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /inbound-addresses", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListInboundAddresses(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /inbound-addresses", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /inbound-addresses", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Project    string  `json:"project"`
 			Mode       string  `json:"mode"`
@@ -180,7 +180,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "inbound_address.create", "inbound_address", id, map[string]any{"project": in.Project, "mode": in.Mode, "local_part": in.LocalPart})
 		return map[string]string{"id": id}, nil
 	})
-	h("PATCH /inbound-addresses/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PATCH /inbound-addresses/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Enabled    *bool   `json:"enabled"`
 			EndpointID *string `json:"webhook_endpoint_id"`
@@ -194,7 +194,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "inbound_address.update", "inbound_address", c.Params("id"), map[string]any{"enabled": in.Enabled})
 		return nil, nil
 	})
-	h("DELETE /inbound-addresses/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("DELETE /inbound-addresses/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if err := svc.DeleteInboundAddress(reqCtx(c), c.Params("id")); err != nil {
 			return nil, err
 		}
@@ -203,11 +203,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- projects and environments
-	h("GET /projects", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /projects", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.AdminProjects(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /projects", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /projects", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Name string `json:"name"`
 		}
@@ -220,7 +220,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "project.create", "project", in.Name, nil)
 		return nil, nil
 	})
-	h("PATCH /projects/{name}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PATCH /projects/{name}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Enabled            *bool `json:"enabled"`
 			SendPerMinute      int   `json:"send_per_minute"`
@@ -247,7 +247,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 			"send_per_day": in.SendPerDay, "recipient_per_minute": in.RecipientPerMinute, "recipient_per_hour": in.RecipientPerHour})
 		return nil, nil
 	})
-	h("PATCH /projects/{name}/environments/{mode}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PATCH /projects/{name}/environments/{mode}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Enabled            *bool     `json:"enabled"`
 			ApprovedOrigins    *[]string `json:"approved_origins"`
@@ -287,11 +287,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- API keys (the secret is returned exactly once)
-	h("GET /keys", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /keys", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.AdminKeys(reqCtx(c), q(c, "project"), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /keys", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /keys", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Project  string   `json:"project"`
 			Mode     string   `json:"mode"`
@@ -312,7 +312,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "api_key.create", "api_key", prefix, map[string]any{"project": in.Project, "mode": in.Mode, "scopes": in.Scopes})
 		return map[string]string{"prefix": prefix, "key": tok}, nil
 	})
-	h("POST /keys/{prefix}/rotate", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /keys/{prefix}/rotate", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			GraceHours *int `json:"grace_hours"`
 		}
@@ -333,7 +333,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "api_key.rotate", "api_key", c.Params("prefix"), map[string]any{"new_prefix": prefix, "grace_hours": grace.Hours()})
 		return map[string]string{"prefix": prefix, "key": tok}, nil
 	})
-	h("POST /keys/{prefix}/revoke", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /keys/{prefix}/revoke", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if err := svc.RevokeKey(reqCtx(c), c.Params("prefix")); err != nil {
 			return nil, service.OpErr(err)
 		}
@@ -342,11 +342,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- senders and DNS
-	h("GET /senders", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /senders", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.AdminSenders(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /senders", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /senders", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Project     string `json:"project"`
 			Mode        string `json:"mode"`
@@ -362,21 +362,21 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "sender.upsert", "sender", strings.ToLower(in.Email), map[string]any{"project": in.Project, "mode": in.Mode})
 		return nil, nil
 	})
-	h("DELETE /senders/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("DELETE /senders/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if err := svc.DeleteSender(reqCtx(c), c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "sender.delete", "sender", c.Params("id"), nil)
 		return nil, nil
 	})
-	h("GET /dns", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /dns", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, err := svc.LatestDNSChecks(reqCtx(c))
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"items": items}, nil
 	})
-	h("POST /dns/check", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /dns/check", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		res, err := svc.RunDNSChecks(reqCtx(c), s.Resolver)
 		if err != nil {
 			return nil, err
@@ -386,11 +386,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- templates
-	h("GET /templates", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /templates", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListTemplates(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /templates", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /templates", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in service.TemplateInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -402,10 +402,10 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "template.create", "template", id, map[string]any{"slug": in.Slug, "project": in.Project})
 		return map[string]string{"id": id}, nil
 	})
-	h("GET /templates/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /templates/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return svc.GetTemplate(reqCtx(c), c.Params("id"))
 	})
-	h("PATCH /templates/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PATCH /templates/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Description       *string `json:"description"`
 			Archived          *bool   `json:"archived"`
@@ -421,7 +421,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "template.update", "template", c.Params("id"), map[string]any{"archived": in.Archived})
 		return nil, nil
 	})
-	h("PUT /templates/{id}/draft", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PUT /templates/{id}/draft", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in service.VersionInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -433,14 +433,14 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "template.save_draft", "template", c.Params("id"), map[string]any{"version": v})
 		return map[string]int{"version": v}, nil
 	})
-	ver := func(c *fiber.Ctx) (int, error) {
+	ver := func(c fiber.Ctx) (int, error) {
 		v, err := strconv.Atoi(c.Params("version"))
 		if err != nil || v < 1 {
 			return 0, &service.Error{Status: 404, Code: "not_found"}
 		}
 		return v, nil
 	}
-	h("POST /templates/{id}/versions/{version}/publish", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /templates/{id}/versions/{version}/publish", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		v, err := ver(c)
 		if err != nil {
 			return nil, err
@@ -453,7 +453,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 	// Preview renders only; it never queues or sends. POST because it carries
 	// sample variables, so it needs the CSRF token. Any signed-in admin may preview.
-	h("POST /templates/{id}/versions/{version}/preview", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /templates/{id}/versions/{version}/preview", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		v, err := ver(c)
 		if err != nil {
 			return nil, err
@@ -467,7 +467,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		}
 		return svc.PreviewVersion(reqCtx(c), c.Params("id"), v, in.Locale, in.Variables)
 	})
-	h("POST /templates/{id}/versions/{version}/test-send", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /templates/{id}/versions/{version}/test-send", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		v, err := ver(c)
 		if err != nil {
 			return nil, err
@@ -483,17 +483,17 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "template.test_send", "message", acc.ID, map[string]any{"template_id": c.Params("id"), "version": v, "project": in.Project, "mode": in.Mode})
 		return acc, nil
 	})
-	h("GET /template-meta", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /template-meta", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return map[string]any{"locales": tmpl.Locales, "variable_types": []string{tmpl.TypeString, tmpl.TypeInt, tmpl.TypeURL},
 			"webhook_events": service.WebhookEvents}, nil
 	})
 
 	// ---- webhooks
-	h("GET /webhooks", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /webhooks", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListWebhooks(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /webhooks", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /webhooks", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Project string   `json:"project"`
 			Mode    string   `json:"mode"`
@@ -510,7 +510,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "webhook.create", "webhook_endpoint", id, map[string]any{"project": in.Project, "mode": in.Mode, "events": in.Events})
 		return map[string]string{"id": id, "signing_secret": secret}, nil
 	})
-	h("PATCH /webhooks/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PATCH /webhooks/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			URL           *string  `json:"url"`
 			Events        []string `json:"events"`
@@ -531,14 +531,14 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "webhook.update", "webhook_endpoint", c.Params("id"), map[string]any{"enabled": in.Enabled, "events": in.Events, "url_changed": in.URL != nil})
 		return nil, nil
 	})
-	h("DELETE /webhooks/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("DELETE /webhooks/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if err := svc.DeleteWebhook(reqCtx(c), c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "webhook.delete", "webhook_endpoint", c.Params("id"), nil)
 		return nil, nil
 	})
-	h("POST /webhooks/{id}/rotate-secret", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /webhooks/{id}/rotate-secret", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		secret, err := svc.RotateWebhookSecret(reqCtx(c), c.Params("id"))
 		if err != nil {
 			return nil, err
@@ -546,11 +546,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "webhook.rotate_secret", "webhook_endpoint", c.Params("id"), nil)
 		return map[string]string{"signing_secret": secret}, nil
 	})
-	h("GET /webhook-deliveries", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /webhook-deliveries", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListDeliveries(reqCtx(c), q(c, "endpoint_id"), q(c, "state"), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /webhook-deliveries/{id}/replay", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /webhook-deliveries/{id}/replay", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if err := svc.ReplayDelivery(reqCtx(c), c.Params("id")); err != nil {
 			return nil, err
 		}
@@ -559,11 +559,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- suppressions
-	h("GET /suppressions", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /suppressions", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.AdminSuppressions(reqCtx(c), q(c, "project"), q(c, "mode"), q(c, "source"), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("POST /suppressions", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /suppressions", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Project string `json:"project"`
 			Mode    string `json:"mode"`
@@ -579,7 +579,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "suppression.add", "suppression", "", map[string]any{"project": in.Project, "mode": in.Mode, "reason": in.Reason})
 		return nil, nil
 	})
-	h("DELETE /suppressions/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("DELETE /suppressions/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Reason string `json:"reason"`
 		}
@@ -594,11 +594,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- sandbox captures: content, so authenticated admins only
-	h("GET /sandbox", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /sandbox", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.AdminCaptures(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h("GET /sandbox/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /sandbox/{id}", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		raw, err := svc.AdminCapture(reqCtx(c), c.Params("id"))
 		if err != nil {
 			return nil, err
@@ -613,11 +613,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- users and audit log
-	h("GET /users", s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /users", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListUsers(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
 	}))
-	h("POST /users", s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST /users", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Email    string `json:"email"`
 			Password string `json:"password"`
@@ -636,7 +636,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "user.create", "user", id, map[string]any{"email": strings.ToLower(in.Email), "role": service.RoleAdmin, "installation_operator": operator})
 		return map[string]string{"id": id}, nil
 	}))
-	h("PATCH /users/{id}", s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PATCH /users/{id}", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Role                 *string `json:"role"`
 			Disabled             *bool   `json:"disabled"`
@@ -668,14 +668,14 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		s.audit(c, u, "user.update", "user", c.Params("id"), map[string]any{"role": in.Role, "disabled": in.Disabled, "password_changed": in.Password != nil})
 		return nil, nil
 	}))
-	h("GET /audit", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /audit", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListAudit(reqCtx(c), q(c, "actor"), q(c, "action"), pageOf(c))
 		return list(c, items, more, err)
 	})
 
 	// ---- settings
-	h("GET /settings", func(c *fiber.Ctx, u *service.AdminUser) (any, error) { return svc.Settings(reqCtx(c)) })
-	h("PUT /settings", s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /settings", func(c fiber.Ctx, u *service.AdminUser) (any, error) { return svc.Settings(reqCtx(c)) })
+	h("PUT /settings", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		in := map[string]int{}
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -694,7 +694,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 
 // adminLogin: generic error for every failure; the cookie is HttpOnly, Secure
 // and SameSite=Lax, and scoped to /admin.
-func (s *Server) adminLogin(c *fiber.Ctx) error {
+func (s *Server) adminLogin(c fiber.Ctx) error {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`

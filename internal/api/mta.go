@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/mtaagent"
 	"github.com/njiwa-tz/mail/internal/service"
 )
@@ -39,7 +39,9 @@ func mtaErr(err error) error {
 // why, not who was writing to whom.
 func (s *Server) mtaRoutes(app *fiber.App) {
 	svc := s.Svc
-	h := func(method, path string, fn adminFn) { app.Add(method, "/admin/v1/mta"+path, s.adm(s.op(fn))) }
+	h := func(method, path string, fn adminFn) {
+		app.Add([]string{method}, "/admin/v1/mta"+path, s.adm(s.op(fn)))
+	}
 	agent := func() (MTAAgent, error) {
 		if s.MTA == nil {
 			return nil, &service.Error{Status: 409, Code: "mta_agent_not_configured"}
@@ -47,7 +49,7 @@ func (s *Server) mtaRoutes(app *fiber.App) {
 		return s.MTA, nil
 	}
 
-	h("GET", "/status", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "/status", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if s.MTA == nil {
 			return map[string]any{"configured": false}, nil
 		}
@@ -57,7 +59,7 @@ func (s *Server) mtaRoutes(app *fiber.App) {
 		}
 		return map[string]any{"configured": true, "reachable": true, "status": st}, nil
 	})
-	h("GET", "/queue", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET", "/queue", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		a, err := agent()
 		if err != nil {
 			return nil, err
@@ -91,11 +93,11 @@ func (s *Server) mtaRoutes(app *fiber.App) {
 	})
 	for _, act := range []mtaagent.Action{mtaagent.Hold, mtaagent.Release, mtaagent.Requeue} {
 		act := act
-		h("POST", "/queue/:id/"+string(act), func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		h("POST", "/queue/:id/"+string(act), func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 			return s.mtaAct(c, u, act)
 		})
 	}
-	h("POST", "/queue/:id/delete", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST", "/queue/:id/delete", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Confirm string `json:"confirm"`
 		}
@@ -108,7 +110,7 @@ func (s *Server) mtaRoutes(app *fiber.App) {
 		}
 		return s.mtaAct(c, u, mtaagent.Delete)
 	})
-	h("POST", "/flush", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("POST", "/flush", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		a, err := agent()
 		if err != nil {
 			return nil, err
@@ -121,7 +123,7 @@ func (s *Server) mtaRoutes(app *fiber.App) {
 	})
 }
 
-func (s *Server) mtaAct(c *fiber.Ctx, u *service.AdminUser, act mtaagent.Action) (any, error) {
+func (s *Server) mtaAct(c fiber.Ctx, u *service.AdminUser, act mtaagent.Action) (any, error) {
 	if s.MTA == nil {
 		return nil, &service.Error{Status: 409, Code: "mta_agent_not_configured"}
 	}

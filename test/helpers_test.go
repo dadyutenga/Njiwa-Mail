@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/api"
 	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/dnsauth/dkimtest"
@@ -234,7 +234,7 @@ func (e *env) do(method, path, token, idem string, body any) resp {
 
 func (e *env) roundTrip(r *http.Request) resp {
 	e.t.Helper()
-	res, err := e.h.Test(r, -1)
+	res, err := e.h.Test(r, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil && strings.Contains(err.Error(), "body size exceeds the given limit") {
 		return resp{Code: 413, Hdr: http.Header{"Content-Type": []string{"application/json"}}, Raw: `{"error":{"code":"body_too_large"}}` + "\n", JSON: map[string]any{"error": map[string]any{"code": "body_too_large"}}}
 	}

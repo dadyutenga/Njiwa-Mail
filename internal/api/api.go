@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/service"
 )
@@ -51,13 +51,12 @@ func (s *Server) App() *fiber.App {
 	// limits, which tests adjust after the app is built. Base64 attachments
 	// make the JSON body larger than the decoded file.
 	app := fiber.New(fiber.Config{
-		BodyLimit:             16 << 20,
-		ReadTimeout:           15 * time.Second,
-		WriteTimeout:          30 * time.Second,
-		IdleTimeout:           60 * time.Second,
-		DisableStartupMessage: true,
-		Immutable:             true,
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
+		BodyLimit:    16 << 20,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+		Immutable:    true,
+		ErrorHandler: func(c fiber.Ctx, err error) error {
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
 				if fe.Code == fiber.StatusRequestEntityTooLarge {
@@ -75,7 +74,7 @@ func (s *Server) App() *fiber.App {
 	app.Post("/v1/emails", s.postEmail)
 	app.Post("/v1/emails/:id/cancel", s.cancelEmail)
 	app.Get("/v1/emails/:id", s.getEmail)
-	app.Get("/health/live", func(c *fiber.Ctx) error { return writeJSON(c, 200, map[string]string{"status": "ok"}) })
+	app.Get("/health/live", func(c fiber.Ctx) error { return writeJSON(c, 200, map[string]string{"status": "ok"}) })
 	app.Get("/health/ready", s.ready)
 
 	app.Post("/console/login", s.consoleLogin)
@@ -94,11 +93,12 @@ func (s *Server) App() *fiber.App {
 	return app
 }
 
-func (s *Server) middleware(c *fiber.Ctx) error {
+func (s *Server) middleware(c fiber.Ctx) error {
 	start := time.Now()
 	c.Set("Cache-Control", "no-store")
 	c.Set("X-Content-Type-Options", "nosniff")
-	c.SetUserContext(c.Context())
+	// The request context is also the server's: it ends on shutdown (as the v2 context did).
+	c.SetContext(c.RequestCtx())
 	var err error
 	defer func() {
 		if p := recover(); p != nil {
@@ -122,14 +122,14 @@ func (s *Server) middleware(c *fiber.Ctx) error {
 	return err
 }
 
-func reqCtx(c *fiber.Ctx) context.Context {
-	if ctx := c.UserContext(); ctx != nil {
+func reqCtx(c fiber.Ctx) context.Context {
+	if ctx := c.Context(); ctx != nil {
 		return ctx
 	}
 	return context.Background()
 }
 
-func writeJSON(c *fiber.Ctx, status int, v any) error {
+func writeJSON(c fiber.Ctx, status int, v any) error {
 	c.Set(fiber.HeaderContentType, "application/json")
 	c.Status(status)
 	var buf bytes.Buffer
@@ -139,7 +139,7 @@ func writeJSON(c *fiber.Ctx, status int, v any) error {
 	return c.Send(buf.Bytes())
 }
 
-func writeErr(c *fiber.Ctx, err error) error {
+func writeErr(c fiber.Ctx, err error) error {
 	var e *service.Error
 	if !errors.As(err, &e) {
 		e = &service.Error{Status: 500, Code: "internal_error"}
@@ -172,7 +172,7 @@ func (s *Server) emailLimit() int64 {
 	return limit
 }
 
-func (s *Server) postEmail(c *fiber.Ctx) error {
+func (s *Server) postEmail(c fiber.Ctx) error {
 	p, err := s.Svc.Authenticate(reqCtx(c), c.Get("Authorization"))
 	if err != nil {
 		return writeErr(c, err)
@@ -195,7 +195,7 @@ func (s *Server) postEmail(c *fiber.Ctx) error {
 	return writeJSON(c, 202, res)
 }
 
-func (s *Server) getEmail(c *fiber.Ctx) error {
+func (s *Server) getEmail(c fiber.Ctx) error {
 	p, err := s.Svc.Authenticate(reqCtx(c), c.Get("Authorization"))
 	if err != nil {
 		return writeErr(c, err)
@@ -210,7 +210,7 @@ func (s *Server) getEmail(c *fiber.Ctx) error {
 	return writeJSON(c, 200, st)
 }
 
-func (s *Server) ready(c *fiber.Ctx) error {
+func (s *Server) ready(c fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(reqCtx(c), 2*time.Second)
 	defer cancel()
 	if err := s.Svc.Ready(ctx); err != nil {
@@ -219,13 +219,13 @@ func (s *Server) ready(c *fiber.Ctx) error {
 	return writeJSON(c, 200, map[string]string{"status": "ready"})
 }
 
-func (s *Server) clientIP(c *fiber.Ctx) string {
+func (s *Server) clientIP(c fiber.Ctx) string {
 	if s.TrustProxy {
 		if xf := strings.TrimSpace(strings.Split(c.Get("X-Forwarded-For"), ",")[0]); net.ParseIP(xf) != nil {
 			return xf
 		}
 	}
-	addr := c.Context().RemoteAddr().String()
+	addr := c.RequestCtx().RemoteAddr().String()
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return addr
@@ -235,11 +235,11 @@ func (s *Server) clientIP(c *fiber.Ctx) string {
 
 func forbidden() error { return &service.Error{Status: 403, Code: "forbidden"} }
 
-type adminFn func(c *fiber.Ctx, u *service.AdminUser) (any, error)
+type adminFn func(c fiber.Ctx, u *service.AdminUser) (any, error)
 
 // adm gives every authenticated user the same operator access and enforces CSRF.
 func (s *Server) adm(h adminFn) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		tok, err := cookieVal(c, adminCookie)
 		if err != nil {
 			return writeErr(c, &service.Error{Status: 401, Code: "unauthenticated"})
@@ -277,7 +277,7 @@ func mfaEnrolmentPath(p string) bool {
 // op restricts a route to installation operators (F09). Other admins keep the
 // project-level work: messages, templates, keys, domains of their projects.
 func (s *Server) op(h adminFn) adminFn {
-	return func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	return func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if !u.Operator {
 			return nil, &service.Error{Status: 403, Code: "operator_required"}
 		}
@@ -285,7 +285,7 @@ func (s *Server) op(h adminFn) adminFn {
 	}
 }
 
-func writeOut(c *fiber.Ctx, out any) error {
+func writeOut(c fiber.Ctx, out any) error {
 	switch v := out.(type) {
 	case nil:
 		return writeJSON(c, 200, map[string]bool{"ok": true})
@@ -307,7 +307,7 @@ type rawResponse struct {
 	file   string
 }
 
-func (rr rawResponse) write(c *fiber.Ctx) error {
+func (rr rawResponse) write(c fiber.Ctx) error {
 	for k, v := range rr.header {
 		if strings.EqualFold(k, "Set-Cookie") {
 			c.Response().Header.Add("Set-Cookie", v)
@@ -362,7 +362,7 @@ func jsonDecoder(b []byte) *json.Decoder {
 	return dec
 }
 
-func decode(c *fiber.Ctx, v any) error {
+func decode(c fiber.Ctx, v any) error {
 	if len(c.Body()) > adminMaxBody {
 		return &service.Error{Status: 400, Code: "invalid_request", Message: "request body is not valid JSON for this endpoint"}
 	}
@@ -374,13 +374,13 @@ func decode(c *fiber.Ctx, v any) error {
 	return nil
 }
 
-func pageOf(c *fiber.Ctx) service.Page {
+func pageOf(c fiber.Ctx) service.Page {
 	l, _ := strconv.Atoi(c.Query("limit"))
 	o, _ := strconv.Atoi(c.Query("offset"))
 	return service.Page{Limit: l, Offset: o}
 }
 
-func list(c *fiber.Ctx, items []map[string]any, more bool, err error) (any, error) {
+func list(c fiber.Ctx, items []map[string]any, more bool, err error) (any, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +397,7 @@ func list(c *fiber.Ctx, items []map[string]any, more bool, err error) (any, erro
 	return map[string]any{"items": items, "has_more": more, "limit": pg.Limit, "offset": pg.Offset}, nil
 }
 
-func timeParam(c *fiber.Ctx, name string) (*time.Time, error) {
+func timeParam(c fiber.Ctx, name string) (*time.Time, error) {
 	v := c.Query(name)
 	if v == "" {
 		return nil, nil
@@ -411,13 +411,13 @@ func timeParam(c *fiber.Ctx, name string) (*time.Time, error) {
 
 // audit records a completed admin write. A failure to record is logged loudly
 // but does not turn an already-committed change into an error response.
-func (s *Server) audit(c *fiber.Ctx, u *service.AdminUser, action, targetType, targetID string, details map[string]any) {
+func (s *Server) audit(c fiber.Ctx, u *service.AdminUser, action, targetType, targetID string, details map[string]any) {
 	if err := s.Svc.Audit(reqCtx(c), u.Actor(), action, targetType, targetID, details); err != nil {
 		slog.Error("AUDIT WRITE FAILED", "action", action, "target_type", targetType, "target_id", targetID, "actor", u.Email)
 	}
 }
 
-func cookieVal(c *fiber.Ctx, name string) (string, error) {
+func cookieVal(c fiber.Ctx, name string) (string, error) {
 	v := c.Cookies(name)
 	if v == "" {
 		return "", http.ErrNoCookie
@@ -425,11 +425,11 @@ func cookieVal(c *fiber.Ctx, name string) (string, error) {
 	return v, nil
 }
 
-func setCookie(c *fiber.Ctx, ck *http.Cookie) {
+func setCookie(c fiber.Ctx, ck *http.Cookie) {
 	c.Response().Header.Add("Set-Cookie", ck.String())
 }
 
-func notFound(c *fiber.Ctx) error {
+func notFound(c fiber.Ctx) error {
 	c.Status(fiber.StatusNotFound)
 	return c.SendString("404 page not found\n")
 }

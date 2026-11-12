@@ -16,7 +16,7 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - The operator workspace opens in Live at `/p/{project}/…`. Live/Sandbox is selected locally for sending, template tests, and API keys; Sandbox captures have their own page. Only the last project is remembered.
 - Per-project, per-environment (sandbox/live) API keys, approved senders, approved link origins, recipient allowlist, rate limits.
 - Honest status: `submitted` = your mail server acknowledged acceptance. Later evidence (deferred, accepted by the recipient's server, bounced) is shown with its source. Never "delivered".
-- Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. The HTTP API is Fiber. Persistence is GORM on PostgreSQL.
+- Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. The HTTP API is Fiber v3. Persistence is GORM on PostgreSQL.
 
 > Release status: see [STATUS.md](STATUS.md) and [docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md). The managed installer has been verified against real
 > Postfix and OpenDKIM (no open relay, mutual-TLS submission, DKIM signing), but real delivery to external providers and an HTTPS

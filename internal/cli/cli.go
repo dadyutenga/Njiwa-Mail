@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/api"
 	"github.com/njiwa-tz/mail/internal/config"
 	"github.com/njiwa-tz/mail/internal/db"
@@ -343,7 +344,7 @@ func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 		TrustProxy:     cfg.TrustProxy, InsecureCookies: cfg.InsecureCookies, MetricsToken: cfg.MetricsToken,
 	}).App()
 	errCh := make(chan error, 1)
-	go func() { errCh <- app.Listen(cfg.ListenAddr) }()
+	go func() { errCh <- app.Listen(cfg.ListenAddr, fiber.ListenConfig{DisableStartupMessage: true}) }()
 	select {
 	case <-ctx.Done():
 		sctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

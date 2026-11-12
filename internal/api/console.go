@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/service"
 )
 
@@ -72,7 +72,7 @@ func (s *Server) validSession(tok string) bool {
 	return hmac.Equal(expect, mac)
 }
 
-func (s *Server) setSessionCookie(c *fiber.Ctx, token string, exp time.Time) {
+func (s *Server) setSessionCookie(c fiber.Ctx, token string, exp time.Time) {
 	secure := c.Protocol() == "https" || strings.EqualFold(c.Get("X-Forwarded-Proto"), "https")
 	setCookie(c, &http.Cookie{
 		Name:     consoleCookie,
@@ -86,7 +86,7 @@ func (s *Server) setSessionCookie(c *fiber.Ctx, token string, exp time.Time) {
 	})
 }
 
-func (s *Server) clearSessionCookie(c *fiber.Ctx) {
+func (s *Server) clearSessionCookie(c fiber.Ctx) {
 	setCookie(c, &http.Cookie{
 		Name:     consoleCookie,
 		Value:    "",
@@ -98,7 +98,7 @@ func (s *Server) clearSessionCookie(c *fiber.Ctx) {
 	})
 }
 
-func (s *Server) requireConsole(c *fiber.Ctx) bool {
+func (s *Server) requireConsole(c fiber.Ctx) bool {
 	if !s.consoleOn() {
 		_ = notFound(c)
 		return false
@@ -111,7 +111,7 @@ func (s *Server) requireConsole(c *fiber.Ctx) bool {
 	return true
 }
 
-func (s *Server) consoleLogin(c *fiber.Ctx) error {
+func (s *Server) consoleLogin(c fiber.Ctx) error {
 	if !s.consoleOn() {
 		return notFound(c)
 	}
@@ -135,7 +135,7 @@ func (s *Server) consoleLogin(c *fiber.Ctx) error {
 	return writeJSON(c, 200, map[string]bool{"ok": true})
 }
 
-func (s *Server) consoleLogout(c *fiber.Ctx) error {
+func (s *Server) consoleLogout(c fiber.Ctx) error {
 	if !s.consoleOn() {
 		return notFound(c)
 	}
@@ -143,7 +143,7 @@ func (s *Server) consoleLogout(c *fiber.Ctx) error {
 	return writeJSON(c, 200, map[string]bool{"ok": true})
 }
 
-func (s *Server) consoleMe(c *fiber.Ctx) error {
+func (s *Server) consoleMe(c fiber.Ctx) error {
 	if !s.requireConsole(c) {
 		return nil
 	}
@@ -154,7 +154,7 @@ func (s *Server) consoleMe(c *fiber.Ctx) error {
 	})
 }
 
-func (s *Server) consoleOverview(c *fiber.Ctx) error {
+func (s *Server) consoleOverview(c fiber.Ctx) error {
 	if !s.requireConsole(c) {
 		return nil
 	}
@@ -168,7 +168,7 @@ func (s *Server) consoleOverview(c *fiber.Ctx) error {
 	}{ConsoleOverview: ov, SMTPConfigured: s.SMTPConfigured})
 }
 
-func (s *Server) consoleMessages(c *fiber.Ctx) error {
+func (s *Server) consoleMessages(c fiber.Ctx) error {
 	if !s.requireConsole(c) {
 		return nil
 	}
@@ -180,7 +180,7 @@ func (s *Server) consoleMessages(c *fiber.Ctx) error {
 	return writeJSON(c, 200, map[string]any{"messages": rows})
 }
 
-func (s *Server) consoleMessage(c *fiber.Ctx) error {
+func (s *Server) consoleMessage(c fiber.Ctx) error {
 	if !s.requireConsole(c) {
 		return nil
 	}
@@ -191,7 +191,7 @@ func (s *Server) consoleMessage(c *fiber.Ctx) error {
 	return writeJSON(c, 200, row)
 }
 
-func (s *Server) consoleProjects(c *fiber.Ctx) error {
+func (s *Server) consoleProjects(c fiber.Ctx) error {
 	if !s.requireConsole(c) {
 		return nil
 	}
@@ -202,7 +202,7 @@ func (s *Server) consoleProjects(c *fiber.Ctx) error {
 	return writeJSON(c, 200, map[string]any{"projects": rows})
 }
 
-func (s *Server) consoleKeys(c *fiber.Ctx) error {
+func (s *Server) consoleKeys(c fiber.Ctx) error {
 	if !s.requireConsole(c) {
 		return nil
 	}

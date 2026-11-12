@@ -3,27 +3,27 @@ package api
 import (
 	"encoding/json"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/service"
 )
 
 func (s *Server) productRoutes(app *fiber.App) {
 	svc := s.Svc
 	h := func(method, path string, fn adminFn) {
-		app.Add(method, path, s.adm(fn))
+		app.Add([]string{method}, path, s.adm(fn))
 	}
-	h(fiber.MethodGet, "/admin/v1/analytics", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodGet, "/admin/v1/analytics", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, err := svc.Analytics(reqCtx(c), c.Query("project"), c.Query("mode"), c.Query("template"), c.Query("domain"))
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"items": items}, nil
 	})
-	h(fiber.MethodGet, "/admin/v1/domains", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodGet, "/admin/v1/domains", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListDomains(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
 	})
-	h(fiber.MethodPost, "/admin/v1/domains", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodPost, "/admin/v1/domains", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Project, Name, Purpose string
 		}
@@ -37,28 +37,28 @@ func (s *Server) productRoutes(app *fiber.App) {
 		s.audit(c, u, "domain.create", "domain", id, map[string]any{"name": in.Name, "purpose": in.Purpose})
 		return map[string]string{"id": id, "txt": "njiwa-mail-verify=" + token}, nil
 	})
-	h(fiber.MethodPost, "/admin/v1/domains/:id/verify", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodPost, "/admin/v1/domains/:id/verify", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if err := svc.VerifyDomain(reqCtx(c), c.Params("id"), s.Resolver); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "domain.verify", "domain", c.Params("id"), nil)
 		return nil, nil
 	})
-	h(fiber.MethodGet, "/admin/v1/auth/sessions", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodGet, "/admin/v1/auth/sessions", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, err := svc.ListSessions(reqCtx(c), u.ID)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"items": items}, nil
 	})
-	h(fiber.MethodDelete, "/admin/v1/auth/sessions/:id", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodDelete, "/admin/v1/auth/sessions/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		if err := svc.RevokeSession(reqCtx(c), u.ID, c.Params("id")); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "auth.session_revoke", "session", c.Params("id"), nil)
 		return nil, nil
 	})
-	app.Post("/admin/v1/auth/forgot", func(c *fiber.Ctx) error {
+	app.Post("/admin/v1/auth/forgot", func(c fiber.Ctx) error {
 		var in struct {
 			Email string `json:"email"`
 		}
@@ -68,7 +68,7 @@ func (s *Server) productRoutes(app *fiber.App) {
 		_ = svc.RequestPasswordReset(reqCtx(c), in.Email)
 		return writeJSON(c, 200, map[string]bool{"ok": true})
 	})
-	app.Post("/admin/v1/auth/reset", func(c *fiber.Ctx) error {
+	app.Post("/admin/v1/auth/reset", func(c fiber.Ctx) error {
 		var in struct {
 			Token, Password string
 		}
@@ -80,14 +80,14 @@ func (s *Server) productRoutes(app *fiber.App) {
 		}
 		return writeJSON(c, 200, map[string]bool{"ok": true})
 	})
-	h(fiber.MethodGet, "/admin/v1/alert-channels", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodGet, "/admin/v1/alert-channels", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, err := svc.ListAlertChannels(reqCtx(c))
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"items": items}, nil
 	})
-	h(fiber.MethodPost, "/admin/v1/alert-channels", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodPost, "/admin/v1/alert-channels", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct{ Kind, Target string }
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -98,14 +98,14 @@ func (s *Server) productRoutes(app *fiber.App) {
 		s.audit(c, u, "alert_channel.create", "alert_channel", in.Kind, nil)
 		return nil, nil
 	})
-	h(fiber.MethodPost, "/admin/v1/privacy/export", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodPost, "/admin/v1/privacy/export", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct{ Project, Mode, Email string }
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
 		return svc.ExportRecipient(reqCtx(c), in.Project, in.Mode, in.Email)
 	})
-	h(fiber.MethodPost, "/admin/v1/privacy/delete", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodPost, "/admin/v1/privacy/delete", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct{ Project, Mode, Email string }
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -116,12 +116,12 @@ func (s *Server) productRoutes(app *fiber.App) {
 		s.audit(c, u, "privacy.delete", "recipient", "", map[string]any{"project": in.Project, "mode": in.Mode})
 		return nil, nil
 	})
-	h(fiber.MethodGet, "/admin/v1/docs", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h(fiber.MethodGet, "/admin/v1/docs", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return map[string]any{"operations": v1Operations}, nil
 	})
 }
 
-func (s *Server) postBatch(c *fiber.Ctx) error {
+func (s *Server) postBatch(c fiber.Ctx) error {
 	p, err := s.Svc.Authenticate(reqCtx(c), c.Get("Authorization"))
 	if err != nil {
 		return writeErr(c, err)
@@ -145,7 +145,7 @@ func (s *Server) postBatch(c *fiber.Ctx) error {
 	return writeJSON(c, 200, map[string]any{"results": out})
 }
 
-func (s *Server) cancelEmail(c *fiber.Ctx) error {
+func (s *Server) cancelEmail(c fiber.Ctx) error {
 	p, err := s.Svc.Authenticate(reqCtx(c), c.Get("Authorization"))
 	if err != nil {
 		return writeErr(c, err)

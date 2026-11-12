@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/api"
 )
 
@@ -33,7 +33,7 @@ func consoleDo(h *fiber.App, method, path, cookie string, body any) *httptest.Re
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}
-	res, err := h.Test(req, -1)
+	res, err := h.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	w := httptest.NewRecorder()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
