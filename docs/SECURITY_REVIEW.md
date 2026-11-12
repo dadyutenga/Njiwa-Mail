@@ -67,9 +67,23 @@ Live rate limits per installation and per sending domain (`TestInstallationAndDo
 bounded Live queue (`TestLiveQueueIsBounded`), the strict domain-claim gate (`TestDomainClaimIsInstallationWide`), and suppression only
 for DSNs correlated to our own message (`TestDeliveryEvidenceTimeline`).
 
+## 6. Operator access (F09)
+
+- **Installation-operator permission.** `users.installation_operator` (migration 0016; every existing user is backfilled `true`, so an
+  upgrade removes nobody's access). Installation, transport profile, domain-claim, mail-server, user and settings-write routes answer
+  `403 operator_required` to other admins; project work (messages, templates, keys, domains of a project) is unchanged. The first user
+  is always an operator and the last enabled operator cannot be demoted or disabled (`last_operator`). A permission change ends that
+  user's sessions. Evidence: `TestInstallationOperatorPermission`, `TestFirstUserIsAlwaysOperator`.
+- **Optional TOTP (RFC 6238).** Secret sealed with `ENCRYPTION_KEY`, pending until a code is confirmed; a time step is accepted once
+  (replay), five wrong codes lock the second factor for 15 minutes on top of the login throttle; ten recovery codes, single use,
+  stored only as keyed hashes; enabling ends other sessions. Evidence: `TestTOTPMatchesRFC6238Vectors`, `TestMFAEnrolLoginReplayAndRecovery`,
+  `TestMFALockoutAndDisable`.
+- **Policy `require_mfa`.** When on, every admin without a second factor can only enrol or sign out (`403 mfa_enrollment_required`)
+  and nobody can switch MFA off. An operator resets another user's lost device (`mfa.reset`, audited, ends their sessions); the CLI
+  has `user mfa-reset`. Evidence: `TestRequireMFAPolicyAndOperatorReset`.
+
 ## Not covered yet
 
-- Operator roles beyond admin/owner/project roles, and MFA (F09).
 - Encryption at rest for inbound attachments; retention for evidence and receipts (F10).
 - A signed (VERP/HMAC) bounce correlation token (F06 note).
 - An external penetration test and the dependency scan (`govulncheck` runs in CI but has not yet had a green run on GitHub).

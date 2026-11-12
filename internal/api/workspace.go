@@ -895,7 +895,7 @@ func decodeLarge(c *fiber.Ctx, v any) error {
 
 func (s *Server) mailServerRoutes(app *fiber.App) {
 	svc := s.Svc
-	h := func(method, path string, fn adminFn) { app.Add(method, "/admin/v1"+path, s.adm(fn)) }
+	h := func(method, path string, fn adminFn) { app.Add(method, "/admin/v1"+path, s.adm(s.op(fn))) }
 
 	h("GET", "/mail-server", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		m, err := svc.GetMailServer(reqCtx(c))

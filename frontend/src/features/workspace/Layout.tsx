@@ -19,6 +19,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { admin, AdminError } from "@/lib/admin-api";
+import { useAuth } from "@/features/auth/auth";
 import { cn } from "@/lib/utils";
 import {
   rememberWorkspace,
@@ -210,6 +211,7 @@ function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
 // ---------------------------------------------------------------- sidebar
 
 function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () => void }) {
+  const { user } = useAuth();
   const phrase = usePhrase();
   const { to, api } = useWorkspace();
   const key = useWsKey();
@@ -247,6 +249,7 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
             <ul className="space-y-0.5">
               {g.items
                 .filter((i) => !(i.path === "setup" && checklist.data?.complete))
+                .filter((i) => !i.operator || user?.installation_operator !== false)
                 .map(({ path, label, icon: Icon, badge }) => (
                   <li key={path}>
                     <NavLink

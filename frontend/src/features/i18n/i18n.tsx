@@ -225,6 +225,28 @@ export function useI18n() {
 }
 
 const swPhrases: Record<string, string> = {
+  "Two-step sign-in": "Kuingia kwa hatua mbili",
+  "Set up two-step sign-in": "Weka kuingia kwa hatua mbili",
+  "Two-step sign-in is on for your account.":
+    "Kuingia kwa hatua mbili kumewashwa kwa akaunti yako.",
+  "Authentication code": "Msimbo wa uthibitisho",
+  "Code from the app": "Msimbo kutoka kwenye programu",
+  "Turn on": "Washa",
+  "Turn off": "Zima",
+  "I saved them": "Nimevihifadhi",
+  "Save these recovery codes now. Each works once and they are not shown again.":
+    "Hifadhi misimbo hii ya kurejesha sasa. Kila mmoja hufanya kazi mara moja na hautaonyeshwa tena.",
+  "Enter the code from your authenticator app, or a recovery code.":
+    "Weka msimbo kutoka kwenye programu yako ya uthibitisho, au msimbo wa kurejesha.",
+  "Installation operator (can change delivery infrastructure, users and settings)":
+    "Mwendeshaji wa usakinishaji (anaweza kubadilisha miundombinu ya utumaji, watumiaji na mipangilio)",
+  "Require two-step sign-in for every admin":
+    "Lazimisha kuingia kwa hatua mbili kwa kila msimamizi",
+  Operator: "Mwendeshaji",
+  "Two-step": "Hatua mbili",
+  "Make operator": "Mfanye mwendeshaji",
+  "Remove operator": "Ondoa uendeshaji",
+  "Reset two-step": "Weka upya hatua mbili",
   "Sending mode": "Hali ya kutuma",
   "Live — send to real recipients": "Live — tuma kwa wapokeaji halisi",
   "Sandbox — capture only": "Sandbox — hifadhi kwa majaribio tu",

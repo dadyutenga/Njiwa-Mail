@@ -10,6 +10,9 @@ const user = {
   email: "admin@example.com",
   role: "admin" as const,
   csrf_token: "csrf",
+  installation_operator: true,
+  mfa_enabled: false,
+  mfa_enrollment_required: false,
   expires_at: "2030-01-01T00:00:00Z",
 };
 describe("ProtectedRoute", () => {

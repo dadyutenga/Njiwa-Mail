@@ -256,6 +256,7 @@ export function Users() {
   const client = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [operator, setOperator] = useState(true);
   const [error, setError] = useState("");
   const q = useQuery({
     queryKey: ["users"],
@@ -266,7 +267,9 @@ export function Users() {
     <>
       <PageHeader
         title={phrase("Users")}
-        description={phrase("People who can sign in. Every user can manage the workspace.")}
+        description={phrase(
+          "People who can sign in. Installation operators also manage delivery infrastructure, domain ownership, users and settings.",
+        )}
       />
       <form
         className="mb-4 grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-[1fr_1fr_auto]"
@@ -278,7 +281,12 @@ export function Users() {
           setError("");
           if (
             await run(
-              () => admin.send("/users", "POST", { email, password }),
+              () =>
+                admin.send("/users", "POST", {
+                  email,
+                  password,
+                  installation_operator: operator,
+                }),
               phrase("User added."),
             )
           ) {
@@ -308,6 +316,14 @@ export function Users() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </Field>
+        <label className="flex items-center gap-2 text-sm sm:col-span-2">
+          <input
+            type="checkbox"
+            checked={operator}
+            onChange={(e) => setOperator(e.target.checked)}
+          />
+          {phrase("Installation operator (can change delivery infrastructure, users and settings)")}
+        </label>
         <Button type="submit" className="self-end">
           {phrase("Add user")}
         </Button>
@@ -319,7 +335,16 @@ export function Users() {
             rowKey={(r) => s(r.id)}
             columns={[
               { key: "email", label: phrase("Email") },
-              { key: "role", label: phrase("Role") },
+              {
+                key: "installation_operator",
+                label: phrase("Operator"),
+                render: (r) => (r.installation_operator ? phrase("yes") : phrase("no")),
+              },
+              {
+                key: "mfa_enabled",
+                label: phrase("Two-step"),
+                render: (r) => (r.mfa_enabled ? phrase("on") : phrase("off")),
+              },
               {
                 key: "disabled",
                 label: phrase("State"),
@@ -363,6 +388,46 @@ export function Users() {
                       >
                         {r.disabled ? phrase("Enable") : phrase("Disable")}
                       </ConfirmButton>
+                      <ConfirmButton
+                        title={`${r.installation_operator ? phrase("Remove operator access from") : phrase("Make an installation operator:")} ${s(r.email)}?`}
+                        description={phrase(
+                          "They are signed out and sign in again with the new access.",
+                        )}
+                        confirm="Confirm"
+                        onConfirm={async () => {
+                          await run(
+                            () =>
+                              admin.send(`/users/${s(r.id)}`, "PATCH", {
+                                installation_operator: !r.installation_operator,
+                              }),
+                            phrase("Saved."),
+                          );
+                          refresh();
+                        }}
+                      >
+                        {r.installation_operator
+                          ? phrase("Remove operator")
+                          : phrase("Make operator")}
+                      </ConfirmButton>
+                      {!!r.mfa_enabled && (
+                        <ConfirmButton
+                          destructive
+                          title={`${phrase("Reset two-step sign-in for")} ${s(r.email)}?`}
+                          description={phrase(
+                            "Use this when the device and recovery codes are lost. They are signed out and must set it up again.",
+                          )}
+                          confirm="Reset"
+                          onConfirm={async () => {
+                            await run(
+                              () => admin.send(`/users/${s(r.id)}`, "PATCH", { reset_mfa: true }),
+                              phrase("Saved."),
+                            );
+                            refresh();
+                          }}
+                        >
+                          {phrase("Reset two-step")}
+                        </ConfirmButton>
+                      )}
                     </span>
                   ),
               },

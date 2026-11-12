@@ -26,6 +26,7 @@ var settingDefaults = map[string]struct{ def, min, max int }{
 	"login_attempts_per_ip":       {30, 3, 10000},  // per 15 minutes
 	"default_send_per_minute":     {30, 1, 100000}, // applied to new projects
 	"default_send_per_day":        {500, 1, 10000000},
+	"require_mfa":                 {0, 0, 1}, // 1 = every admin must use a second factor (enrol on next sign-in)
 }
 
 func (s *Service) settingInt(ctx context.Context, key string) int {

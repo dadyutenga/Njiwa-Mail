@@ -37,6 +37,32 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 	h("GET /auth/me", func(c *fiber.Ctx, u *service.AdminUser) (any, error) { return u, nil })
 
+	// ---- second factor (F09): enrol, confirm, disable for the signed-in user
+	h("POST /auth/mfa/enroll", func(c *fiber.Ctx, u *service.AdminUser) (any, error) { return svc.MFAStart(reqCtx(c), u) })
+	h("POST /auth/mfa/confirm", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct {
+			Code string `json:"code"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		codes, err := svc.MFAConfirm(reqCtx(c), u, in.Code)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"recovery_codes": codes}, nil
+	})
+	h("POST /auth/mfa/disable", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct {
+			Password string `json:"password"`
+			Code     string `json:"code"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		return nil, svc.MFADisable(reqCtx(c), u, in.Password, in.Code)
+	})
+
 	// ---- overview
 	h("GET /overview", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		st, err := svc.Stats(reqCtx(c))
@@ -581,31 +607,36 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 
 	// ---- users and audit log
-	h("GET /users", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("GET /users", s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListUsers(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
-	})
-	h("POST /users", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	}))
+	h("POST /users", s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Email    string `json:"email"`
 			Password string `json:"password"`
 			Role     string `json:"role"`
+			// Defaults to true so nobody loses access; false creates a restricted admin.
+			InstallationOperator *bool `json:"installation_operator"`
 		}
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		id, err := svc.CreateUser(reqCtx(c), in.Email, in.Password, in.Role)
+		operator := in.InstallationOperator == nil || *in.InstallationOperator
+		id, err := svc.CreateUserWith(reqCtx(c), in.Email, in.Password, in.Role, operator)
 		if err != nil {
 			return nil, err
 		}
-		s.audit(c, u, "user.create", "user", id, map[string]any{"email": strings.ToLower(in.Email), "role": service.RoleAdmin})
+		s.audit(c, u, "user.create", "user", id, map[string]any{"email": strings.ToLower(in.Email), "role": service.RoleAdmin, "installation_operator": operator})
 		return map[string]string{"id": id}, nil
-	})
-	h("PATCH /users/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	}))
+	h("PATCH /users/{id}", s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
-			Role     *string `json:"role"`
-			Disabled *bool   `json:"disabled"`
-			Password *string `json:"password"`
+			Role                 *string `json:"role"`
+			Disabled             *bool   `json:"disabled"`
+			Password             *string `json:"password"`
+			InstallationOperator *bool   `json:"installation_operator"`
+			ResetMFA             bool    `json:"reset_mfa"`
 		}
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -613,13 +644,24 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		if err := svc.UpdateUser(reqCtx(c), c.Params("id"), in.Role, in.Disabled, in.Password); err != nil {
 			return nil, err
 		}
+		if in.InstallationOperator != nil {
+			if err := svc.SetOperator(reqCtx(c), c.Params("id"), *in.InstallationOperator); err != nil {
+				return nil, err
+			}
+			s.audit(c, u, "user.operator", "user", c.Params("id"), map[string]any{"installation_operator": *in.InstallationOperator})
+		}
+		if in.ResetMFA {
+			if err := svc.ResetMFA(reqCtx(c), u.Actor(), c.Params("id")); err != nil {
+				return nil, err
+			}
+		}
 		if in.Role != nil {
 			role := service.RoleAdmin
 			in.Role = &role
 		}
 		s.audit(c, u, "user.update", "user", c.Params("id"), map[string]any{"role": in.Role, "disabled": in.Disabled, "password_changed": in.Password != nil})
 		return nil, nil
-	})
+	}))
 	h("GET /audit", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListAudit(reqCtx(c), q(c, "actor"), q(c, "action"), pageOf(c))
 		return list(c, items, more, err)
@@ -627,7 +669,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 
 	// ---- settings
 	h("GET /settings", func(c *fiber.Ctx, u *service.AdminUser) (any, error) { return svc.Settings(reqCtx(c)) })
-	h("PUT /settings", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+	h("PUT /settings", s.op(func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		in := map[string]int{}
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -641,7 +683,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		}
 		s.audit(c, u, "settings.update", "settings", "", details)
 		return svc.Settings(reqCtx(c))
-	})
+	}))
 }
 
 // adminLogin: generic error for every failure; the cookie is HttpOnly, Secure
@@ -650,11 +692,12 @@ func (s *Server) adminLogin(c *fiber.Ctx) error {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Code     string `json:"code"`
 	}
 	if len(c.Body()) > 4096 || json.Unmarshal(c.Body(), &in) != nil || in.Email == "" || in.Password == "" {
 		return writeErr(c, &service.Error{Status: 401, Code: "invalid_credentials"})
 	}
-	tok, u, err := s.Svc.Login(reqCtx(c), in.Email, in.Password, s.clientIP(c), c.Get("User-Agent"))
+	tok, u, err := s.Svc.LoginMFA(reqCtx(c), in.Email, in.Password, in.Code, s.clientIP(c), c.Get("User-Agent"))
 	if err != nil {
 		return writeErr(c, err)
 	}

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { admin } from "@/lib/admin-api";
 import { useAuth } from "@/features/auth/auth";
 import { usePhrase } from "@/features/i18n/i18n";
+import { TwoStep } from "./TwoStep";
 type Session = {
   id: string;
   created_at: string;
@@ -11,7 +12,7 @@ type Session = {
   ip: string;
 };
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const phrase = usePhrase();
   const client = useQueryClient();
   const q = useQuery({
@@ -39,6 +40,7 @@ export default function Profile() {
           <strong>{phrase("Role:")}</strong> {user?.role}
         </p>
       </section>
+      <TwoStep enabled={!!user?.mfa_enabled} onChanged={refresh} />
       {error && (
         <p role="alert" className="text-destructive">
           {error}

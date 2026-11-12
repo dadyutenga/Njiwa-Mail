@@ -78,7 +78,7 @@ The HTTP API remains `/v1` and `/admin/v1`. New behaviour covered by `go test ./
 
 - Raw send with scope `emails:send_raw`, cc/bcc/reply-to, attachments, priority, schedule, cancel, and batch.
 - A sending domain that has been added cannot be used for live mail until its TXT challenge, SPF, DKIM and DMARC pass.
-- Owner and admin accounts use password-based sessions; MFA has been removed from the admin API.
+- Admin accounts use password sessions with optional TOTP two-step sign-in (F09); the installation-operator permission separates delivery infrastructure, users and settings from project work.
 - Recipient export and deletion, and re-encryption onto a new key.
 
 Not verified here: real Mailcow delivery and a restore drill. Apps integrate through `docs/INTEGRATION.md` and an API key; there is no per-app adapter. The daily summary is computed by the scheduler and written to the log. `scripts/backup.sh` and `scripts/restore.sh` are the operator commands; they were not run against a production database.

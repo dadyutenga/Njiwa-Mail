@@ -250,11 +250,35 @@ func (s *Server) adm(h adminFn) fiber.Handler {
 				return writeErr(c, &service.Error{Status: 403, Code: "csrf_token_invalid"})
 			}
 		}
+		// The operator requires MFA and this user has none: only enrolment,
+		// "who am I" and sign-out work until it is set up.
+		if u.MFAEnrollmentRequired && !mfaEnrolmentPath(c.Path()) {
+			return writeErr(c, &service.Error{Status: 403, Code: "mfa_enrollment_required"})
+		}
 		out, err := h(c, u)
 		if err != nil {
 			return writeErr(c, err)
 		}
 		return writeOut(c, out)
+	}
+}
+
+func mfaEnrolmentPath(p string) bool {
+	switch p {
+	case "/admin/v1/auth/me", "/admin/v1/auth/logout":
+		return true
+	}
+	return strings.HasPrefix(p, "/admin/v1/auth/mfa/")
+}
+
+// op restricts a route to installation operators (F09). Other admins keep the
+// project-level work: messages, templates, keys, domains of their projects.
+func (s *Server) op(h adminFn) adminFn {
+	return func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		if !u.Operator {
+			return nil, &service.Error{Status: 403, Code: "operator_required"}
+		}
+		return h(c, u)
 	}
 }
 

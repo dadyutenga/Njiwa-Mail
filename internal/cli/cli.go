@@ -75,9 +75,12 @@ Provisioning (operator CLI only):
   key revoke    -prefix P
   key list      [-project N]
   suppress add|remove -project N -mode M -email addr [-reason R]
-  user create   -email E [-role admin]   (password read from stdin; the first user is created here)
+  user create   -email E [-role admin] [-operator=false]   (password read from stdin; the first user is created here;
+                -operator=false makes a restricted admin without installation-level access)
   user password -email E                            (new password read from stdin)
   user disable|enable -email E
+  user operator -email E [-on=true|false]   (grant or remove the installation-operator permission)
+  user mfa-reset -email E                   (lost authenticator and recovery codes; ends the user's sessions)
 
 Operations:
   message list    [-state unknown] [-limit 50]
@@ -482,6 +485,7 @@ func adminCmd(ctx context.Context, svc *service.Service, group string, args []st
 		rcptMin  = fs.Int("rcpt-per-minute", 0, "")
 		rcptHour = fs.Int("rcpt-per-hour", 0, "")
 		role     = fs.String("role", service.RoleAdmin, "admin")
+		operator = fs.Bool("operator", true, "installation-operator permission for a new user")
 		origins  multi
 	)
 	fs.Var(&origins, "origin", "")
@@ -556,11 +560,20 @@ func adminCmd(ctx context.Context, svc *service.Service, group string, args []st
 		if err != nil {
 			return err
 		}
-		id, err := svc.CreateUser(ctx, *email, pw, *role)
+		id, err := svc.CreateUserWith(ctx, *email, pw, *role, *operator)
 		if err != nil {
 			return cliErr(err)
 		}
 		fmt.Printf("user %s created with role %s (id %s)\n", strings.ToLower(*email), service.RoleAdmin, id)
+	case "user operator", "user mfa-reset":
+		id, err := svc.UserIDByEmail(ctx, *email)
+		if err != nil {
+			return cliErr(err)
+		}
+		if sub == "mfa-reset" {
+			return cliErr(svc.ResetMFA(ctx, service.CLIActor, id))
+		}
+		return cliErr(svc.SetOperator(ctx, id, *on))
 	case "user password", "user disable", "user enable":
 		id, err := svc.UserIDByEmail(ctx, *email)
 		if err != nil {

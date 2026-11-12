@@ -12,7 +12,7 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - **Inbound:** your mail server (or managed Postfix, for bounces) relays to a private SMTP listener; mail is parsed to JSON (text, HTML, headers, attachments).
 - **Bounces:** DSNs are parsed; hard bounces suppress the recipient automatically; policy bounces raise an alert and never suppress.
 - **Webhooks:** signed (HMAC-SHA256), retried for about 24 hours, replayable, with SSRF controls.
-- **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, one role (`admin`), audit log, DNS health check, metrics.
+- **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, one role (`admin`) with an installation-operator permission, optional TOTP two-step sign-in, audit log, DNS health check, metrics.
 - The operator workspace opens in Live at `/p/{project}/…`. Live/Sandbox is selected locally for sending, template tests, and API keys; Sandbox captures have their own page. Only the last project is remembered.
 - Per-project, per-environment (sandbox/live) API keys, approved senders, approved link origins, recipient allowlist, rate limits.
 - Honest status: `submitted` = your mail server acknowledged acceptance. Later evidence (deferred, accepted by the recipient's server, bounced) is shown with its source. Never "delivered".
@@ -105,7 +105,7 @@ test/                acceptance tests                  deploy/            nginx 
 
 ## What a message can carry
 
-One request accepts a `to` address plus `cc` and `bcc` (10 addresses altogether), file attachments, raw HTML or plain text, and custom `X-` headers. Addresses may use international domains. Operator sign-in uses a password and session cookie; MFA is not part of the current admin API.
+One request accepts a `to` address plus `cc` and `bcc` (10 addresses altogether), file attachments, raw HTML or plain text, and custom `X-` headers. Addresses may use international domains. Operator sign-in uses a password and session cookie; Two-step sign-in (TOTP) is optional per user and can be required for all admins.
 
 Inbound mail arrives by Mailcow relay, or by IMAP polling of a catch-all mailbox (`IMAP_HOST`). Outbound submission uses `SMTP_HOST` and, when that host fails before acceptance, `SMTP_FAILOVER_HOST`. Extra `api` and `worker` replicas share the same PostgreSQL queue, so a second instance does not double-send.
 

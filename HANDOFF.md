@@ -29,7 +29,7 @@ for existing tests and callers. Focused worker and transport tests, `go vet ./..
   1. **Kinahitaji server halisi** (sehemu ya 3): G05 (managed mode kwenye VPS + Gmail/Outlook), G04 (existing SMTP halisi),
      E06/E07 (delivery na bounce halisi), E12 (Debian/Ubuntu tofauti), G06 (kubadilisha mode na barua kwenye foleni), systemd path,
      CI jobs kuwa blocking.
-  2. **Hakihitaji server** (sehemu ya 4): F09 (roles + MFA), F10 (retention/encryption), C01 (integration tests bado), E10 (queue controls
+  2. **Hakihitaji server** (sehemu ya 4): F10 (retention/encryption), C01 (integration tests bado), E10 (queue controls
      kwenye dashboard), F07, F02, G08/A01 (docs), B07 (Kiswahili + accessibility), C02, C05, D04, F06, A02/G07, G09/G10.
 - **Anza hivi ofisini:** clone → fuata sehemu ya 1 (setup) → sehemu ya 3.1 (G05) hatua kwa hatua.
 - Ukitumia Claude Code kwenye PC, mpe maelekezo ya sehemu ya 7.
@@ -319,15 +319,10 @@ versions and any differences in a compatibility table (also needed for G10).
 
 Each item: what to build, where, and acceptance criteria. Suggested order: F09 → C01 → F10 → E10 → F07/F02 → docs → B07.
 
-### F09 — operator roles and MFA (security, high value)
+### F09 — operator roles and MFA — **done**
 
-- Today: roles are owner/admin and project roles; every admin can change installation settings.
-- Build: a separate **installation operator** permission (transport profiles, installer records, domain claims, activation, keys
-  of the installation) vs project roles; check it in `internal/api/installation.go` and the claims routes.
-- MFA: TOTP (RFC 6238) enrolment for admin users (secret sealed with `ENCRYPTION_KEY`), required at login when enabled; recovery
-  codes (hashed); an operator setting "require MFA for all admins". Migration `0016`.
-- Tests: role matrix (extend `test/security_matrix_test.go` with a non-operator admin), TOTP enrol/login/replay/lockout; update
-  `docs/SECURITY_REVIEW.md`.
+- Installation-operator permission and optional TOTP are implemented (migration `0016`); see `docs/SECURITY_REVIEW.md` section 6 and
+  `docs/OPERATIONS.md`. Existing users are all operators, so upgrading removes no access.
 
 ### C01 — worker cut-over to `transport.Transport` — **done**
 

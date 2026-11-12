@@ -3,6 +3,11 @@ export type AdminUser = {
   id: string;
   email: string;
   role: "admin";
+  /** Installation-operator permission: delivery infrastructure, domain ownership, users, settings. */
+  installation_operator: boolean;
+  mfa_enabled: boolean;
+  /** The operator requires a second factor and this user has none yet. */
+  mfa_enrollment_required: boolean;
   csrf_token: string;
   expires_at: string;
 };
@@ -53,10 +58,10 @@ export async function adminRequest<T>(path: string, options: RequestInit = {}): 
   return (body ? JSON.parse(body) : undefined) as T;
 }
 export const admin = {
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, code?: string) =>
     adminRequest<AdminUser>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(code ? { email, password, code } : { email, password }),
     }),
   me: () => adminRequest<AdminUser>("/auth/me"),
   logout: () => adminRequest<{ ok: boolean }>("/auth/logout", { method: "POST" }),

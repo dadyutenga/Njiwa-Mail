@@ -3,13 +3,15 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/extra-inputs";
-import { admin } from "@/lib/admin-api";
+import { admin, AdminError } from "@/lib/admin-api";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useAuth } from "./auth";
 
 export function AuthForm({ mode }: { mode: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [needCode, setNeedCode] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
   const { login } = useAuth();
@@ -44,12 +46,21 @@ export function AuthForm({ mode }: { mode: string }) {
         await admin.reset(token, password);
         setFeedback(phrase("Password updated. You can sign in now."));
       } else {
-        await login(email, password);
+        await login(email, password, needCode ? code : undefined);
         const state = location.state as { from?: string } | null;
         navigate(state?.from || "/app", { replace: true });
       }
     } catch (err) {
-      setFeedback(err instanceof Error ? err.message : phrase("Request failed"));
+      if (err instanceof AdminError && err.code === "mfa_required") {
+        setNeedCode(true);
+        setFeedback(phrase("Enter the code from your authenticator app, or a recovery code."));
+      } else if (err instanceof AdminError && err.code === "invalid_mfa_code") {
+        setFeedback(phrase("That code was not accepted. Request failed"));
+      } else if (err instanceof AdminError && err.code === "mfa_locked") {
+        setFeedback(phrase("Too many wrong codes. Try again in a few minutes. Request failed"));
+      } else {
+        setFeedback(err instanceof Error ? err.message : phrase("Request failed"));
+      }
     } finally {
       setBusy(false);
     }
@@ -82,6 +93,23 @@ export function AuthForm({ mode }: { mode: string }) {
               required
               autoComplete={reset ? "new-password" : "current-password"}
             />
+          </label>
+        )}
+        {needCode && !forgot && !reset && (
+          <label className="block space-y-2 text-sm font-medium">
+            {phrase("Authentication code")}
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              required
+              autoFocus
+              autoComplete="one-time-code"
+              inputMode="text"
+              aria-describedby="mfa-help"
+            />
+            <span id="mfa-help" className="block text-xs font-normal text-muted-foreground">
+              {phrase("6 digits from the app, or a recovery code such as ABCDE-FGHIJ.")}
+            </span>
           </label>
         )}
         {feedback && (

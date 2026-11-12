@@ -54,6 +54,9 @@ it("opens a remembered project in the main workspace despite a legacy Sandbox pr
     email: "test@example.com",
     role: "admin",
     csrf_token: "csrf",
+    installation_operator: true,
+    mfa_enabled: false,
+    mfa_enrollment_required: false,
     expires_at: "2030-01-01T00:00:00Z",
   });
   localStorage.setItem("njiwa.workspace", JSON.stringify({ project: "demo", env: "sandbox" }));

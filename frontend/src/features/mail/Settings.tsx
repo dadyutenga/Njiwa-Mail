@@ -59,18 +59,29 @@ export default function Settings() {
         <p role="alert">{q.error.message}</p>
       ) : (
         <div className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2">
-          {Object.entries(values).map(([key, value]) => (
-            <label key={key} className="grid gap-2 text-sm capitalize">
-              {phrase(key.replaceAll("_", " "))}
-              <input
-                type="number"
-                min="0"
-                value={value}
-                onChange={(e) => setValues({ ...values, [key]: Number(e.target.value) })}
-                className="rounded border bg-background p-2"
-              />
-            </label>
-          ))}
+          {Object.entries(values).map(([key, value]) =>
+            key === "require_mfa" ? (
+              <label key={key} className="flex items-center gap-2 text-sm sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={value === 1}
+                  onChange={(e) => setValues({ ...values, [key]: e.target.checked ? 1 : 0 })}
+                />
+                {phrase("Require two-step sign-in for every admin")}
+              </label>
+            ) : (
+              <label key={key} className="grid gap-2 text-sm capitalize">
+                {phrase(key.replaceAll("_", " "))}
+                <input
+                  type="number"
+                  min="0"
+                  value={value}
+                  onChange={(e) => setValues({ ...values, [key]: Number(e.target.value) })}
+                  className="rounded border bg-background p-2"
+                />
+              </label>
+            ),
+          )}
           {error && (
             <p role="alert" className="text-destructive sm:col-span-2">
               {error}

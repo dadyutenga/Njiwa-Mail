@@ -85,6 +85,12 @@ func checkPassword(pw string) error {
 // CreateUser adds an admin user. An omitted role defaults to admin; the old
 // owner input is accepted for compatibility. All users can manage accounts.
 func (s *Service) CreateUser(ctx context.Context, email, password, role string) (string, error) {
+	return s.CreateUserWith(ctx, email, password, role, true)
+}
+
+// CreateUserWith is CreateUser with an explicit installation-operator flag. The
+// first user is always an operator so the installation cannot start locked.
+func (s *Service) CreateUserWith(ctx context.Context, email, password, role string, operator bool) (string, error) {
 	e, ok := NormalizeEmail(email)
 	if !ok {
 		return "", badRequest("invalid email address")
@@ -97,8 +103,9 @@ func (s *Service) CreateUser(ctx context.Context, email, password, role string) 
 		return "", err
 	}
 	var id string
-	err = s.Pool.QueryRow(ctx, `INSERT INTO users(email, password_hash, role) VALUES ($1,$2,$3) ON CONFLICT (email) DO NOTHING RETURNING id::text`,
-		e, hashPassword(password), role).Scan(&id)
+	err = s.Pool.QueryRow(ctx, `INSERT INTO users(email, password_hash, role, installation_operator)
+VALUES ($1,$2,$3, $4 OR NOT EXISTS (SELECT 1 FROM users)) ON CONFLICT (email) DO NOTHING RETURNING id::text`,
+		e, hashPassword(password), role, operator).Scan(&id)
 	if errors.Is(err, db.ErrNoRows) {
 		return "", newErr(409, "user_exists")
 	}
@@ -153,6 +160,9 @@ func (s *Service) UpdateUser(ctx context.Context, id string, role *string, disab
 	if enabled == 0 {
 		return newErr(409, "last_user")
 	}
+	if err := requireOperatorLeft(ctx, tx); err != nil {
+		return err
+	}
 	if (disabled != nil && *disabled) || hash != nil || role != nil {
 		if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id); err != nil {
 			return unavailable("session_revoke", err)
@@ -164,8 +174,49 @@ func (s *Service) UpdateUser(ctx context.Context, id string, role *string, disab
 	return nil
 }
 
+// SetOperator grants or removes the installation-operator permission. The last
+// enabled operator cannot be demoted, so the installation cannot lock itself out.
+func (s *Service) SetOperator(ctx context.Context, id string, operator bool) error {
+	if !uuidRe.MatchString(id) {
+		return newErr(404, "not_found")
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return unavailable("begin", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+		return unavailable("lock", err)
+	}
+	tag, err := tx.Exec(ctx, `UPDATE users SET installation_operator=$2 WHERE id=$1`, id, operator)
+	if err != nil {
+		return unavailable("user_update", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return newErr(404, "not_found")
+	}
+	if err := requireOperatorLeft(ctx, tx); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id); err != nil {
+		return unavailable("session_revoke", err)
+	}
+	return tx.Commit(ctx)
+}
+
+func requireOperatorLeft(ctx context.Context, tx *db.Tx) error {
+	var n int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE NOT disabled AND installation_operator`).Scan(&n); err != nil {
+		return unavailable("operator_count", err)
+	}
+	if n == 0 {
+		return newErr(409, "last_operator")
+	}
+	return nil
+}
+
 func (s *Service) ListUsers(ctx context.Context, pg Page) ([]map[string]any, bool, error) {
-	return s.page(ctx, pg, `SELECT id::text AS id, email, role, disabled, last_login_at, created_at FROM users ORDER BY email`)
+	return s.page(ctx, pg, `SELECT id::text AS id, email, role, installation_operator, totp_enabled AS mfa_enabled, disabled, last_login_at, created_at FROM users ORDER BY email`)
 }
 
 // AdminUser is the authenticated operator behind an admin request.
@@ -173,6 +224,14 @@ type AdminUser struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 	Role  string `json:"role"`
+	// Operator is the installation-operator permission: transport profiles,
+	// domain claims, mail server, users and settings.
+	Operator   bool `json:"installation_operator"`
+	MFAEnabled bool `json:"mfa_enabled"`
+	// MFAEnrollmentRequired: the operator requires MFA and this user has none
+	// yet; every route except enrolment and sign-out answers 403.
+	MFAEnrollmentRequired bool `json:"mfa_enrollment_required"`
+	tokenHash             []byte
 	// CSRF must be echoed in X-CSRF-Token on every state-changing request.
 	CSRF      string    `json:"csrf_token"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -188,6 +247,12 @@ var errBadLogin = newErr(401, "invalid_credentials")
 // account and per IP before the password is checked; the error is the same
 // for an unknown account, a wrong password and a disabled account.
 func (s *Service) Login(ctx context.Context, email, password, ip, userAgent string) (token string, u *AdminUser, err error) {
+	return s.LoginMFA(ctx, email, password, "", ip, userAgent)
+}
+
+// LoginMFA is Login with the second factor: a TOTP or recovery code, required
+// only for accounts that enabled MFA (`mfa_required` is returned without one).
+func (s *Service) LoginMFA(ctx context.Context, email, password, code, ip, userAgent string) (token string, u *AdminUser, err error) {
 	e, _ := NormalizeEmail(strings.TrimSpace(email))
 	acct := hex.EncodeToString(s.Box.MAC("login-account", []byte(strings.ToLower(strings.TrimSpace(email)))))
 	for _, b := range []struct {
@@ -203,8 +268,8 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent stri
 		}
 	}
 	var id, hash, role string
-	var disabled bool
-	err = s.Pool.QueryRow(ctx, `SELECT id::text, password_hash, role, disabled FROM users WHERE email=$1`, e).Scan(&id, &hash, &role, &disabled)
+	var disabled, operator, mfa bool
+	err = s.Pool.QueryRow(ctx, `SELECT id::text, password_hash, role, disabled, installation_operator, totp_enabled FROM users WHERE email=$1`, e).Scan(&id, &hash, &role, &disabled, &operator, &mfa)
 	if errors.Is(err, db.ErrNoRows) {
 		verifyPassword(dummyHash, password)
 		return "", nil, errBadLogin
@@ -214,6 +279,15 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent stri
 	}
 	if !verifyPassword(hash, password) || disabled || role != RoleAdmin {
 		return "", nil, errBadLogin
+	}
+	recoveryUsed := false
+	if mfa {
+		if strings.TrimSpace(code) == "" {
+			return "", nil, errMFARequired
+		}
+		if recoveryUsed, err = s.checkSecondFactor(ctx, id, code); err != nil {
+			return "", nil, err
+		}
 	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -236,8 +310,9 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent stri
 	if _, err = tx.Exec(ctx, `UPDATE users SET last_login_at=now() WHERE id=$1`, id); err != nil {
 		return "", nil, unavailable("last_login", err)
 	}
-	u = &AdminUser{ID: id, Email: e, Role: role, CSRF: s.csrfFor(th[:]), ExpiresAt: exp}
-	if err = audit(ctx, tx, Actor{UserID: id, Name: e}, "auth.login", "user", id, map[string]any{"ip": ip}); err != nil {
+	u = &AdminUser{ID: id, Email: e, Role: role, Operator: operator, MFAEnabled: mfa, CSRF: s.csrfFor(th[:]), ExpiresAt: exp, tokenHash: th[:]}
+	u.MFAEnrollmentRequired = !mfa && s.settingInt(ctx, "require_mfa") == 1
+	if err = audit(ctx, tx, Actor{UserID: id, Name: e}, "auth.login", "user", id, map[string]any{"ip": ip, "mfa": mfa, "recovery_code": recoveryUsed}); err != nil {
 		return "", nil, unavailable("audit", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -253,8 +328,8 @@ func (s *Service) Session(ctx context.Context, token string) (*AdminUser, error)
 	}
 	th := sha256.Sum256([]byte(token))
 	var u AdminUser
-	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
-WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled AND u.role='admin'`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.ExpiresAt)
+	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, u.installation_operator, u.totp_enabled, s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
+WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled AND u.role='admin'`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.Operator, &u.MFAEnabled, &u.ExpiresAt)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(401, "unauthenticated")
 	}
@@ -262,6 +337,8 @@ WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled AND u.role='ad
 		return nil, unavailable("session", err)
 	}
 	u.CSRF = s.csrfFor(th[:])
+	u.tokenHash = th[:]
+	u.MFAEnrollmentRequired = !u.MFAEnabled && s.settingInt(ctx, "require_mfa") == 1
 	return &u, nil
 }
 

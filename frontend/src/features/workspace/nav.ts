@@ -36,6 +36,8 @@ export type NavItem = {
   label: string;
   icon: ComponentType<{ size?: number; className?: string }>;
   badge?: "unread";
+  /** Only installation operators see this entry. */
+  operator?: boolean;
 };
 export type NavGroup = { label: string; items: NavItem[] };
 
@@ -85,9 +87,9 @@ export const navGroups: NavGroup[] = [
     label: "Admin",
     items: [
       { path: "projects", label: "Projects", icon: FolderKanban },
-      { path: "users", label: "Users", icon: Users },
-      { path: "mail-server", label: "Delivery infrastructure", icon: Server },
-      { path: "domain-claims", label: "Domain ownership", icon: Globe },
+      { path: "users", label: "Users", icon: Users, operator: true },
+      { path: "mail-server", label: "Delivery infrastructure", icon: Server, operator: true },
+      { path: "domain-claims", label: "Domain ownership", icon: Globe, operator: true },
       { path: "analytics", label: "Analytics", icon: BarChart3 },
       { path: "alerts", label: "Alerts", icon: Bell },
       { path: "system", label: "System", icon: Activity },
