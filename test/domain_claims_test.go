@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/dnsauth/dkimtest"
 	"github.com/njiwa-tz/mail/internal/service"
 )
 
@@ -420,5 +421,88 @@ func TestPTRIsForwardConfirmed(t *testing.T) {
 		if r["record_type"] == "PTR" {
 			t.Fatalf("PTR checked for a generic SMTP server: %v", r)
 		}
+	}
+}
+
+// C07: with the existing server's sending facts, SPF and DKIM are checked
+// against the real values instead of templates.
+func TestSendingFactsDriveSPFAndDKIM(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	e.saveSMTP("smtp.provider.example", "pw") // generic provider
+	pid := str(e.activeProfile(), "id")
+	e.must(e.svc.CreateProject(ctx, "facts"))
+	const name = "notify.example.com"
+	d := e.admOK(admin, "POST", wsPath("facts", "/domains"), map[string]any{"name": name, "purpose": "sending"})
+	path := wsPath("facts", "/domains/"+str(d.JSON, "id"))
+	base := "/admin/v1/installation/transport-profiles/" + pid + "/sending-facts"
+
+	for _, bad := range []map[string]any{
+		{"egress_ips": []string{"10.0.0.5"}}, {"egress_ips": []string{"not-an-ip"}}, {"egress_ips": []string{"0.0.0.0/0"}},
+		{"spf_include": "bad include"}, {"dkim_selector": "bad selector!"}, {"dkim_keys": map[string]string{name: "v=DKIM1; p=MIIB"}},
+	} {
+		if r := e.adm(admin, "PUT", base, bad); r.Code != 400 {
+			t.Fatalf("accepted %v: %d", bad, r.Code)
+		}
+	}
+	key := dkimRecord(t)
+	f := e.admOK(admin, "PUT", base, map[string]any{"egress_ips": []string{"198.51.100.7", "2001:db8:5::/48"},
+		"spf_include": "include:spf.provider.example", "dkim_selector": "s1", "dkim_keys": map[string]string{"Notify.Example.com": key}}).JSON
+	if f["spf_include"] != "spf.provider.example" || f["dkim_selector"] != "s1" {
+		t.Fatalf("normalised facts: %v", f)
+	}
+	if rev := e.activeProfile()["config_revision"].(int64); rev != 1 {
+		t.Fatalf("facts changed the transport revision: %d", rev)
+	}
+	r := e.admOK(admin, "GET", path, nil)
+	spf, dk := recordByKey(r, "spf"), recordByKey(r, "dkim")
+	if spf["placeholder"] == true || str(spf, "value") != "v=spf1 include:spf.provider.example ip4:198.51.100.7 ip6:2001:db8:5::/48 -all" {
+		t.Fatalf("SPF from facts: %v", spf)
+	}
+	if dk["placeholder"] == true || str(dk, "value") != key || str(dk, "host") != "s1._domainkey."+name {
+		t.Fatalf("DKIM from facts: %v", dk)
+	}
+
+	dns := newDNS()
+	dns.a = map[string][]string{}
+	e.srv.Resolver = dns
+	dns.txt["_dmarc."+name] = []string{"v=DMARC1; p=none"}
+	check := func(key string) map[string]any { return recordByKey(e.admOK(admin, "POST", path+"/check", nil), key) }
+	// SPF that does not cover the stated sending address fails.
+	dns.txt[name] = []string{str(d.JSON, "txt"), "v=spf1 ip4:192.0.2.0/24 -all"}
+	if r := check("spf"); r["pass"] != false || !strings.Contains(str(r, "hint"), "198.51.100.7") {
+		t.Fatalf("uncovered sending IP passed: %v", r)
+	}
+	// Covered through the provider's include.
+	dns.txt[name] = []string{str(d.JSON, "txt"), "v=spf1 include:spf.provider.example -all"}
+	dns.txt["spf.provider.example"] = []string{"v=spf1 ip4:198.51.100.0/24 ip6:2001:db8::/32 -all"}
+	if r := check("spf"); r["pass"] != true {
+		t.Fatalf("covered sending IPs: %v", r)
+	}
+	// DKIM: the published key must be the server's key, at its selector.
+	dns.txt["s1._domainkey."+name] = []string{dkimtest.KeyRecord(t, 2048)} // a different, valid key
+	if r := check("dkim"); r["pass"] != false || !strings.Contains(str(r, "hint"), "not the key") {
+		t.Fatalf("different key passed: %v", r)
+	}
+	dns.txt["s1._domainkey."+name] = []string{key}
+	if r := check("dkim"); r["pass"] != true {
+		t.Fatalf("matching key: %v", r)
+	}
+	// Include only (no addresses): the record must reference it.
+	e.admOK(admin, "PUT", base, map[string]any{"egress_ips": []string{}})
+	dns.txt[name] = []string{str(d.JSON, "txt"), "v=spf1 ip4:192.0.2.0/24 -all"}
+	if r := check("spf"); r["pass"] != false || !strings.Contains(str(r, "hint"), "include:spf.provider.example") {
+		t.Fatalf("missing include passed: %v", r)
+	}
+	// Removing a key returns the DKIM record to a template.
+	e.admOK(admin, "PUT", base, map[string]any{"dkim_keys": map[string]string{name: ""}})
+	_, err := e.pool.Exec(ctx, `UPDATE domains SET records='[]'::jsonb`)
+	e.must(err)
+	if r := recordByKey(e.admOK(admin, "GET", path, nil), "dkim"); r["placeholder"] != true {
+		t.Fatalf("removed key: %v", r)
+	}
+	if e.count(`SELECT count(*) FROM audit_log WHERE action='transport.sending_facts'`) != 3 {
+		t.Fatal("not audited")
 	}
 }

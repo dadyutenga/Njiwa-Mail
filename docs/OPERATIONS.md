@@ -150,6 +150,19 @@ It correlates lines to messages by queue ID (messages submitted in the last 7 da
 or IPs from the log, and records each line once. A permanent MTA bounce marks the message bounced but never suppresses the
 recipient; only a bounce report correlated to the message's own recipient does.
 
+## Existing SMTP: what your mail server sends from
+
+Njiwa-Mail cannot see the egress or the DKIM signer of a server it does not run, so with a generic SMTP server the SPF and DKIM
+records start as templates. Enter the facts your mail server's operator documents and they become real requirements and checks:
+
+- Delivery infrastructure → **What your mail server sends from**: sending IP addresses or ranges (public only, at most /16 or
+  /32 for IPv6), the SPF `include:` domain, and the DKIM selector.
+- Each domain's page → **Your mail server's DKIM key for this domain**: the public key the server signs that domain with.
+
+SPF then must authorise every stated address (or, with only an include, reference that include); DKIM must publish exactly that
+key at that selector. API: `PUT /admin/v1/installation/transport-profiles/{id}/sending-facts` (`dkim_keys` entries are merged;
+an empty value removes one). Facts are audited and never change the connection settings or invalidate a connection test.
+
 ## Proof that mail is signed (DKIM)
 
 A DKIM record in DNS only proves a key is published. The Domains page records separate proof that mail from the domain is actually
