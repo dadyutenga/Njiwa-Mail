@@ -331,12 +331,7 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	// inbound listener; the header From stays the approved sender.
 	envFrom := pl.From
 	if w.BounceAddress != "" {
-		envFrom = w.BounceAddress
-		if w.useVERP() {
-			if v := w.Svc.VerpAddress(c.ID); v != "" {
-				envFrom = v
-			}
-		}
+		envFrom = w.Svc.EnvelopeSender(ctx, c.ID, pl.From, w.useVERP())
 	}
 	sub := transport.Submission{MessageID: msgID, EnvelopeFrom: envFrom, Recipients: rcpts, RFC5322: raw}
 	res, pin := w.submit(sctx, sub)

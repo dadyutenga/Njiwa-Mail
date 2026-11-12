@@ -111,7 +111,7 @@ func (s *Service) WSDomain(ctx context.Context, sc *Scope, id string) (map[strin
 	}
 	d, err := s.one(ctx, `SELECT d.id::text AS id, d.name, d.purpose, d.bulk, d.verified_at, d.spf_ok, d.dkim_ok, d.dmarc_ok, d.mx_ok,
   d.last_checked_at, d.created_at, d.records, d.mailcow_provisioned_at, 'njiwa-mail-verify=' || d.verify_token AS txt_challenge,
-  d.dkim_verified_at, d.dkim_verified_selector, d.dkim_verified_source,
+  d.dkim_verified_at, d.dkim_verified_selector, d.dkim_verified_source, d.bounce_domain,
   (d.verified_at IS NULL OR (d.purpose IN ('sending','both') AND NOT (d.spf_ok AND d.dkim_ok AND d.dmarc_ok))
      OR (d.purpose IN ('receiving','both') AND NOT d.mx_ok)) AS needs_attention
 FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
@@ -136,7 +136,8 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 	} else if f != nil {
 		known = f.DKIMKeys[name]
 	}
-	expected := s.expectedRecords(kind, f, s.selectorFor(ctx, kind, f), name, purpose, token, known)
+	bd, _ := d["bounce_domain"].(string)
+	expected := s.expectedRecords(kind, f, s.selectorFor(ctx, kind, f), name, purpose, token, known, bd)
 	d["requirements_changed"] = false
 	if recs, ok := d["records"].([]any); !ok || len(recs) == 0 {
 		d["records"] = expected
@@ -189,7 +190,7 @@ func sameRequirements(saved []any, expected []DomainRecord) bool {
 // expectedRecords lists what the domain needs. kind says which server sends
 // the mail (see senderKind). dkimValue is the real public key when known
 // (from the Mailcow API); otherwise the DKIM value is a placeholder.
-func (s *Service) expectedRecords(kind string, f *SendingFacts, sel, name, purpose, token, dkimValue string) []DomainRecord {
+func (s *Service) expectedRecords(kind string, f *SendingFacts, sel, name, purpose, token, dkimValue, bounceDomain string) []DomainRecord {
 	host := fqdn(s.Opts.MailHost)
 	recs := []DomainRecord{{Key: "ownership", Type: "TXT", Host: name, Value: "njiwa-mail-verify=" + token,
 		Hint: "Proves the domain is yours. It can stay published; it does not affect mail."}}
@@ -241,10 +242,23 @@ func (s *Service) expectedRecords(kind string, f *SendingFacts, sel, name, purpo
 		recs = append(recs, spf, dkim,
 			DomainRecord{Key: "dmarc", Type: "TXT", Host: "_dmarc." + name, Value: "v=DMARC1; p=none; rua=mailto:postmaster@" + name,
 				Hint: "Start with p=none, then move to quarantine once reports look clean."})
-		if _, bd, ok := splitAddr(s.Opts.BounceAddress); ok {
+		if _, bd, ok := splitAddr(s.Opts.BounceAddress); ok || bounceDomain != "" {
+			addr := s.Opts.BounceAddress
+			if bounceDomain != "" {
+				bd, addr = bounceDomain, "bounces@"+bounceDomain
+				if l, _, lok := splitAddr(s.Opts.BounceAddress); lok {
+					addr = l + "@" + bounceDomain
+				}
+			}
 			rp := mxRecord(kind, "return_path", bd, host)
-			rp.Hint = "Bounces return to " + s.Opts.BounceAddress + ". " + rp.Hint
+			rp.Hint = "Bounces return to " + addr + ". " + rp.Hint
 			recs = append(recs, rp)
+			if bounceDomain != "" {
+				// Its own return-path domain: SPF is checked against the envelope sender's
+				// domain, so it must authorise the sender there too for DMARC to align.
+				recs = append(recs, DomainRecord{Key: "return_path_spf", Type: "TXT", Host: bounceDomain, Value: spf.Value, Placeholder: spf.Placeholder,
+					Hint: "SPF for this domain's return path. DMARC counts SPF only when the envelope sender's domain (" + bounceDomain + ") is authorised and aligned with " + name + ". " + spf.Hint})
+			}
 		}
 	}
 	if receivingPurpose(purpose) {
@@ -279,8 +293,8 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	if !uuidRe.MatchString(id) {
 		return nil, newErr(404, "not_found")
 	}
-	var name, token, purpose, projectID string
-	if err := s.Pool.QueryRow(ctx, `SELECT name, verify_token, purpose, project_id::text FROM domains WHERE id=$1`, id).Scan(&name, &token, &purpose, &projectID); err != nil {
+	var name, token, purpose, projectID, ownBounce string
+	if err := s.Pool.QueryRow(ctx, `SELECT name, verify_token, purpose, project_id::text, bounce_domain FROM domains WHERE id=$1`, id).Scan(&name, &token, &purpose, &projectID, &ownBounce); err != nil {
 		return nil, notFound(err)
 	}
 	if r == nil {
@@ -301,7 +315,7 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	} else if pk, err := s.mailcowDKIM(ctx, name); err == nil && pk != "" {
 		dkimKnown = pk
 	}
-	recs := s.expectedRecords(kind, facts, s.selectorFor(ctx, kind, facts), name, purpose, token, dkimKnown)
+	recs := s.expectedRecords(kind, facts, s.selectorFor(ctx, kind, facts), name, purpose, token, dkimKnown, ownBounce)
 	var sips []net.IP
 	if ip := s.senderIP(kind); ip != nil {
 		sips = []net.IP{ip}
@@ -315,6 +329,9 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	envDomain := name // the SMTP MAIL FROM domain that SPF authenticates
 	if _, bd, ok := splitAddr(s.Opts.BounceAddress); ok {
 		envDomain = bd
+	}
+	if ownBounce != "" {
+		envDomain = ownBounce // D04: the domain's own return-path domain
 	}
 	host := fqdn(s.Opts.MailHost)
 	apex, apexErr := r.LookupTXT(ctx, name)
@@ -359,6 +376,12 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 				rec.Hint = hint
 			}
 			dmarcOK = rec.Pass
+		case "return_path_spf":
+			pass, why, found := evalSPFFor(ctx, r, rec.Host, sips, include)
+			rec.Found, rec.Pass = observed(found, nil), pass
+			if why != "" {
+				rec.Hint = why
+			}
 		case "mx", "return_path":
 			mx, err := r.LookupMX(ctx, rec.Host)
 			var vals []string

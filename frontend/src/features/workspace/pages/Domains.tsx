@@ -298,6 +298,67 @@ export function Domains() {
   );
 }
 
+/**
+ * D04: the domain's own return-path (bounce) domain. DMARC counts SPF only when
+ * the envelope sender's domain is aligned with the From domain, so a domain from
+ * another organisation than the installation's bounce domain needs its own.
+ */
+function ReturnPath({
+  id,
+  name,
+  value,
+  onSaved,
+}: {
+  id: string;
+  name: string;
+  value: string;
+  onSaved: () => void;
+}) {
+  const phrase = usePhrase();
+  const { api } = useWorkspace();
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  return (
+    <Section className="mt-4" title={phrase("Return path (bounce domain)")}>
+      <p className="mb-3 text-sm text-muted-foreground">
+        {phrase(
+          "Mail leaves with a bounce address on this domain so SPF aligns with your From domain for DMARC. Leave it empty to use the installation's bounce domain, which works when it shares your organisation's domain. It must be this domain or a subdomain, for example",
+        )}{" "}
+        <code>bounce.{name}</code>.
+      </p>
+      <form
+        className="flex flex-wrap items-end gap-3"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const r = await run(
+            () => api.send(`/domains/${id}/return-path`, "PUT", { bounce_domain: draft }),
+            phrase("Saved. Publish the records below and run the check again."),
+          );
+          if (r) onSaved();
+        }}
+      >
+        <Field label={phrase("Return-path domain")} className="min-w-64 flex-1">
+          <input
+            className={inputClass}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={`bounce.${name}`}
+            autoComplete="off"
+          />
+        </Field>
+        <Button type="submit" variant="outline" disabled={draft.trim() === value}>
+          {phrase("Save")}
+        </Button>
+      </form>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {phrase(
+          "Saving withdraws this domain's SPF and DMARC pass until the check is run again, so Live mail pauses until the new records are published.",
+        )}
+      </p>
+    </Section>
+  );
+}
+
 export function DomainDetail() {
   const phrase = usePhrase();
   const { id = "" } = useParams();
@@ -467,6 +528,17 @@ export function DomainDetail() {
                 ))}
               </ul>
             </Section>
+            {d.purpose !== "receiving" && (
+              <ReturnPath
+                id={id ?? ""}
+                name={s(d.name)}
+                value={s(d.bounce_domain)}
+                onSaved={() => {
+                  client.invalidateQueries({ queryKey: key("domain", id) });
+                  client.invalidateQueries({ queryKey: key("domains") });
+                }}
+              />
+            )}
             {d.purpose !== "receiving" &&
               d.provider_type === "generic" &&
               s(d.sending_profile_id) && (

@@ -385,6 +385,19 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "domain.verify_message", "domain", c.Params("id"), scoped(sc, map[string]any{"aligned": res.Aligned, "recorded": res.Recorded}))
 		return res, nil
 	})
+	h("PUT", "/domains/:id/return-path", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			BounceDomain string `json:"bounce_domain"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.SetDomainReturnPath(ctx(c), sc, c.Params("id"), in.BounceDomain); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "domain.return_path", "domain", c.Params("id"), scoped(sc, map[string]any{"bounce_domain": strings.ToLower(strings.TrimSpace(in.BounceDomain))}))
+		return svc.WSDomain(ctx(c), sc, c.Params("id"))
+	})
 	h("POST", "/domains/:id/check", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if _, err := svc.WSDomain(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err

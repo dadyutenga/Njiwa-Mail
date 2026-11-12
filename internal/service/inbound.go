@@ -84,8 +84,9 @@ func (s *Service) ResolveRecipient(ctx context.Context, addr string) (string, er
 	if s.Opts.BounceAddress != "" && a == s.Opts.BounceAddress {
 		return KindBounce, nil
 	}
-	// Signed return path: bounces+<id>.<tag>@bounce-domain (F06).
-	if _, has, ok := s.bounceLocalExt(a); ok && has {
+	// The bounce mailbox of the installation or of a sending domain's own return-path
+	// domain (D04), plain or signed: bounces[+<id>.<tag>]@bounce-domain (F06).
+	if _, _, ok := s.bounceLocalExt(ctx, a); ok {
 		return KindBounce, nil
 	}
 	local, domain, ok := splitAddr(a)

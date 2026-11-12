@@ -60,7 +60,7 @@ func (s *Service) RecordBounce(ctx context.Context, it SpoolItem, reports []Boun
 		return err
 	}
 	defer tx.Rollback(ctx)
-	verpID, verp := s.verifyVERP(it.To)
+	verpID, verp := s.verifyVERP(ctx, it.To)
 	for _, r := range reports {
 		how := "none"
 		switch {

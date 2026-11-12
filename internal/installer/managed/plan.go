@@ -28,7 +28,7 @@ const Marker = "# Managed by the Njiwa-Mail installer. Manual changes are replac
 
 type Params struct {
 	Hostname       string   // public mail hostname: HELO, PTR, certificate name
-	BounceDomain   string   // domain of BOUNCE_ADDRESS; DSNs to it are relayed to Njiwa
+	BounceDomain   string   // domain of BOUNCE_ADDRESS, and any per-domain return-path domains (D04), comma-separated; DSNs to them are relayed to Njiwa
 	Domains        []string // sending domains to sign (and allow as envelope senders)
 	Selector       string   // DKIM selector
 	SubmissionBind string   // private listener for the Njiwa worker, host:port
@@ -54,9 +54,32 @@ type Params struct {
 	Now time.Time
 }
 
+// bounceDomains lists the normalised bounce domains (empty when bounces are not received).
+func (p Params) bounceDomains() []string {
+	var out []string
+	for _, d := range strings.Split(p.BounceDomain, ",") {
+		if d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 func (p *Params) normalise() error {
 	p.Hostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(p.Hostname), "."))
-	p.BounceDomain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(p.BounceDomain), "."))
+	{
+		// One or several bounce domains (D04), canonical and sorted so the plan digest is stable.
+		seenB, list := map[string]bool{}, []string{}
+		for _, d := range strings.Split(p.BounceDomain, ",") {
+			d = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(d), "."))
+			if d != "" && !seenB[d] {
+				seenB[d] = true
+				list = append(list, d)
+			}
+		}
+		sort.Strings(list)
+		p.BounceDomain = strings.Join(list, ",")
+	}
 	if p.Selector == "" {
 		p.Selector = "dkim"
 	}
@@ -78,8 +101,10 @@ func (p *Params) normalise() error {
 	if !hostRe(p.Hostname) {
 		return errors.New("a valid public mail hostname is required (-hostname)")
 	}
-	if p.BounceDomain != "" && !hostRe(p.BounceDomain) {
-		return errors.New("the bounce domain is not a valid domain name")
+	for _, d := range p.bounceDomains() {
+		if !hostRe(d) {
+			return errors.New("the bounce domain " + d + " is not a valid domain name")
+		}
 	}
 	if p.BounceDomain != "" && p.InboundRelay == "" {
 		return errors.New("bounces need the Njiwa inbound listener address (-inbound host:port)")
@@ -271,7 +296,7 @@ func BuildPlan(p Params) (*Plan, error) {
 func (pl *Plan) Summary() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Mail hostname:     %s\nSigning domains:   %s (selector %s)\nBounce domain:     %s\nWorker submission: %s (mutual TLS)\n\n",
-		pl.Params.Hostname, strings.Join(pl.Params.Domains, ", "), pl.Params.Selector, orNone(pl.Params.BounceDomain), pl.Params.SubmissionBind)
+		pl.Params.Hostname, strings.Join(pl.Params.Domains, ", "), pl.Params.Selector, orNone(strings.ReplaceAll(pl.Params.BounceDomain, ",", ", ")), pl.Params.SubmissionBind)
 	for _, f := range pl.Files {
 		fmt.Fprintf(&b, "  %-9s %s\n", f.Change, f.Path)
 	}
@@ -305,7 +330,7 @@ func mainCF(p Params) []byte {
 	relay := ""
 	transport := ""
 	if p.BounceDomain != "" {
-		relay = p.BounceDomain
+		relay = strings.Join(p.bounceDomains(), ", ")
 		transport = "hash:" + njDir + "/transport"
 	}
 	return []byte(Marker + `
@@ -410,9 +435,7 @@ func sendersMap(p Params) []byte {
 	var b strings.Builder
 	b.WriteString(Marker + "\n")
 	ds := append([]string{}, p.Domains...)
-	if p.BounceDomain != "" {
-		ds = append(ds, p.BounceDomain)
-	}
+	ds = append(ds, p.bounceDomains()...)
 	sort.Strings(ds)
 	last := ""
 	for _, d := range ds {
@@ -426,9 +449,9 @@ func sendersMap(p Params) []byte {
 
 func transportMap(p Params) []byte {
 	s := Marker + "\n"
-	if p.BounceDomain != "" {
-		h, port, _ := net.SplitHostPort(p.InboundRelay)
-		s += p.BounceDomain + " smtp:[" + h + "]:" + port + "\n"
+	h, port, _ := net.SplitHostPort(p.InboundRelay)
+	for _, d := range p.bounceDomains() {
+		s += d + " smtp:[" + h + "]:" + port + "\n"
 	}
 	return []byte(s)
 }

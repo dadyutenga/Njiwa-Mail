@@ -501,3 +501,52 @@ func TestNewCAReissuesLeaves(t *testing.T) {
 		t.Fatal("worker CA copy not updated")
 	}
 }
+
+// D04: several bounce domains (the installation's and per-domain return paths)
+// are all relayed, all allowed as envelope senders, and the plan digest does
+// not depend on their order or spelling.
+func TestSeveralBounceDomains(t *testing.T) {
+	p := params(t)
+	p.BounceDomain = "Bounce.Acme.co.tz., bounce.example.com ,bounce.example.com"
+	a, err := BuildPlan(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2 := params(t)
+	p2.BounceDomain = "bounce.example.com,bounce.acme.co.tz"
+	b, err := BuildPlan(p2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Digest != b.Digest {
+		t.Fatalf("order or spelling changed the digest: %s vs %s", a.Digest, b.Digest)
+	}
+	files := map[string]string{}
+	for _, f := range a.Files {
+		files[f.Path] = string(f.Content)
+	}
+	if !strings.Contains(files["/etc/postfix/main.cf"], "relay_domains = bounce.acme.co.tz, bounce.example.com\n") {
+		t.Fatalf("relay_domains: %s", files["/etc/postfix/main.cf"])
+	}
+	for path, content := range files {
+		if strings.HasSuffix(path, "/transport") {
+			for _, d := range []string{"bounce.acme.co.tz smtp:[127.0.0.1]:2525", "bounce.example.com smtp:[127.0.0.1]:2525"} {
+				if !strings.Contains(content, d) {
+					t.Errorf("transport map lacks %q:\n%s", d, content)
+				}
+			}
+		}
+		if strings.HasSuffix(path, "/senders") {
+			for _, d := range []string{"bounce.acme.co.tz OK", "bounce.example.com OK"} {
+				if !strings.Contains(content, d) {
+					t.Errorf("sender map lacks %q:\n%s", d, content)
+				}
+			}
+		}
+	}
+	p3 := params(t)
+	p3.BounceDomain = "bad domain.example"
+	if _, err := BuildPlan(p3); err == nil {
+		t.Fatal("an invalid bounce domain was accepted")
+	}
+}

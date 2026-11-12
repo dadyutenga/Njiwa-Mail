@@ -228,6 +228,9 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 	if _, d, ok := splitAddr(s.Opts.BounceAddress); ok {
 		domains = append(domains, d)
 	}
+	for d := range s.bounceDomains(ctx) { // per-domain return paths (D04)
+		domains = append(domains, d)
+	}
 	sort.Strings(domains)
 	host, ip := fqdn(s.Opts.MailHost), strings.TrimSpace(s.Opts.OutboundIP)
 	kind := s.senderKind(ctx)

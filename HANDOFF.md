@@ -364,10 +364,9 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 - Move `internal/mailcow` behind a provider package/interface; audit records with before/after (no secrets) for every Mailcow API
   write.
 
-### D04 — per-domain return path
+### D04 — per-domain return path — **done (code); real-host check with E07**
 
-- Today one installation-wide `BOUNCE_ADDRESS`. Allow a bounce domain per sending domain (DMARC SPF alignment per domain);
-  installer accepts several bounce domains; Domains page shows the return-path record per domain.
+- See `docs/OPERATIONS.md` (Per-domain return path). Installer accepts `-bounce-domain a,b`.
 
 ### B07 / B09 / UI gaps
 

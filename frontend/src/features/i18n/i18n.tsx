@@ -225,6 +225,8 @@ export function useI18n() {
 }
 
 const swPhrases: Record<string, string> = {
+  "Return path (bounce domain)": "Njia ya kurudisha (kikoa cha bounce)",
+  "Return-path domain": "Kikoa cha njia ya kurudisha",
   "Mail queue": "Foleni ya barua",
   "The queue is empty": "Foleni haina kitu",
   "Retry all now": "Jaribu zote sasa",

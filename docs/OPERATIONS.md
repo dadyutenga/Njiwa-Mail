@@ -327,6 +327,23 @@ njiwa-mail env restrict -project P -mode live -on=false               # remove r
 ```
 Hard bounces are suppressed automatically once bounce routing is set up; until then, review Mailcow delivery failures and suppress confirmed-invalid recipients by hand.
 
+## Per-domain return path (D04)
+
+DMARC counts SPF only when the SMTP envelope sender's domain is aligned with the From domain. The installation's `BOUNCE_ADDRESS` domain
+(say `bounce.example.com`) aligns with senders under `example.com` but not with a customer domain such as `acme.co.tz`. On the Domains page
+(Return path) such a domain can name its own return-path domain: it must be the domain or a subdomain of it (`bounce.acme.co.tz`), so the
+ownership already proven covers it. Then:
+
+1. Save it. Mail from that domain leaves with `bounces@bounce.acme.co.tz` (or the signed `bounces+<id>.<tag>@…`, F06); other domains keep
+   the default. The domain's SPF and DMARC pass are **withdrawn** until the next check, so Live mail from it pauses until step 3.
+2. Publish what the page lists: MX `bounce.acme.co.tz` → the mail host, and an SPF record at `bounce.acme.co.tz` that authorises the sending server.
+3. Run the check. DMARC passes once the aligned SPF (or DKIM) holds.
+4. Managed Postfix: re-run `njiwa-mail installer plan/apply` with every return-path domain in `-bounce-domain`, comma-separated
+   (`-bounce-domain bounce.example.com,bounce.acme.co.tz`), so Postfix relays their bounces and accepts them as envelope senders.
+   Existing SMTP servers must deliver `bounces@<each domain>` to the same bounce mailbox.
+
+The listener treats `bounces[+…]@<any return-path domain>` as bounce mail; a change takes effect at once in the API process and within 30 s elsewhere.
+
 ## Mail queue controls (E10, managed mode)
 
 The API runs in a container and gets no host privileges. To see and control the Postfix queue from the dashboard (Admin → Mail queue), run the

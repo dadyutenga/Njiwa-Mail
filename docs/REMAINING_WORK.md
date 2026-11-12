@@ -50,7 +50,7 @@ cannot be done from the development container.
 
 | ID | Status | What is missing |
 |---|---|---|
-| D04 | 🟡 | Requirements follow the actual sender, including an existing server's stated sending facts. Missing: per-domain return-path (bounce) domains — today one installation-wide `BOUNCE_ADDRESS`. |
+| D04 | ✅ | Per-domain return-path domain (`domains.bounce_domain`, migration 0020): envelope sender, listener routing, DNS requirements and DMARC alignment follow it; installer accepts several comma-separated bounce domains; Domains page control. Real-host check with E07. |
 
 ## 5. Setup and dashboard (B-series) gaps
 

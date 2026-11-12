@@ -63,6 +63,10 @@ type Service struct {
 	queueMu    sync.Mutex
 	queueDepth int
 	queueAt    time.Time
+
+	bdMu  sync.Mutex // per-domain return-path domains (D04), cached briefly
+	bdAt  time.Time
+	bdSet map[string]bool
 }
 
 func New(pool *db.DB, box *secure.Box, o Options) *Service {

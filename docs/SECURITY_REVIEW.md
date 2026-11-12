@@ -114,6 +114,13 @@ addresses, and requires the queue id typed back to delete. Evidence: `TestAgentR
 (injection attempts never reach a command), `TestQueueIDValidation`, `TestAgentStatusAndSocketClient`, `TestMTAQueueControls`.
 Not yet exercised against a real Postfix (needs the managed host, E06).
 
+## 11. Return-path domains (D04)
+
+A return-path domain must equal the sending domain or be a subdomain of it, so no project can capture bounces for a name it does not hold; it
+may not be the inbound domain or the default bounce domain. Changing it withdraws the SPF/DMARC pass until rechecked. Evidence:
+`TestPerDomainReturnPath` (alignment before and after, validation, cross-project refusal, routing, envelope sender plain and signed, signed
+DSN correlation), `TestSeveralBounceDomains`.
+
 ## Not covered yet
 
 - An external penetration test and the dependency scan (`govulncheck` runs in CI but has not yet had a green run on GitHub).

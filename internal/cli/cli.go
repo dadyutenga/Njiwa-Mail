@@ -792,7 +792,7 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 	}
 	hostname := fs.String("hostname", def("MAIL_HOSTNAME", ""), "public mail hostname (HELO, PTR, certificate)")
 	domains := fs.String("domains", "", "comma-separated sending domains to sign (default with -record: the installation's claimed domains)")
-	bounce := fs.String("bounce-domain", bounceDomain, "domain of BOUNCE_ADDRESS; DSNs to it are relayed to Njiwa")
+	bounce := fs.String("bounce-domain", bounceDomain, "domain of BOUNCE_ADDRESS, plus any per-domain return-path domains, comma-separated; DSNs to them are relayed to Njiwa")
 	selector := fs.String("selector", def("DKIM_SELECTOR", "dkim"), "DKIM selector")
 	submission := fs.String("submission", "127.0.0.1:10587", "private listener for the Njiwa worker (ip:port, never 0.0.0.0)")
 	inbound := fs.String("inbound", "127.0.0.1:2525", "Njiwa inbound listener that receives DSNs (host:port)")
