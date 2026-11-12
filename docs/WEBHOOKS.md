@@ -21,7 +21,8 @@ There is no `email.delivered` event and there never will be: the service cannot 
 
 The `email.delivery_*` events come from the mail server log (`njiwa-mail mta-log`, see `docs/OPERATIONS.md`) and are only sent when
 that collector runs; they are evidence, and a message's `state` never changes because of them. Each log line produces at most one
-event.
+event: re-reading the log (the collector restarted) records nothing twice. You can subscribe to these events like any other
+(`email.delivery_deferred`, `email.delivery_remote_accepted`, `email.delivery_bounced`, `email.delivery_expired_in_queue`).
 
 Payloads contain ids, states and safe reason codes only. They never contain bodies, variables, tokens or recipient addresses. To read an inbound message, call `GET /v1/inbound/{inbound_id}` with a key that has the `inbound:read` scope.
 
@@ -32,10 +33,22 @@ POST <your url>
 Content-Type: application/json
 X-DM-Event-ID: 6f1c2d0e-...
 X-DM-Event-Type: email.bounced
+X-DM-Schema-Version: 1
 X-DM-Signature: t=1794222000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
 
-{"id":"6f1c2d0e-...","type":"email.bounced","created_at":"2026-11-09T10:00:00Z","data":{"message_id":"...","bounce_id":"...","type":"hard","status":"5.1.1","suppressed":true}}
+{"id":"6f1c2d0e-...","type":"email.bounced","schema_version":1,"created_at":"2026-11-09T10:00:00Z","data":{"message_id":"...","bounce_id":"...","type":"hard","status":"5.1.1","suppressed":true}}
 ```
+
+## Schema versions
+
+Every event carries `schema_version` (an integer, also sent as `X-DM-Schema-Version`). Today it is `1`.
+
+- **Adding** a field to `data` or to the envelope does not change the version: ignore fields you do not know.
+- **Changing or removing** a field adds a new version. The previous version stays available for at least one release, and an endpoint
+  keeps receiving the version it is pinned to (`PATCH /admin/v1/webhooks/{id}` with `{"schema_version": 1}`; an unsupported value is
+  refused with `422 unsupported_schema_version`).
+- Each delivery is stamped with the endpoint's version when the event is created, so a retry or a replay always has the shape first
+  sent, even if the endpoint was pinned to another version in between. An event without `schema_version` (older senders) is version 1.
 
 ## Verify the signature
 

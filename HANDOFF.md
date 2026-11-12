@@ -343,10 +343,9 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
   private network with the installer's mTLS CA; the API proxies to it; every action audited; delete needs typed confirmation.
 - Tests with a fake agent; real run on the server.
 
-### F07 — webhook event versioning
+### F07 — webhook event versioning — **done**
 
-- Add `schema_version` to every event payload, document it in `docs/WEBHOOKS.md`, keep old shapes for one version.
-- Retry and idempotency tests for `email.delivery_*` events (same delivery id on retries, receivers can de-duplicate).
+- `schema_version` in every event; see `docs/WEBHOOKS.md` (Schema versions). Retry and idempotency tests added.
 
 ### F02 — reconciliation queue
 

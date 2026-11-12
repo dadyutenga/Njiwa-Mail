@@ -328,6 +328,7 @@ type receiver struct {
 	srv    *httptest.Server
 	bodies [][]byte
 	sigs   []string
+	hdrs   []http.Header
 	status int
 }
 
@@ -338,6 +339,7 @@ func newReceiver(t *testing.T) *receiver {
 		rc.mu.Lock()
 		rc.bodies = append(rc.bodies, b)
 		rc.sigs = append(rc.sigs, r.Header.Get("X-DM-Signature"))
+		rc.hdrs = append(rc.hdrs, r.Header.Clone())
 		st := rc.status
 		rc.mu.Unlock()
 		if st == 302 {

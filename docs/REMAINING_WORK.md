@@ -65,7 +65,7 @@ cannot be done from the development container.
 | ID | Status | What is missing |
 |---|---|---|
 | F02 | 🟡 | Operators can resolve unknown outcomes with a required note (audited, recorded as evidence). Missing: suggesting the outcome from MTA log evidence / queue ID, and a dedicated reconciliation queue screen. |
-| F07 | 🟡 | `email.delivery_*` events are documented (`docs/WEBHOOKS.md`). Missing: event schema versioning and retry/idempotency tests for the new events. |
+| F07 | ✅ | `schema_version` in every event (body and `X-DM-Schema-Version`), per-endpoint pin, version stamped per delivery (migration 0018); `email.delivery_*` events can now be subscribed to; retry/idempotency tests. |
 | F09 | ✅ | Installation-operator permission (migration 0016, default true so nobody loses access) and optional TOTP with recovery codes, replay protection, lockout and a `require_mfa` policy. |
 | F10 | ✅ | Retention for delivery evidence and installer receipts (settings), per-message and per-recipient export (JSON/CSV) and delete incl. attachment files, inbound attachments sealed at rest with a legacy converter (`attachments encrypt`). |
 | F06 | ✅* | Suppression only for DSNs correlated to our message and its recipient. *Correlation relies on the unguessable message UUID in the returned headers; a signed correlation token (VERP or HMAC) would be stronger. |
@@ -97,7 +97,7 @@ cannot be done from the development container.
    `govulncheck` and `managed-mta` CI jobs blocking after their first green run.
 2. **Safety net:** repeat the G03 restore drill and the firewall check on the production host; ACME automation for the dashboard certificate.
 3. **Operator UI:** E10 queue controls, a rotation screen (the CLI exists), B07 accessibility and translations.
-4. **Hardening and release:** F07, C01 cut-over, G06, G08–G10.
+4. **Hardening and release:**  C01 cut-over, G06, G08–G10.
 
 ## Done since the first checkpoint
 

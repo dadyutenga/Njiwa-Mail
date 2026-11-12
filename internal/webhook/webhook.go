@@ -163,6 +163,7 @@ func (d *Deliverer) attempt(ctx context.Context, del service.Delivery) (ok bool,
 	req.Header.Set("User-Agent", "njiwa-mail-webhook/1")
 	req.Header.Set("X-DM-Event-ID", del.ID)
 	req.Header.Set("X-DM-Event-Type", del.EventType)
+	req.Header.Set("X-DM-Schema-Version", del.SchemaVersionHeader())
 	req.Header.Set(SignatureHeader, Sign(del.Secret, time.Now(), body))
 	resp, err := d.client.Do(req)
 	if err != nil {

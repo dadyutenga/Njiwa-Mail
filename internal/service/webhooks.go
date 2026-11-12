@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,7 +18,9 @@ import (
 // Webhooks use the outbox pattern: dm_emit() writes a delivery row inside the
 // transaction that changes state, and a worker delivers it later with retries.
 
-var WebhookEvents = []string{"email.submitted", "email.failed", "email.unknown", "email.expired", "email.bounced", "inbound.received"}
+var WebhookEvents = []string{"email.submitted", "email.failed", "email.unknown", "email.expired", "email.bounced",
+	"email.delivery_deferred", "email.delivery_remote_accepted", "email.delivery_bounced", "email.delivery_expired_in_queue",
+	"inbound.received"}
 
 // Retry schedule: about 24 hours in total, then the delivery is dead.
 var webhookBackoff = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute,
@@ -163,6 +167,29 @@ WHERE id=$1`, id, rawURL, events, enabled)
 	return nil
 }
 
+// SetWebhookSchemaVersion pins the payload version an endpoint receives.
+// Events already queued keep the version they were emitted with.
+func (s *Service) SetWebhookSchemaVersion(ctx context.Context, id string, version int) error {
+	if !uuidRe.MatchString(id) {
+		return newErr(404, "not_found")
+	}
+	supported := false
+	for _, v := range WebhookSchemaVersions {
+		supported = supported || v == version
+	}
+	if !supported {
+		return &Error{Status: 422, Code: "unsupported_schema_version", Message: fmt.Sprintf("supported schema versions: %v", WebhookSchemaVersions)}
+	}
+	tag, err := s.Pool.Exec(ctx, `UPDATE webhook_endpoints SET schema_version=$2 WHERE id=$1`, id, version)
+	if err != nil {
+		return unavailable("webhook_update", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return newErr(404, "not_found")
+	}
+	return nil
+}
+
 func (s *Service) DeleteWebhook(ctx context.Context, id string) error {
 	if !uuidRe.MatchString(id) {
 		return newErr(404, "not_found")
@@ -214,10 +241,16 @@ lease_token=NULL, lease_expires_at=NULL WHERE id=$1 AND state IN ('succeeded','d
 	return nil
 }
 
+// WebhookSchemaVersions are the payload shapes this server can send. Adding a
+// field keeps the version; changing or removing one adds a new version and the
+// old one stays selectable for at least one release (docs/WEBHOOKS.md).
+var WebhookSchemaVersions = []int{1}
+
 // Delivery is one leased webhook attempt.
 type Delivery struct {
 	ID, Token, URL, Secret, EventType string
 	Attempts                          int
+	SchemaVersion                     int
 	Data                              json.RawMessage
 	CreatedAt                         time.Time
 }
@@ -225,13 +258,24 @@ type Delivery struct {
 // Body is the exact JSON document that is signed and posted.
 func (d Delivery) Body() []byte {
 	b, _ := json.Marshal(struct {
-		ID        string          `json:"id"`
-		Type      string          `json:"type"`
-		CreatedAt string          `json:"created_at"`
-		Data      json.RawMessage `json:"data"`
-	}{d.ID, d.EventType, d.CreatedAt.UTC().Format(time.RFC3339), d.Data})
+		ID            string          `json:"id"`
+		Type          string          `json:"type"`
+		SchemaVersion int             `json:"schema_version"`
+		CreatedAt     string          `json:"created_at"`
+		Data          json.RawMessage `json:"data"`
+	}{d.ID, d.EventType, d.schemaVersion(), d.CreatedAt.UTC().Format(time.RFC3339), d.Data})
 	return b
 }
+
+func (d Delivery) schemaVersion() int {
+	if d.SchemaVersion < 1 {
+		return 1
+	}
+	return d.SchemaVersion
+}
+
+// SchemaVersionHeader is the value of X-DM-Schema-Version.
+func (d Delivery) SchemaVersionHeader() string { return strconv.Itoa(d.schemaVersion()) }
 
 // ClaimDeliveries leases due deliveries of enabled endpoints. A lease that
 // expired (worker died mid-request) is claimed again: webhooks are
@@ -245,7 +289,7 @@ WITH c AS (
 UPDATE webhook_deliveries d SET state='sending', attempts=d.attempts+1, lease_token=gen_random_uuid(),
        lease_expires_at=now() + make_interval(secs => $2::float8)
 FROM c, webhook_endpoints w WHERE d.id=c.id AND w.id=d.endpoint_id
-RETURNING d.id::text, d.lease_token::text, w.url, w.secret_enc, w.id::text, d.event_type, d.attempts, d.payload, d.created_at`, limit, lease.Seconds())
+RETURNING d.id::text, d.lease_token::text, w.url, w.secret_enc, w.id::text, d.event_type, d.attempts, d.payload, d.created_at, d.schema_version`, limit, lease.Seconds())
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +299,7 @@ RETURNING d.id::text, d.lease_token::text, w.url, w.secret_enc, w.id::text, d.ev
 		var d Delivery
 		var enc []byte
 		var endpoint string
-		if err := rows.Scan(&d.ID, &d.Token, &d.URL, &enc, &endpoint, &d.EventType, &d.Attempts, &d.Data, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Token, &d.URL, &enc, &endpoint, &d.EventType, &d.Attempts, &d.Data, &d.CreatedAt, &d.SchemaVersion); err != nil {
 			return nil, err
 		}
 		sec, err := s.Box.Open(enc, []byte("webhook:"+endpoint))

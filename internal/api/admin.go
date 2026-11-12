@@ -512,12 +512,18 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	})
 	h("PATCH /webhooks/{id}", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
-			URL     *string  `json:"url"`
-			Events  []string `json:"events"`
-			Enabled *bool    `json:"enabled"`
+			URL           *string  `json:"url"`
+			Events        []string `json:"events"`
+			Enabled       *bool    `json:"enabled"`
+			SchemaVersion *int     `json:"schema_version"`
 		}
 		if err := decode(c, &in); err != nil {
 			return nil, err
+		}
+		if in.SchemaVersion != nil {
+			if err := svc.SetWebhookSchemaVersion(reqCtx(c), c.Params("id"), *in.SchemaVersion); err != nil {
+				return nil, err
+			}
 		}
 		if err := svc.UpdateWebhook(reqCtx(c), c.Params("id"), in.URL, in.Events, in.Enabled); err != nil {
 			return nil, err

@@ -17,10 +17,12 @@ const WebhookTolerance = 5 * time.Minute
 // WebhookEvent is the body of every webhook. ID is unique per event and stays
 // the same across retries and replays: store it and ignore ids already seen.
 type WebhookEvent struct {
-	ID        string          `json:"id"`
-	Type      string          `json:"type"`
-	CreatedAt time.Time       `json:"created_at"`
-	Data      json.RawMessage `json:"data"`
+	ID   string `json:"id"`
+	Type string `json:"type"`
+	// SchemaVersion is the payload shape; 0 (absent) means version 1.
+	SchemaVersion int             `json:"schema_version,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	Data          json.RawMessage `json:"data"`
 }
 
 var ErrWebhookSignature = errors.New("njiwa-mail: invalid webhook signature")
