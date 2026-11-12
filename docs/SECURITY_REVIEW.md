@@ -91,6 +91,14 @@ for DSNs correlated to our own message (`TestDeliveryEvidenceTimeline`).
 - Export and delete per message and per recipient, including attachment files, bounces and delivery evidence, audited:
   `TestExportAndDeletePerMessageAndRecipient`. The raw spool file is plaintext until parsed (seconds); not covered.
 
+## 8. Key rotation (C02)
+
+`ENCRYPTION_KEY_PREVIOUS` lets a process open data sealed with an older key (it never seals with it); `njiwa-mail rekey` re-seals every
+sealed column and attachment file, reports values no key can open without touching them, and a schema test keeps the column list
+complete. Evidence: `TestEncryptionKeyRotation` (every kind of sealed value readable with both keys, converted, and readable with only
+the new key: MFA login, attachment download, queued payload sent, webhook secret), `TestRekeyReportsUnreadableAndChangesNothing`,
+`TestEverySealedColumnIsRekeyed`, `TestPreviousKeysOpenButNeverSeal`. `HMAC_KEY` rotation is not supported.
+
 ## Not covered yet
 
 - A signed (VERP/HMAC) bounce correlation token (F06 note).

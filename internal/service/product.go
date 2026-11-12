@@ -283,36 +283,3 @@ func (s *Service) DailySummary(ctx context.Context) (string, []string, error) {
 	}
 	return body, to, rows.Err()
 }
-
-// Reencrypt rewrites every encrypted column with newKey. The caller swaps the
-// process key only after this returns nil.
-func (s *Service) Reencrypt(ctx context.Context, newKey []byte) error {
-	next, err := s.Box.WithEncryptionKey(newKey)
-	if err != nil {
-		return err
-	}
-	rows, err := s.Pool.Query(ctx, `SELECT id::text, payload_enc FROM messages WHERE payload_enc IS NOT NULL`)
-	if err != nil {
-		return unavailable("reencrypt_list", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		var enc []byte
-		if err := rows.Scan(&id, &enc); err != nil {
-			return err
-		}
-		pt, err := s.Box.Open(enc, []byte(id))
-		if err != nil {
-			return fmt.Errorf("message %s: %w", id, err)
-		}
-		sealed, err := next.Seal(pt, []byte(id))
-		if err != nil {
-			return err
-		}
-		if _, err := s.Pool.Exec(ctx, `UPDATE messages SET payload_enc=$2 WHERE id=$1`, id, sealed); err != nil {
-			return err
-		}
-	}
-	return rows.Err()
-}

@@ -357,11 +357,9 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
   (`bounces+<id>.<hmac>@bounce…`) or an HMAC header, verify on intake, keep the old method as fallback.
   Postfix side: `recipient_delimiter = +` on the bounce domain (installer change + test).
 
-### C02 — secrets
+### C02 — secrets — **done**
 
-- Secrets from mounted files already exist for env (`*_FILE`); add the same for profile secrets if needed.
-- `ENCRYPTION_KEY` rotation: `ENCRYPTION_KEY_PREVIOUS` read-only, a `njiwa-mail rekey` command that re-seals every sealed column,
-  then the old key can be removed. Tests: decrypt with either key during the window.
+- Key rotation procedure is in `docs/OPERATIONS.md` ("Rotating ENCRYPTION_KEY"). HMAC_KEY rotation is intentionally unsupported.
 
 ### C05 — Mailcow adapter boundary
 

@@ -61,6 +61,8 @@ Runtime:
                               backs up, validates (postfix check, opendkim -n) and rolls back on failure
   installer dkim-rotate prepare|activate|cancel|retire|status -selector S   (staged DKIM key rotation)
   retention                   run the retention job once
+  rekey [-check]              after changing ENCRYPTION_KEY (old key in ENCRYPTION_KEY_PREVIOUS): re-seal every sealed value with the
+                              current key; -check only counts. Repeat until nothing is left, then drop ENCRYPTION_KEY_PREVIOUS
   attachments encrypt         seal inbound attachment files written before encryption at rest (safe to repeat)
 
 Provisioning (operator CLI only):
@@ -140,6 +142,11 @@ func Run(args []string) {
 	box, err := secure.New(cfg.EncryptionKey, cfg.HMACKey)
 	if err != nil {
 		die(err)
+	}
+	if len(cfg.EncryptionKeyPrevious) > 0 {
+		if box, err = box.WithPrevious(cfg.EncryptionKeyPrevious...); err != nil {
+			die(err)
+		}
 	}
 	svc := service.New(pool, box, service.Options{MetadataRetention: cfg.MetadataRetention, CaptureRetention: cfg.CaptureRetention,
 		UnknownPurge: cfg.UnknownPurge, MaxAttempts: cfg.MaxAttempts,
@@ -235,6 +242,38 @@ func Run(args []string) {
 		}
 		fmt.Printf("captures=%d messages=%d payloads=%d buckets=%d delivery_events=%d installer_receipts=%d attachments_sealed=%d\n",
 			r.Captures, r.Messages, r.Payloads, r.Buckets, r.DeliveryEvents, r.Receipts, r.AttachmentsSealed)
+	case "rekey":
+		fs := flag.NewFlagSet("rekey", flag.ExitOnError)
+		check := fs.Bool("check", false, "count values still on a previous key; change nothing")
+		fs.Parse(args)
+		if len(cfg.EncryptionKeyPrevious) == 0 && !*check {
+			fmt.Fprintln(os.Stderr, "note: ENCRYPTION_KEY_PREVIOUS is empty; only values already on a previous key can be re-sealed")
+		}
+		rep, err := svc.Rekey(ctx, *check)
+		for _, c := range rep.Columns {
+			if c.Scanned == 0 && c.Resealed == 0 && c.Unreadable == 0 {
+				continue
+			}
+			verb := "resealed"
+			if *check {
+				verb = "on previous key"
+			}
+			fmt.Printf("%-48s scanned=%-6d %s=%-6d unreadable=%d %v\n", c.Name, c.Scanned, verb, c.Resealed, c.Unreadable, c.Examples)
+		}
+		if err != nil {
+			die(err)
+		}
+		switch {
+		case rep.Unreadable() > 0:
+			die(fmt.Errorf("%d values cannot be opened with any configured key: add the key that sealed them to ENCRYPTION_KEY_PREVIOUS", rep.Unreadable()))
+		case *check && rep.Changed() > 0:
+			fmt.Printf("%d values still use a previous key: run `rekey` to re-seal them\n", rep.Changed())
+			os.Exit(3)
+		case *check:
+			fmt.Println("nothing uses a previous key: ENCRYPTION_KEY_PREVIOUS can be removed")
+		default:
+			fmt.Printf("re-sealed %d values with the current key; run `rekey -check` to confirm, then remove ENCRYPTION_KEY_PREVIOUS\n", rep.Changed())
+		}
 	case "attachments":
 		if len(args) == 0 || args[0] != "encrypt" {
 			die(errors.New("usage: attachments encrypt"))

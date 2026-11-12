@@ -44,7 +44,7 @@ cannot be done from the development container.
 | ID | Status | What is missing |
 |---|---|---|
 | C05 | 🟡 | Mailcow is optional and works without its API. Missing: moving the adapter under a provider package boundary, and before/after audit records for Mailcow API writes. |
-| C02 | 🟡 | Secrets are sealed, never echoed and kept on blank saves. Missing: secrets from mounted files, and `ENCRYPTION_KEY` rotation with a dual-read window. |
+| C02 | ✅ | `ENCRYPTION_KEY_PREVIOUS` (also `_FILE`) and `njiwa-mail rekey [-check]` re-seal every sealed column and attachment file; profile secrets are sealed in the database (file-mounted env secrets already existed). |
 
 ## 4. Domains and DNS (D-series) gaps
 

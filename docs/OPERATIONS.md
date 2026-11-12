@@ -318,6 +318,23 @@ njiwa-mail env restrict -project P -mode live -on=false               # remove r
 ```
 Hard bounces are suppressed automatically once bounce routing is set up; until then, review Mailcow delivery failures and suppress confirmed-invalid recipients by hand.
 
+## Rotating `ENCRYPTION_KEY` (C02)
+
+Sealed data (queued payloads, sent copies, drafts, captures, inbound bodies and attachment files, webhook signing secrets, SMTP/Mailcow/managed
+credentials, authenticator secrets, campaign recipients) is encrypted with `ENCRYPTION_KEY`. To change it without downtime:
+
+1. Back up the database and the **current** key. Generate the new key: `openssl rand -base64 32`.
+2. Set `ENCRYPTION_KEY=<new>` and `ENCRYPTION_KEY_PREVIOUS=<old>` (or the `_FILE` variants) for every container, then restart. The service
+   now seals with the new key and still opens everything sealed with the old one.
+3. `njiwa-mail rekey -check` counts what still uses the old key. `njiwa-mail rekey` re-seals it (safe while the service runs, repeatable,
+   resumable; each row is replaced only if it did not change meanwhile). It exits non-zero if some value cannot be opened by any
+   configured key: add the key that sealed it to `ENCRYPTION_KEY_PREVIOUS` and run again.
+4. When `rekey -check` says nothing uses a previous key, remove `ENCRYPTION_KEY_PREVIOUS` and restart. **Old backups stay sealed with
+   the old key: keep it for as long as you may restore them.** `HMAC_KEY` is not rotated by this procedure (it keys recipient hashes
+   and idempotency fingerprints; changing it breaks lookups).
+
+A test fails when a migration adds a sealed column that `rekey` does not know (`TestEverySealedColumnIsRekeyed`).
+
 ## Retention
 
 The scheduler (and the worker, harmlessly twice) runs retention every `RETENTION_INTERVAL` (10m): deletes inbound bodies and attachments after the inbound retention period

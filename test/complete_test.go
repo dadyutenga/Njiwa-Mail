@@ -3,15 +3,12 @@ package test
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/njiwa-tz/mail/internal/secure"
 	"github.com/njiwa-tz/mail/internal/service"
 )
 
@@ -136,37 +133,6 @@ func TestPrivacy(t *testing.T) {
 	e.must(e.svc.DeleteRecipient(ctx, "priv", "sandbox", testRcpt))
 	if e.count(`SELECT count(*) FROM messages`) != 0 {
 		t.Fatal("recipient data was not deleted")
-	}
-}
-
-func TestReencrypt(t *testing.T) {
-	e := setup(t)
-	ctx := context.Background()
-	k := e.provision("enc")
-	acc := e.post(k.sbx, idem("enc"), otpBody(testRcpt))
-	if acc.Code != 202 {
-		t.Fatal(acc.Raw)
-	}
-	next := make([]byte, 32)
-	if _, err := rand.Read(next); err != nil {
-		t.Fatal(err)
-	}
-	e.must(e.svc.Reencrypt(ctx, next))
-	box, err := secure.New(next, []byte("hmac-key-hmac-key-hmac-key-hmac-key!!"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var id string
-	var enc []byte
-	if err := e.pool.QueryRow(ctx, `SELECT id::text, payload_enc FROM messages LIMIT 1`).Scan(&id, &enc); err != nil {
-		t.Fatal(err)
-	}
-	pt, err := box.Open(enc, []byte(id))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(pt), "otp") {
-		t.Fatalf("reencrypted payload: %s", pt)
 	}
 }
 

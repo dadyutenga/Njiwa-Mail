@@ -29,9 +29,12 @@ type Config struct {
 	DatabaseURL   string
 	ListenAddr    string
 	EncryptionKey []byte
-	HMACKey       []byte
-	MaxBodyBytes  int64
-	SMTP          SMTP
+	// EncryptionKeyPrevious are keys that can still open sealed data during a
+	// rotation (ENCRYPTION_KEY_PREVIOUS, comma-separated base64); they never seal.
+	EncryptionKeyPrevious [][]byte
+	HMACKey               []byte
+	MaxBodyBytes          int64
+	SMTP                  SMTP
 
 	MetadataRetention time.Duration
 	CaptureRetention  time.Duration
@@ -160,6 +163,28 @@ func key(name string, minLen int, exact bool) ([]byte, error) {
 	return b, nil
 }
 
+// previousKeys reads ENCRYPTION_KEY_PREVIOUS: zero or more comma-separated
+// base64 keys of exactly 32 bytes that may still open older sealed data.
+func previousKeys() ([][]byte, error) {
+	s, err := secret("ENCRYPTION_KEY_PREVIOUS")
+	if err != nil {
+		return nil, err
+	}
+	var out [][]byte
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		b, err := base64.StdEncoding.DecodeString(part)
+		if err != nil || len(b) != 32 {
+			return nil, fmt.Errorf("ENCRYPTION_KEY_PREVIOUS must be comma-separated standard base64 keys of exactly 32 bytes")
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
 // loadDotEnv copies KEY=VALUE lines from .env into the process environment.
 // Variables already set are left alone, so the shell and the container win.
 func loadDotEnv() error {
@@ -212,6 +237,9 @@ func Load() (*Config, error) {
 	}
 	c.ListenAddr = get("LISTEN_ADDR", "127.0.0.1:8080")
 	if c.EncryptionKey, err = key("ENCRYPTION_KEY", 32, true); err != nil {
+		return nil, err
+	}
+	if c.EncryptionKeyPrevious, err = previousKeys(); err != nil {
 		return nil, err
 	}
 	if c.HMACKey, err = key("HMAC_KEY", 32, false); err != nil {
