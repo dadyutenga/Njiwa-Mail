@@ -16,9 +16,7 @@ review is [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md).
 `transport.Transport`. The stored-profile adapter implements that interface and preserves the profile revision used for each
 send; environment SMTP still uses its existing failover client. The old `mailer.Transport` field remains as a compatibility seam
 for existing tests and callers. Focused worker and transport tests, `go vet ./...`, integration-test compilation, and
-`git diff --check` passed. The database-backed integration tests named in C01 **have not run**: no disposable PostgreSQL server
-was listening on port 5433 in this workspace. Run them on the office PC before marking C01 complete. No real-server task was
-completed in this update.
+`git diff --check` passed. The database-backed C01 tests were later run and pass (see C01 below).
 
 ---
 
@@ -331,16 +329,12 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 - Tests: role matrix (extend `test/security_matrix_test.go` with a non-operator admin), TOTP enrol/login/replay/lockout; update
   `docs/SECURITY_REVIEW.md`.
 
-### C01 — worker cut-over to `transport.Transport`
+### C01 — worker cut-over to `transport.Transport` — **done**
 
-- **Code landed (`9ed3800`):** production worker dispatch uses `transport.Transport`; `StoredTransport` implements the
-  contract and pins the active profile revision. The environment SMTP path wraps the same failover client. Legacy
-  `mailer.Transport` callers still work through a compatibility field.
-- **Verified:** focused worker and transport tests, `go vet ./...`, and compilation of the integration test package passed.
-- **Still required before closing C01:** run the database-backed worker tests with a throwaway PostgreSQL database, including
-  `TestWorkerUsesActiveProfileAndPinsMessages`, `TestUnknownOutcomeIsPinnedAndNotResent`, and
-  `TestTransportOutageBreakerAndDegradedReadiness`; run the full section 1.3 Go suite. Confirm the managed and existing SMTP
-  profiles each submit and pin correctly in those tests.
+- Production worker dispatch uses `transport.Transport`; `StoredTransport` pins the active profile revision; environment SMTP
+  wraps the same failover client. Verified on 2026-11-12: full Go suite on PostgreSQL 16 (Docker on the server), including
+  `TestWorkerUsesActiveProfileAndPinsMessages`, `TestUnknownOutcomeIsPinnedAndNotResent`,
+  `TestTransportOutageBreakerAndDegradedReadiness`.
 
 ### F10 — retention, export, delete; encryption at rest
 

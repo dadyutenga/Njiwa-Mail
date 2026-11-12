@@ -11,6 +11,7 @@ Baseline: `cd129e2` — `go test ./...` green on PostgreSQL 16 (throwaway DB; th
 | ID | What | Evidence |
 |---|---|---|
 | A02 | Go suite reproduced on a throwaway Postgres 16 | `go test ./... -race` |
+| C01 | Production worker dispatch goes through `transport.Transport` (`StoredTransport` pins the profile revision; env SMTP wraps the same failover client) | `go test ./... -count=1` on PostgreSQL 16 (Docker, server): `TestWorkerUsesActiveProfileAndPinsMessages`, `TestUnknownOutcomeIsPinnedAndNotResent`, `TestTransportOutageBreakerAndDegradedReadiness` pass |
 | A03 | `internal/transport`: `Transport`, `Outcome`, `Capability`, `Receipt`, `Fake`, `ExistingSMTPTransport` wrapper | `internal/transport/transport_test.go` |
 | A04 | `internal/installation`: pure readiness model, status + problem codes, fresh/stale/expired logic; `GET /admin/v1/installation` | `internal/installation/installation_test.go`, `test/transport_test.go` |
 | A05 | Migration `0010_transport_profiles.sql` (additive): `installation_settings`, `transport_profiles`, `installation_checks`, `installer_receipts`, `messages.transport_profile_id/revision` | `TestLegacyMailServerMigratesToActiveProfile` (re-runs migration on a legacy snapshot) |
@@ -108,7 +109,6 @@ New admin routes (operator-only): `GET /admin/v1/installation`, `PUT /admin/v1/i
 - Managed mode is selectable and honest (it shows "installer not available" and cannot become ready or active) but the installer itself (E-series) does not exist yet.
 - `docs/MAILCOW_SETUP.md` and `docs/openapi.yaml` still describe Mailcow as the default path (G08).
 - A01 endpoint/schema map doc, A02 container smoke CI.
-- C01 full cutover of `StoredTransport` to `transport.Transport`, C03–C08.
 - D, E (managed MTA installer — managed profiles can be created but can never activate without a verified installer receipt), F, G.
 
 ## Next task
@@ -117,6 +117,5 @@ Run on a real supported VPS (Debian 12 / Ubuntu 22.04/24.04) with port 25 open a
 connection test, activation, then a Live test to Gmail/Outlook with header checks (G04/G05). Make the `govulncheck` and
 `managed-mta` CI jobs blocking after their first green run.
 
-Still open: D06 signed-mail evidence (verify DKIM on a received test message), D09/D10 (claims UI, DKIM rotation), C01 full worker
-cutover to `transport.Transport`, C06-C08, F02 workflow polish, F03 transport degradation/backpressure, F05 security review,
+Still open: D06 signed-mail evidence (verify DKIM on a received test message), D09/D10 (claims UI, DKIM rotation), C06-C08, F02 workflow polish, F03 transport degradation/backpressure, F05 security review,
 F07-F10, G02 (HTTPS/firewall defaults), G03 restore drill, G06 mode-switch E2E, G09/G10.

@@ -22,7 +22,7 @@ cannot be done from the development container.
 | E05 | 🟡 | Hostname A, PTR/FCrDNS and port-25 checks exist (preflight). Missing: a publicly trusted TLS certificate for inbound port 25 (today it is signed by the installer's private CA, which is acceptable for opportunistic TLS but not ideal), and a HELO check against what remote servers see. |
 | G06 | ❌ | Mode-switch regression and legacy-migration end to end (existing SMTP → managed with a non-empty queue, and back). Unit/integration tests cover the planner and migration, not a full switch with real transports. |
 | C06 | ❌ | Generic Postfix/Exim staging integration test with the same API (the fake SMTP server and Mailcow are the only targets tested so far). |
-| C01 | 🟡 | `internal/transport` defines the interface and an SMTP wrapper, but the worker still sends through `mailer.Transport`/`StoredTransport`. The cut-over to `transport.Transport` is not done. |
+| C01 | ✅ | Worker dispatch uses `transport.Transport`; DB-backed tests verified on PostgreSQL 16 (2026-11-12). |
 | A02 | 🟡 | Go and frontend suites run in CI on throwaway PostgreSQL. Missing: a container smoke test that brings the Compose stack up and checks `/health/ready`. |
 | G07 | 🟡 | `govulncheck` and the `managed-mta` job are **non-blocking** until their first green run on GitHub (the vulnerability database is blocked from the dev container, so the scan has never run). Missing: SBOM, reproducible tagged build, frontend end-to-end tests (browser). |
 | G08 | 🟡 | README and the public OpenAPI describe both modes and the new error codes. Missing: OpenAPI for the admin API (installation, transport profiles, wizard, domain claims, transport test), SDK examples, a troubleshooting guide;  |
