@@ -37,6 +37,14 @@ type Params struct {
 	// Adopt allows replacing an existing Postfix configuration that the
 	// installer did not write (it is backed up first).
 	Adopt bool
+	// NoFirewall skips the host firewall table (G02). By default the
+	// installer adds an nftables table that only drops Njiwa's private ports
+	// from outside; its policy is accept, so SSH and other services are never
+	// affected.
+	NoFirewall bool
+	// ComposeSubnet is the Docker network the worker connects from when the
+	// submission listener is on its gateway (default 172.30.0.0/24).
+	ComposeSubnet string
 }
 
 func (p *Params) normalise() error {
@@ -53,6 +61,12 @@ func (p *Params) normalise() error {
 	}
 	if p.StateDir == "" {
 		p.StateDir = "/var/lib/njiwa-mail/installer"
+	}
+	if p.ComposeSubnet == "" {
+		p.ComposeSubnet = "172.30.0.0/24"
+	}
+	if _, _, err := net.ParseCIDR(p.ComposeSubnet); err != nil {
+		return errors.New("-compose-subnet must be a CIDR such as 172.30.0.0/24")
 	}
 	if !hostRe(p.Hostname) {
 		return errors.New("a valid public mail hostname is required (-hostname)")
@@ -150,13 +164,16 @@ type Plan struct {
 
 // Paths of everything the installer owns.
 const (
-	pfDir        = "/etc/postfix"
-	njDir        = "/etc/postfix/njiwa"
-	dkimDir      = "/etc/opendkim"
-	dkimConf     = "/etc/opendkim.conf"
-	dkimTables   = "/etc/opendkim/njiwa"
-	keyDir       = "/etc/opendkim/keys"
-	clientDir    = "/etc/njiwa-mail/submission"
+	pfDir      = "/etc/postfix"
+	njDir      = "/etc/postfix/njiwa"
+	dkimDir    = "/etc/opendkim"
+	dkimConf   = "/etc/opendkim.conf"
+	dkimTables = "/etc/opendkim/njiwa"
+	keyDir     = "/etc/opendkim/keys"
+	clientDir  = "/etc/njiwa-mail/submission"
+	// FirewallFile is the nftables ruleset the installer owns.
+	FirewallFile = "/etc/njiwa-mail/firewall.nft"
+	firewallUnit = "/etc/systemd/system/njiwa-mail-firewall.service"
 	milterSocket = "inet:127.0.0.1:8891"
 )
 
@@ -192,6 +209,11 @@ func BuildPlan(p Params) (*Plan, error) {
 		{Path: dkimTables + "/signing.table", Mode: 0640, Content: signingTable(p)},
 		{Path: dkimTables + "/trusted.hosts", Mode: 0640, Content: trustedHosts(p, host)},
 		{Path: clientDir + "/endpoint", Mode: 0644, Content: []byte(Marker + "\nhost=" + host + "\nport=" + port + "\nserver_name=" + p.Hostname + "\n")},
+	}
+	if !p.NoFirewall {
+		want = append(want,
+			File{Path: FirewallFile, Mode: 0644, Content: firewallRules(p, host, port)},
+			File{Path: firewallUnit, Mode: 0644, Content: firewallService()})
 	}
 	for i := range want {
 		cur, err := os.ReadFile(p.path(want[i].Path))
@@ -432,4 +454,57 @@ func SubmissionPort(bind string) int {
 	_, p, _ := net.SplitHostPort(bind)
 	n, _ := strconv.Atoi(p)
 	return n
+}
+
+// privatePorts are Njiwa ports that must never be reachable from outside the
+// host: the inbound listener, PostgreSQL, the API and dashboard (served via
+// the HTTPS proxy), and the DKIM milter.
+var privatePorts = []string{"2525", "5432", "8080", "3000", "8891"}
+
+// firewallRules is a self-contained nftables table. It replaces itself
+// atomically on every load, keeps policy accept (it never blocks SSH or other
+// services) and only drops Njiwa's private ports from outside the host. The
+// worker's submission port is open to the host and, when it listens on the
+// Docker gateway, to the Compose network only. Port 25 is left open: it is
+// the public MTA port (bounces) and refuses relaying by itself.
+func firewallRules(p Params, submissionHost, submissionPort string) []byte {
+	allow := ""
+	if ip := net.ParseIP(submissionHost); ip != nil && !ip.IsLoopback() {
+		fam := "ip"
+		if ip.To4() == nil {
+			fam = "ip6"
+		}
+		_, n, _ := net.ParseCIDR(p.ComposeSubnet)
+		allow = "\t\ttcp dport " + submissionPort + " " + fam + " saddr " + n.String() + " accept\n"
+	}
+	return []byte(Marker + `
+# Loaded by njiwa-mail-firewall.service. Inspect with: nft list table inet njiwa_mail
+table inet njiwa_mail
+delete table inet njiwa_mail
+table inet njiwa_mail {
+	chain input {
+		type filter hook input priority filter - 1; policy accept;
+		iif "lo" accept
+` + allow + `		tcp dport { ` + submissionPort + `, ` + strings.Join(privatePorts, ", ") + ` } counter drop
+	}
+}
+`)
+}
+
+func firewallService() []byte {
+	return []byte(Marker + `
+[Unit]
+Description=Njiwa Mail host firewall table (private ports)
+Before=network-pre.target postfix.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f ` + FirewallFile + `
+ExecStop=/usr/sbin/nft delete table inet njiwa_mail
+
+[Install]
+WantedBy=multi-user.target
+`)
 }
