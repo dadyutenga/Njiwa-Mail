@@ -61,6 +61,7 @@ Runtime:
                               backs up, validates (postfix check, opendkim -n) and rolls back on failure
   installer dkim-rotate prepare|activate|cancel|retire|status -selector S   (staged DKIM key rotation)
   retention                   run the retention job once
+  attachments encrypt         seal inbound attachment files written before encryption at rest (safe to repeat)
 
 Provisioning (operator CLI only):
   project create -name N
@@ -232,7 +233,24 @@ func Run(args []string) {
 		if err != nil {
 			die(err)
 		}
-		fmt.Printf("captures=%d messages=%d payloads=%d buckets=%d\n", r.Captures, r.Messages, r.Payloads, r.Buckets)
+		fmt.Printf("captures=%d messages=%d payloads=%d buckets=%d delivery_events=%d installer_receipts=%d attachments_sealed=%d\n",
+			r.Captures, r.Messages, r.Payloads, r.Buckets, r.DeliveryEvents, r.Receipts, r.AttachmentsSealed)
+	case "attachments":
+		if len(args) == 0 || args[0] != "encrypt" {
+			die(errors.New("usage: attachments encrypt"))
+		}
+		total := 0
+		for {
+			n, err := svc.EncryptLegacyAttachments(ctx, 500)
+			if err != nil {
+				die(err)
+			}
+			total += n
+			if n == 0 {
+				break
+			}
+		}
+		fmt.Printf("sealed %d attachment files\n", total)
 	case "project", "env", "sender", "key", "suppress", "message", "capture", "user":
 		if err := admin(ctx, svc, cmd, args); err != nil {
 			die(err)
@@ -382,7 +400,8 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 	every(cfg.RetentionInterval, "retention", func() error {
 		r, err := svc.RunRetention(ctx)
 		if err == nil {
-			slog.Info("retention run", "captures", r.Captures, "messages", r.Messages, "payloads", r.Payloads, "inbound", r.Inbound, "deliveries", r.Deliveries)
+			slog.Info("retention run", "captures", r.Captures, "messages", r.Messages, "payloads", r.Payloads, "inbound", r.Inbound, "deliveries", r.Deliveries,
+				"delivery_events", r.DeliveryEvents, "installer_receipts", r.Receipts, "attachments_sealed", r.AttachmentsSealed)
 		}
 		return err
 	})

@@ -82,8 +82,16 @@ for DSNs correlated to our own message (`TestDeliveryEvidenceTimeline`).
   and nobody can switch MFA off. An operator resets another user's lost device (`mfa.reset`, audited, ends their sessions); the CLI
   has `user mfa-reset`. Evidence: `TestRequireMFAPolicyAndOperatorReset`.
 
+## 7. Data lifecycle (F10)
+
+- Inbound attachments are sealed with `ENCRYPTION_KEY` (AAD = attachment id, so a file cannot be swapped between attachments); legacy
+  plaintext files are converted by the retention job or `attachments encrypt`, writing the sealed copy first and switching the row before
+  removing the plaintext. Evidence: `TestAttachmentsAreEncryptedAtRestAndLegacyOnesConverted`.
+- Retention for delivery evidence and installer receipts (never the receipt that proves an installation): `TestEvidenceAndReceiptRetention`.
+- Export and delete per message and per recipient, including attachment files, bounces and delivery evidence, audited:
+  `TestExportAndDeletePerMessageAndRecipient`. The raw spool file is plaintext until parsed (seconds); not covered.
+
 ## Not covered yet
 
-- Encryption at rest for inbound attachments; retention for evidence and receipts (F10).
 - A signed (VERP/HMAC) bounce correlation token (F06 note).
 - An external penetration test and the dependency scan (`govulncheck` runs in CI but has not yet had a green run on GitHub).

@@ -93,6 +93,22 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	h("GET", "/messages/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.WSMessage(ctx(c), sc, c.Params("id"))
 	})
+	h("GET", "/messages/:id/export", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		m, err := svc.ExportMessage(ctx(c), sc, c.Params("id"))
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "privacy.export_message", "message", c.Params("id"), scoped(sc, nil))
+		return rawResponse{header: map[string]string{"Content-Type": "application/json",
+			"Content-Disposition": `attachment; filename="njiwa-mail-message-` + c.Params("id") + `.json"`}, body: mustJSON(m)}, nil
+	})
+	h("DELETE", "/messages/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteMessage(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "privacy.delete_message", "message", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
 	h("GET", "/messages/:id/copy", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.SentCopy(ctx(c), sc, c.Params("id"))
 	})
@@ -822,7 +838,20 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		return svc.ExportRecipient(ctx(c), sc.Project, sc.Mode, in.Email)
+		x, err := svc.ExportRecipient(ctx(c), sc.Project, sc.Mode, in.Email)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "privacy.export", "recipient", "", scoped(sc, map[string]any{"format": c.Query("format", "json")}))
+		if c.Query("format") == "csv" {
+			b, err := service.RecipientExportCSV(x)
+			if err != nil {
+				return nil, err
+			}
+			return rawResponse{header: map[string]string{"Content-Type": "text/csv; charset=utf-8",
+				"Content-Disposition": `attachment; filename="njiwa-mail-recipient-export.csv"`}, body: b}, nil
+		}
+		return x, nil
 	})
 	h("POST", "/privacy/delete", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct{ Email string }

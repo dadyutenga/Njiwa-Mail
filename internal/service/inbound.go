@@ -252,12 +252,18 @@ ON CONFLICT (spool_id, envelope_to) DO NOTHING`,
 			dirs = append(dirs, dir)
 			for i, a := range p.Attachments {
 				name := fmt.Sprintf("%02d-%s", i, secure.NewUUID()) // generated: the sender's filename never touches the filesystem
-				if err := os.WriteFile(filepath.Join(dir, name), a.Content, 0o600); err != nil {
+				aid := secure.NewUUID()
+				// F10: attachments are sealed with ENCRYPTION_KEY before they touch the disk.
+				sealed, err := s.Box.Seal(a.Content, attachmentAAD(aid))
+				if err != nil {
+					return 0, err
+				}
+				if err := os.WriteFile(filepath.Join(dir, name), sealed, 0o600); err != nil {
 					return 0, err
 				}
 				sum := sha256.Sum256(a.Content)
-				if _, err := tx.Exec(ctx, `INSERT INTO inbound_attachments(inbound_message_id, filename, content_type, size, storage_path, sha256) VALUES ($1,$2,$3,$4,$5,$6)`,
-					id, clean(a.Filename, 255), clean(a.ContentType, 200), len(a.Content), filepath.Join("attachments", id, name), hex.EncodeToString(sum[:])); err != nil {
+				if _, err := tx.Exec(ctx, `INSERT INTO inbound_attachments(id, inbound_message_id, filename, content_type, size, storage_path, sha256, encrypted) VALUES ($1,$2,$3,$4,$5,$6,$7,true)`,
+					aid, id, clean(a.Filename, 255), clean(a.ContentType, 200), len(a.Content), filepath.Join("attachments", id, name), hex.EncodeToString(sum[:])); err != nil {
 					return 0, err
 				}
 			}
@@ -429,10 +435,15 @@ WHERE m.id=$1 AND ($2='' OR m.environment_id=NULLIF($2,'')::uuid)`, id, envID)
 	return m, nil
 }
 
+// AttachmentFile is a stored attachment. Sealed attachments arrive decrypted in
+// Data; legacy plaintext ones (before F10 conversion) are served from Path.
 type AttachmentFile struct {
 	Path, Filename, ContentType string
 	Size                        int
+	Data                        []byte
 }
+
+func attachmentAAD(id string) []byte { return []byte("inbound-attachment:" + id) }
 
 // OpenAttachment resolves an attachment to its file on disk, scoped to the
 // environment when envID is set.
@@ -442,9 +453,10 @@ func (s *Service) OpenAttachment(ctx context.Context, envID, messageID, attachme
 	}
 	var f AttachmentFile
 	var rel string
-	err := s.Pool.QueryRow(ctx, `SELECT a.storage_path, a.filename, a.content_type, a.size FROM inbound_attachments a
+	var sealed bool
+	err := s.Pool.QueryRow(ctx, `SELECT a.storage_path, a.filename, a.content_type, a.size, a.encrypted FROM inbound_attachments a
 JOIN inbound_messages m ON m.id=a.inbound_message_id
-WHERE a.id=$1 AND m.id=$2 AND ($3='' OR m.environment_id=NULLIF($3,'')::uuid)`, attachmentID, messageID, envID).Scan(&rel, &f.Filename, &f.ContentType, &f.Size)
+WHERE a.id=$1 AND m.id=$2 AND ($3='' OR m.environment_id=NULLIF($3,'')::uuid)`, attachmentID, messageID, envID).Scan(&rel, &f.Filename, &f.ContentType, &f.Size, &sealed)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -456,7 +468,71 @@ WHERE a.id=$1 AND m.id=$2 AND ($3='' OR m.environment_id=NULLIF($3,'')::uuid)`, 
 		return nil, newErr(404, "not_found")
 	}
 	f.Path = full
+	if sealed {
+		raw, err := os.ReadFile(full)
+		if err != nil {
+			return nil, newErr(404, "not_found")
+		}
+		if f.Data, err = s.Box.Open(raw, attachmentAAD(attachmentID)); err != nil {
+			return nil, unavailable("attachment_open", err)
+		}
+		f.Size = len(f.Data)
+	}
 	return &f, nil
+}
+
+// EncryptLegacyAttachments seals up to limit plaintext attachment files written
+// before F10 and returns how many were converted. The sealed copy is written
+// beside the original and the row switched in one statement before the
+// plaintext file is removed, so a crash never leaves a row pointing at the
+// wrong kind of file.
+func (s *Service) EncryptLegacyAttachments(ctx context.Context, limit int) (int, error) {
+	if s.Opts.DataDir == "" {
+		return 0, nil
+	}
+	rows, err := s.Pool.Query(ctx, `SELECT id::text, storage_path FROM inbound_attachments WHERE NOT encrypted ORDER BY id LIMIT $1`, limit)
+	if err != nil {
+		return 0, err
+	}
+	type item struct{ id, rel string }
+	var todo []item
+	for rows.Next() {
+		var it item
+		if err := rows.Scan(&it.id, &it.rel); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		todo = append(todo, it)
+	}
+	rows.Close()
+	n := 0
+	for _, it := range todo {
+		full, err := attachmentPath(s.Opts.DataDir, it.rel)
+		if err != nil {
+			continue // a path outside the data directory is never touched
+		}
+		plain, err := os.ReadFile(full)
+		if err != nil {
+			continue // already purged or missing: nothing to protect
+		}
+		sealed, err := s.Box.Seal(plain, attachmentAAD(it.id))
+		if err != nil {
+			return n, err
+		}
+		newRel := it.rel + ".enc"
+		if err := os.WriteFile(filepath.Join(filepath.Dir(full), filepath.Base(newRel)), sealed, 0o600); err != nil {
+			return n, err
+		}
+		tag, err := s.Pool.Exec(ctx, `UPDATE inbound_attachments SET storage_path=$2, encrypted=true WHERE id=$1 AND NOT encrypted`, it.id, newRel)
+		if err != nil {
+			return n, err
+		}
+		if tag.RowsAffected() == 1 {
+			os.Remove(full)
+			n++
+		}
+	}
+	return n, nil
 }
 
 // attachmentPath resolves a stored relative path and refuses anything that

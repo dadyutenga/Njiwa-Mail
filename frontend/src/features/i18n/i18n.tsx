@@ -225,6 +225,11 @@ export function useI18n() {
 }
 
 const swPhrases: Record<string, string> = {
+  "Export CSV": "Pakua CSV",
+  "Export record": "Pakua rekodi",
+  "Delete record": "Futa rekodi",
+  "Delete this message record?": "Kufuta rekodi ya ujumbe huu?",
+  "Message record deleted.": "Rekodi ya ujumbe imefutwa.",
   "Two-step sign-in": "Kuingia kwa hatua mbili",
   "Set up two-step sign-in": "Weka kuingia kwa hatua mbili",
   "Two-step sign-in is on for your account.":

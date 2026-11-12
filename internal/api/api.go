@@ -327,13 +327,17 @@ func (rr rawResponse) write(c *fiber.Ctx) error {
 func download(f *service.AttachmentFile) rawResponse {
 	// Always served as an opaque download: the sender's content type and
 	// filename are data, never instructions to the browser.
-	return rawResponse{file: f.Path, header: map[string]string{
+	rr := rawResponse{file: f.Path, header: map[string]string{
 		"Content-Type":            "application/octet-stream",
 		"Content-Disposition":     mime.FormatMediaType("attachment", map[string]string{"filename": safeFilename(f.Filename)}),
 		"Content-Length":          strconv.Itoa(f.Size),
 		"Content-Security-Policy": "sandbox; default-src 'none'",
 		"X-Content-Type-Options":  "nosniff",
 	}}
+	if f.Data != nil { // sealed at rest: already decrypted in memory
+		rr.file, rr.body = "", f.Data
+	}
+	return rr
 }
 
 func safeFilename(n string) string {
@@ -425,4 +429,12 @@ func setCookie(c *fiber.Ctx, ck *http.Cookie) {
 func notFound(c *fiber.Ctx) error {
 	c.Status(fiber.StatusNotFound)
 	return c.SendString("404 page not found\n")
+}
+
+func mustJSON(v any) []byte {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return []byte("{}")
+	}
+	return b
 }

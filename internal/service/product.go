@@ -151,49 +151,6 @@ WHERE ($1='' OR p.name=$1) AND ($2='' OR e.mode=$2) AND ($3='' OR m.template=$3)
 GROUP BY 1 ORDER BY 1`, project, mode, template, domain)
 }
 
-func (s *Service) ExportRecipient(ctx context.Context, project, mode, email string) (map[string]any, error) {
-	e, ok := NormalizeEmail(email)
-	if !ok {
-		return nil, badRequest("invalid email address")
-	}
-	_, eid, err := s.envID(ctx, project, mode)
-	if err != nil {
-		return nil, notFound(err)
-	}
-	hash := s.Box.MAC("recipient", []byte(e))
-	msgs, err := s.maps(ctx, `SELECT id::text AS id, state, template, created_at FROM messages WHERE environment_id=$1 AND recipient_hash=$2`, eid, hash)
-	if err != nil {
-		return nil, err
-	}
-	inb, err := s.maps(ctx, `SELECT id::text AS id, subject, received_at FROM inbound_messages WHERE environment_id=$1 AND lower(envelope_from)=$2`, eid, e)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"email_masked": maskEmail(e), "messages": msgs, "inbound": inb}, nil
-}
-
-func (s *Service) DeleteRecipient(ctx context.Context, project, mode, email string) error {
-	e, ok := NormalizeEmail(email)
-	if !ok {
-		return badRequest("invalid email address")
-	}
-	_, eid, err := s.envID(ctx, project, mode)
-	if err != nil {
-		return notFound(err)
-	}
-	hash := s.Box.MAC("recipient", []byte(e))
-	if _, err := s.Pool.Exec(ctx, `DELETE FROM messages WHERE environment_id=$1 AND recipient_hash=$2`, eid, hash); err != nil {
-		return unavailable("privacy_messages", err)
-	}
-	if _, err := s.Pool.Exec(ctx, `DELETE FROM inbound_messages WHERE environment_id=$1 AND lower(envelope_from)=$2`, eid, e); err != nil {
-		return unavailable("privacy_inbound", err)
-	}
-	if _, err := s.Pool.Exec(ctx, `DELETE FROM suppressions WHERE environment_id=$1 AND recipient_hash=$2`, eid, hash); err != nil {
-		return unavailable("privacy_suppressions", err)
-	}
-	return nil
-}
-
 func (s *Service) ListSessions(ctx context.Context, userID string) ([]map[string]any, error) {
 	return s.maps(ctx, `SELECT encode(token_hash,'hex') AS id, ip, user_agent, created_at, expires_at FROM sessions WHERE user_id=$1 AND expires_at>now() ORDER BY created_at DESC`, userID)
 }

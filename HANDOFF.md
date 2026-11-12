@@ -29,7 +29,7 @@ for existing tests and callers. Focused worker and transport tests, `go vet ./..
   1. **Kinahitaji server halisi** (sehemu ya 3): G05 (managed mode kwenye VPS + Gmail/Outlook), G04 (existing SMTP halisi),
      E06/E07 (delivery na bounce halisi), E12 (Debian/Ubuntu tofauti), G06 (kubadilisha mode na barua kwenye foleni), systemd path,
      CI jobs kuwa blocking.
-  2. **Hakihitaji server** (sehemu ya 4): F10 (retention/encryption), C01 (integration tests bado), E10 (queue controls
+  2. **Hakihitaji server** (sehemu ya 4): C01 (integration tests bado), E10 (queue controls
      kwenye dashboard), F07, F02, G08/A01 (docs), B07 (Kiswahili + accessibility), C02, C05, D04, F06, A02/G07, G09/G10.
 - **Anza hivi ofisini:** clone → fuata sehemu ya 1 (setup) → sehemu ya 3.1 (G05) hatua kwa hatua.
 - Ukitumia Claude Code kwenye PC, mpe maelekezo ya sehemu ya 7.
@@ -331,13 +331,10 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
   `TestWorkerUsesActiveProfileAndPinsMessages`, `TestUnknownOutcomeIsPinnedAndNotResent`,
   `TestTransportOutageBreakerAndDegradedReadiness`.
 
-### F10 — retention, export, delete; encryption at rest
+### F10 — retention, export, delete; encryption at rest — **done**
 
-- Retention for `delivery_events` and `installer_receipts` (settings like the existing `METADATA_RETENTION`), applied by the
-  retention job.
-- Export (CSV/JSON) and delete per message/recipient for data-subject requests.
-- Encrypt inbound attachments on disk (today plain files under `DATA_DIR`): seal with `ENCRYPTION_KEY`, decrypt on download;
-  migrate existing files.
+- See `docs/OPERATIONS.md` (Retention) and `docs/SECURITY_REVIEW.md` section 7. Existing deployments: after upgrading, run
+  `njiwa-mail attachments encrypt` (or wait for the retention job) to seal old attachment files.
 
 ### E10 — MTA queue controls in the dashboard
 

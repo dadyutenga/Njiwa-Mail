@@ -17,16 +17,18 @@ import (
 // settingDefaults lists every operator-tunable setting with its default and
 // allowed range. Values are stored as JSON numbers in the settings table.
 var settingDefaults = map[string]struct{ def, min, max int }{
-	"inbound_retention_days":      {30, 1, 365},
-	"bounce_alert_min_volume":     {20, 1, 100000}, // submissions in the last hour before a rate is judged
-	"bounce_alert_hard_percent":   {5, 1, 100},     // hard bounces / submissions, last hour
-	"bounce_alert_policy_percent": {2, 1, 100},     // policy bounces / submissions, last hour
-	"webhook_auto_disable_after":  {20, 3, 1000},   // consecutive failed attempts
-	"login_attempts_per_account":  {10, 3, 1000},   // per 15 minutes
-	"login_attempts_per_ip":       {30, 3, 10000},  // per 15 minutes
-	"default_send_per_minute":     {30, 1, 100000}, // applied to new projects
-	"default_send_per_day":        {500, 1, 10000000},
-	"require_mfa":                 {0, 0, 1}, // 1 = every admin must use a second factor (enrol on next sign-in)
+	"inbound_retention_days":            {30, 1, 365},
+	"bounce_alert_min_volume":           {20, 1, 100000}, // submissions in the last hour before a rate is judged
+	"bounce_alert_hard_percent":         {5, 1, 100},     // hard bounces / submissions, last hour
+	"bounce_alert_policy_percent":       {2, 1, 100},     // policy bounces / submissions, last hour
+	"webhook_auto_disable_after":        {20, 3, 1000},   // consecutive failed attempts
+	"login_attempts_per_account":        {10, 3, 1000},   // per 15 minutes
+	"login_attempts_per_ip":             {30, 3, 10000},  // per 15 minutes
+	"default_send_per_minute":           {30, 1, 100000}, // applied to new projects
+	"default_send_per_day":              {500, 1, 10000000},
+	"delivery_events_retention_days":    {90, 1, 3650},
+	"installer_receipts_retention_days": {365, 30, 3650},
+	"require_mfa":                       {0, 0, 1}, // 1 = every admin must use a second factor (enrol on next sign-in)
 }
 
 func (s *Service) settingInt(ctx context.Context, key string) int {

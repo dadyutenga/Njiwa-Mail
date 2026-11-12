@@ -324,6 +324,8 @@ func (s *Service) RoleHealthy(ctx context.Context, role string, maxAge time.Dura
 type RetentionResult struct {
 	Captures, Buckets, Messages, Payloads, Heartbeats int64
 	Sessions, Deliveries, DNSChecks, Inbound, Spool   int64
+	// F10
+	DeliveryEvents, Receipts, AttachmentsSealed int64
 }
 
 // RunRetention deletes expired captures, stale rate buckets, old terminal
@@ -371,8 +373,28 @@ func (s *Service) RunRetention(ctx context.Context) (RetentionResult, error) {
 	if err := run(new(int64), `DELETE FROM bounces WHERE received_at < now() - make_interval(secs => $1::float8)`, meta); err != nil {
 		return r, err
 	}
+	// F10: delivery evidence and installer receipts have their own operator-set retention.
+	if err := run(&r.DeliveryEvents, `DELETE FROM delivery_events WHERE created_at < now() - make_interval(days => $1)`,
+		s.settingInt(ctx, "delivery_events_retention_days")); err != nil {
+		return r, err
+	}
+	// Never the receipt that proves a profile's installation, nor the newest one of each profile.
+	if err := run(&r.Receipts, `DELETE FROM installer_receipts WHERE created_at < now() - make_interval(days => $1)
+  AND id NOT IN (SELECT DISTINCT ON (profile_id) id FROM installer_receipts
+                 WHERE result_code='ok' AND verified_at IS NOT NULL AND rollback_state <> 'rolled_back'
+                 ORDER BY profile_id, created_at DESC)
+  AND id NOT IN (SELECT DISTINCT ON (profile_id) id FROM installer_receipts ORDER BY profile_id, created_at DESC)`,
+		s.settingInt(ctx, "installer_receipts_retention_days")); err != nil {
+		return r, err
+	}
 	var err error
 	if r.Inbound, r.Spool, err = s.inboundRetention(ctx); err != nil {
+		return r, err
+	}
+	// Convert attachments written before encryption at rest, a batch per run.
+	n, err := s.EncryptLegacyAttachments(ctx, 200)
+	r.AttachmentsSealed = int64(n)
+	if err != nil {
 		return r, err
 	}
 	return r, nil

@@ -323,6 +323,14 @@ Hard bounces are suppressed automatically once bounce routing is set up; until t
 The scheduler (and the worker, harmlessly twice) runs retention every `RETENTION_INTERVAL` (10m): deletes inbound bodies and attachments after the inbound retention period
 (Settings, default 30 days), expired admin sessions, finished webhook deliveries, bounces and DNS results past their retention, and expired sandbox captures (24h), stale rate buckets, terminal message metadata older than
 `METADATA_RETENTION` (30d), and clears any payload on a non-active row older than `UNKNOWN_PAYLOAD_PURGE` (≤24h; content is normally cleared at the terminal outcome).
+Also (F10, Settings): delivery evidence (`delivery_events_retention_days`, default 90) and installer receipts
+(`installer_receipts_retention_days`, default 365; the receipt that proves a profile's installation and the newest receipt of each profile are never removed).
+Each run also seals up to 200 inbound attachment files written before encryption at rest; `njiwa-mail attachments encrypt` converts all of them now.
+
+**Encryption at rest.** Inbound attachments are stored sealed with `ENCRYPTION_KEY` (AES-GCM, bound to the attachment id) and decrypted on download; losing the key makes them unreadable, like queued mail. The raw spool file (`DATA_DIR/spool`) is plaintext until parsed, normally seconds. Backups copy the sealed files.
+
+**Data-subject requests.** Recipient privacy page (or `POST /admin/v1/w/{project}/{mode}/privacy/export[?format=csv]` and `/privacy/delete`): export lists message metadata, delivery evidence, bounces, inbound mail and suppression state (no bodies, no variables); delete removes them and the attachment files. A single finished message can be exported (`GET .../messages/{id}/export`) or deleted (`DELETE .../messages/{id}`; queued, retrying, scheduled or unknown messages are refused with `message_active`). All are audited.
+
 One-off: `njiwa-mail retention`. **Backups can retain older encrypted data until the backup's own retention expires.**
 
 ## When the mail server is down

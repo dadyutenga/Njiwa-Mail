@@ -942,6 +942,33 @@ export function MessageDetail() {
               }
               action={
                 <>
+                  <Button variant="outline" asChild>
+                    <a
+                      href={`/admin/v1${api.base}/messages/${encodeURIComponent(id)}/export`}
+                      download
+                    >
+                      {phrase("Export record")}
+                    </a>
+                  </Button>
+                  {["submitted", "failed", "expired", "captured"].includes(state) && (
+                    <ConfirmButton
+                      size="default"
+                      title={phrase("Delete this message record?")}
+                      description={phrase(
+                        "The message, its events, delivery evidence and bounces are removed. This cannot be undone.",
+                      )}
+                      confirm="Delete record"
+                      onConfirm={async () => {
+                        const done = await run(
+                          () => api.send(`/messages/${id}`, "DELETE"),
+                          phrase("Message record deleted."),
+                        );
+                        if (done !== undefined) navigate(to("messages"));
+                      }}
+                    >
+                      {phrase("Delete record")}
+                    </ConfirmButton>
+                  )}
                   {state === "scheduled" && (
                     <Button
                       onClick={async () => {

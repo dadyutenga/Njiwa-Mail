@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useAuth } from "@/features/auth/auth";
-import { admin } from "@/lib/admin-api";
+import { admin, getCsrf } from "@/lib/admin-api";
+import { toast } from "sonner";
 import {
   DeliveryInfrastructure,
   installationKey,
@@ -1303,12 +1304,38 @@ export function Privacy() {
           >
             {phrase("Export")}
           </Button>
+          <Button
+            variant="outline"
+            disabled={!emailOk(email)}
+            onClick={async () => {
+              // The CSV comes from the server (formula-safe); a POST, so fetch it here.
+              try {
+                const res = await fetch(`/admin/v1${api.base}/privacy/export?format=csv`, {
+                  method: "POST",
+                  credentials: "same-origin",
+                  headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrf() },
+                  body: JSON.stringify({ email }),
+                });
+                if (!res.ok) throw new Error(phrase("Request failed"));
+                const url = URL.createObjectURL(await res.blob());
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "njiwa-mail-recipient-export.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : phrase("Request failed"));
+              }
+            }}
+          >
+            {phrase("Export CSV")}
+          </Button>
           <ConfirmButton
             size="default"
             disabled={!emailOk(email)}
             title={`${phrase("Delete all stored data for")} ${email}?`}
             description={phrase(
-              "Message metadata, suppressions and captures for this recipient in this project and environment are removed. This cannot be undone.",
+              "Message metadata, delivery evidence, bounces, suppressions, captures and inbound mail (with its attachment files) for this recipient in this project and environment are removed. This cannot be undone.",
             )}
             confirm="Delete data"
             onConfirm={() =>

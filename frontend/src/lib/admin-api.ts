@@ -16,6 +16,9 @@ let csrf = "";
 export function setCsrf(value: string) {
   csrf = value;
 }
+export function getCsrf() {
+  return csrf;
+}
 export class AdminError extends Error {
   constructor(
     message: string,
