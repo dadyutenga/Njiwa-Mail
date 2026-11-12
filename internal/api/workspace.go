@@ -349,6 +349,21 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	h("GET", "/domains/:id", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.WSDomain(ctx(c), sc, c.Params("id"))
 	})
+	// Signed-mail evidence (D06): check a received message's DKIM signature.
+	h("POST", "/domains/:id/verify-message", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Raw string `json:"raw"`
+		}
+		if err := decodeLarge(c, &in); err != nil {
+			return nil, err
+		}
+		res, err := svc.VerifyReceivedMessage(ctx(c), sc, c.Params("id"), []byte(in.Raw), s.Resolver)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "domain.verify_message", "domain", c.Params("id"), scoped(sc, map[string]any{"aligned": res.Aligned, "recorded": res.Recorded}))
+		return res, nil
+	})
 	h("POST", "/domains/:id/check", func(c *fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if _, err := svc.WSDomain(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err

@@ -13,6 +13,9 @@ import (
 
 // DKIMKey is a parsed DKIM public-key record (RFC 6376 3.6.1).
 type DKIMKey struct {
+	// Public is the decoded key (*rsa.PublicKey or ed25519.PublicKey); nil
+	// when revoked.
+	Public      any    `json:"-"`
 	KeyType     string `json:"k"`
 	Bits        int    `json:"bits"`
 	Revoked     bool   `json:"revoked"`
@@ -85,6 +88,7 @@ func ParseDKIMKey(rec string) (DKIMKey, error) {
 			return k, errors.New("an ed25519 key must be 32 bytes")
 		}
 		k.Bits = 256
+		k.Public = ed25519.PublicKey(raw)
 	default:
 		pub, err := x509.ParsePKIXPublicKey(raw)
 		if err != nil {
@@ -99,6 +103,7 @@ func ParseDKIMKey(rec string) (DKIMKey, error) {
 			return k, errors.New("p= is not an RSA public key")
 		}
 		k.Bits = rk.N.BitLen()
+		k.Public = rk
 		if k.Bits < MinRSABits {
 			return k, errors.New("the RSA key is too short; use 2048 bits")
 		}

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { admin } from "@/lib/admin-api";
@@ -63,4 +63,63 @@ it("never offers to copy a placeholder DNS value", async () => {
   expect(within(tpl).queryByRole("button", { name: /Copy/ })).not.toBeInTheDocument();
   // A real record value can still be copied.
   expect(screen.getAllByRole("button", { name: "Copy value" })).toHaveLength(1);
+});
+
+function renderDomain(extra: Record<string, unknown>) {
+  vi.spyOn(admin, "get").mockImplementation(async (path: string) => {
+    if (path.endsWith("/domains/d1"))
+      return {
+        id: "d1",
+        name: "notify.example.com",
+        purpose: "sending",
+        provider_type: "generic",
+        records: [],
+        senders: [],
+        mailboxes: [],
+        recent_messages: [],
+        ...extra,
+      };
+    return {};
+  });
+  render(
+    <MemoryRouter initialEntries={["/d1"]}>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <WorkspaceProvider project="demo">
+          <Routes>
+            <Route path="/:id" element={<DomainDetail />} />
+          </Routes>
+        </WorkspaceProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+it("does not call a published key proof of signing, and checks a pasted message", async () => {
+  renderDomain({ dkim_verified_at: null });
+  expect(await screen.findByTestId("dkim-proof")).toHaveTextContent("Not proven yet");
+  const send = vi.spyOn(admin, "send").mockResolvedValue({
+    from_domain: "notify.example.com",
+    aligned: true,
+    recorded: true,
+    message:
+      "The DKIM signature is valid and aligned with notify.example.com (d=notify.example.com, s=dkim).",
+    signatures: [{ d: "notify.example.com", s: "dkim", result: "pass" }],
+  } as never);
+  fireEvent.change(screen.getByLabelText("Received message, headers included"), {
+    target: { value: "DKIM-Signature: v=1\nFrom: a@notify.example.com\n\nbody" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Check signature" }));
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith("/w/demo/live/domains/d1/verify-message", "POST", {
+      raw: "DKIM-Signature: v=1\nFrom: a@notify.example.com\n\nbody",
+    }),
+  );
+  expect(await screen.findByText(/signature is valid and aligned/)).toBeInTheDocument();
+});
+
+it("shows recorded signed-mail evidence", async () => {
+  renderDomain({ dkim_verified_at: "2026-11-12T08:00:00Z", dkim_verified_selector: "dkim" });
+  expect(await screen.findByTestId("dkim-proof")).toHaveTextContent("Signed mail verified");
 });

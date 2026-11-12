@@ -131,6 +131,21 @@ It correlates lines to messages by queue ID (messages submitted in the last 7 da
 or IPs from the log, and records each line once. A permanent MTA bounce marks the message bounced but never suppresses the
 recipient; only a bounce report correlated to the message's own recipient does.
 
+## Proof that mail is signed (DKIM)
+
+A DKIM record in DNS only proves a key is published. The Domains page records separate proof that mail from the domain is actually
+signed: a received message with a valid DKIM signature whose `d=` aligns with the domain (as DMARC requires).
+
+- Send a test (Delivery infrastructure → Send through the queue) to a mailbox you control, open the original message
+  ("Show original" / "View source"), and paste it under **Proof that mail is signed** on the domain's page.
+- Or send it to one of the project's own Njiwa inbound addresses: the inbound processor checks it automatically.
+- From a shell: `njiwa-mail dkim-verify -file message.eml` prints the result of every signature (pass, fail with the reason,
+  permerror, temperror). It needs DNS only.
+
+The verifier implements RFC 6376 (rsa-sha256 and ed25519-sha256, simple and relaxed canonicalization, `l=`, `x=`) and is tested
+against a message signed by OpenDKIM. A message from another domain, a changed body or header, a revoked or wrong key, or a
+signature by a non-aligned domain is never recorded as proof.
+
 ## Sending domains and claims
 
 Live mail and Live sender addresses require a sending domain that the project added on the Domains page, verified with its
