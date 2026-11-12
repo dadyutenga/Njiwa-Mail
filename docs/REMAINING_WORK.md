@@ -56,7 +56,7 @@ cannot be done from the development container.
 
 | ID | Status | What is missing |
 |---|---|---|
-| B07 | 🟡 | Kiswahili exists for the new installation screens only; older strings untranslated. No full keyboard / screen-reader test pass; the DNS record table is not yet reworked for phones. |
+| B07 | 🟡 | Kiswahili now covers every static `phrase()` (722 older strings added; a test fails when a new one is untranslated). Keyboard/screen-reader work done in code: labelled form fields with described errors, focus moved to the page after navigation, announced status icons, translated landmarks, skip link, DNS records stack on phones. **Not done: a manual pass with a real screen reader (NVDA/VoiceOver) and on a phone.** |
 | B09 | ✅ | Health card shows managed details (Postfix/signer state, deferred and held counts) from the queue agent; Mail host page with installer receipts, evidence ingestion status, DKIM rotation state and the command for domains without a key. |
 | — | 🟡 | Screens still missing for: installer receipts, delivery-evidence ingestion status, editing an existing transport profile's settings in place. |
 

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Locale } from "@/types";
+import { swExtra } from "./sw-extra";
 
 export interface Translations {
   nav: {
@@ -224,7 +225,7 @@ export function useI18n() {
   return context ?? defaultI18nValue;
 }
 
-const swPhrases: Record<string, string> = {
+export const swPhrases: Record<string, string> = {
   "Mail host": "Seva ya barua",
   "Installer runs": "Matumizi ya kisakinishi",
   "Delivery evidence": "Ushahidi wa utumaji",
@@ -721,5 +722,5 @@ const swPhrases: Record<string, string> = {
 
 export function usePhrase() {
   const { locale } = useI18n();
-  return (text: string) => (locale === "sw" ? (swPhrases[text] ?? text) : text);
+  return (text: string) => (locale === "sw" ? (swPhrases[text] ?? swExtra[text] ?? text) : text);
 }

@@ -471,9 +471,13 @@ export function DomainDetail() {
                   <li key={r.key} className="rounded-lg border p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       {r.pass ? (
-                        <CheckCircle2 size={18} className="text-success" aria-label="pass" />
+                        <span role="img" aria-label={phrase("Passed")} className="inline-flex">
+                          <CheckCircle2 size={18} className="text-success" aria-hidden="true" />
+                        </span>
                       ) : (
-                        <XCircle size={18} className="text-destructive" aria-label="fail" />
+                        <span role="img" aria-label={phrase("Not passing")} className="inline-flex">
+                          <XCircle size={18} className="text-destructive" aria-hidden="true" />
+                        </span>
                       )}
                       <span className="font-semibold">{phrase(recordName[r.key] ?? r.key)}</span>
                       <span className="rounded bg-muted px-1.5 text-xs">{r.type}</span>

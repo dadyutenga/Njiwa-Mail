@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Link,
   Navigate,
@@ -420,7 +428,7 @@ function Breadcrumbs() {
   const found = findNav(segment);
   const detail = rest[1];
   return (
-    <nav aria-label="Breadcrumb" className="hidden min-w-0 sm:block">
+    <nav aria-label={phrase("Breadcrumb")} className="hidden min-w-0 sm:block">
       <ol className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
         <li>
           <Link to={to("dashboard")} className="hover:text-foreground">
@@ -485,6 +493,15 @@ function Shell() {
     [],
   );
   useEffect(() => rememberWorkspace(project), [project]);
+  // Screen readers and keyboard users: after navigating to another page, move focus
+  // to the page content so the new page is announced and tabbing starts there.
+  const { pathname: currentPath } = useLocation();
+  const firstPath = useRef(currentPath);
+  useEffect(() => {
+    if (firstPath.current === currentPath) return;
+    firstPath.current = currentPath;
+    document.getElementById("main")?.focus({ preventScroll: true });
+  }, [currentPath]);
   return (
     <ComposeContext.Provider value={composeCtx}>
       <div className="min-h-screen bg-background text-foreground">
@@ -547,7 +564,11 @@ function Shell() {
               <UserMenu />
             </div>
           </header>
-          <main id="main" className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+          <main
+            id="main"
+            tabIndex={-1}
+            className="mx-auto max-w-7xl p-4 outline-none sm:p-6 lg:p-8"
+          >
             <Outlet />
           </main>
         </div>

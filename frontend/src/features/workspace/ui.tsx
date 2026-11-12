@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { cloneElement, isValidElement, useId, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AlertTriangle, Check, Copy, Inbox as InboxIcon, RefreshCw } from "lucide-react";
@@ -384,6 +384,36 @@ export function Field({
   children: ReactNode;
   className?: string;
 }) {
+  const uid = useId();
+  // A single native control gets a real label association, a described-by link to
+  // its hint or error, and aria-invalid; anything else keeps the wrapping label.
+  if (isValidElement<Record<string, unknown>>(children) && typeof children.type === "string") {
+    const inputId = (children.props.id as string | undefined) ?? `${uid}-control`;
+    const note = error ? `${uid}-error` : hint ? `${uid}-hint` : undefined;
+    return (
+      <div className={cn("grid gap-1.5 text-sm", className)}>
+        <label htmlFor={inputId} className="font-medium">
+          {label}
+        </label>
+        {cloneElement(children, {
+          id: inputId,
+          "aria-describedby":
+            [children.props["aria-describedby"], note].filter(Boolean).join(" ") || undefined,
+          "aria-invalid": error ? true : children.props["aria-invalid"],
+        })}
+        {hint && !error && (
+          <span id={`${uid}-hint`} className="text-xs text-muted-foreground">
+            {hint}
+          </span>
+        )}
+        {error && (
+          <span id={`${uid}-error`} role="alert" className="text-xs text-destructive">
+            {error}
+          </span>
+        )}
+      </div>
+    );
+  }
   return (
     <label className={cn("grid gap-1.5 text-sm", className)}>
       <span className="font-medium">{label}</span>

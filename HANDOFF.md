@@ -367,7 +367,11 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 â
 
 - See `docs/OPERATIONS.md` (Per-domain return path). Installer accepts `-bounce-domain a,b`.
 
-### B07 / B09 / UI gaps
+### B07 / B09 / UI gaps â€” mostly done; manual accessibility pass remains
+
+Done: Kiswahili for every static string (with a coverage test), labelled/described form fields, focus after navigation, Mail host page, queue page, rotation state, profile editing, managed health on the card. **Still to do by a person:** a pass with a real screen reader and on a phone, and a native-speaker review of the Kiswahili (it was written by an AI assistant; technical terms such as DNS, SPF, DKIM, webhook were kept in English on purpose).
+
+Original list:
 
 - Kiswahili for all older strings (`frontend/src/features/i18n`), keyboard and screen-reader pass, DNS record table usable on
   phones.
