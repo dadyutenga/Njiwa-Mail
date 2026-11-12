@@ -205,6 +205,18 @@ The scheduler (and the worker, harmlessly twice) runs retention every `RETENTION
 `METADATA_RETENTION` (30d), and clears any payload on a non-active row older than `UNKNOWN_PAYLOAD_PURGE` (≤24h; content is normally cleared at the terminal outcome).
 One-off: `njiwa-mail retention`. **Backups can retain older encrypted data until the backup's own retention expires.**
 
+## When the mail server is down
+
+- Messages are never lost or sent twice: a temporary failure before acceptance is retried with backoff until the message's TTL;
+  an ambiguous outcome is marked `unknown` and never resent automatically.
+- After 5 consecutive connection-level failures (connect, timeout, TLS, `421`/`454`) the worker stops claiming Live mail for 15 s,
+  doubling up to 5 min, so queued messages keep their attempts and TTL instead of each failing against a server that is down. One
+  successful hand-over resets it. Sandbox is unaffected.
+- The Delivery infrastructure page and every project's banner show "Live mail is going out — Error (TRANSPORT_FAILING)" while
+  recent Live attempts fail with no successful submission since; it clears on the next successful send.
+- The Live backlog is bounded by `LIVE_QUEUE_MAX` (default 50 000). When it is full, new Live requests get
+  `503 queue_full` with `Retry-After`; nothing is stored for them, so clients can retry safely with the same idempotency key.
+
 ## Backups
 
 `scripts/backup.sh [OUT_DIR]` (reads `DATABASE_URL`, `DATA_DIR`) writes, owner-only, with a `MANIFEST.sha256`:

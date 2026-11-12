@@ -29,8 +29,51 @@ type Worker struct {
 	Backoff           []time.Duration
 	// BounceAddress, when set, is used as the SMTP envelope sender (MAIL FROM).
 	BounceAddress string
+	// BreakerThreshold consecutive connection-level failures pause Live claims
+	// (0 = 5). BreakerBase is the first pause, doubled up to BreakerMax.
+	BreakerThreshold        int
+	BreakerBase, BreakerMax time.Duration
 
-	once sync.Once
+	once       sync.Once
+	breakerMu  sync.Mutex
+	failStreak int
+	pauses     int
+	pauseUntil time.Time
+}
+
+// breaker records one send outcome. After BreakerThreshold consecutive
+// transport-level failures the worker stops claiming Live mail for a while,
+// so queued messages wait (keeping their attempts and TTL) instead of each
+// failing against a server that is down. One success closes it again.
+func (w *Worker) breaker(res mailer.Result) {
+	w.breakerMu.Lock()
+	defer w.breakerMu.Unlock()
+	if res.Outcome == mailer.Accepted {
+		w.failStreak, w.pauses = 0, 0
+		return
+	}
+	if res.Outcome != mailer.TempFailure || !service.TransportDown(res.Reason) {
+		return
+	}
+	w.failStreak++
+	if w.failStreak < w.BreakerThreshold {
+		return
+	}
+	d := w.BreakerBase << w.pauses
+	if d > w.BreakerMax || d <= 0 {
+		d = w.BreakerMax
+	}
+	w.pauses++
+	w.failStreak = 0
+	w.pauseUntil = time.Now().Add(d)
+	slog.Warn("mail server unreachable: pausing live sends", "reason", res.Reason, "pause", d.String())
+}
+
+// LivePaused reports whether the breaker is holding Live claims.
+func (w *Worker) LivePaused() bool {
+	w.breakerMu.Lock()
+	defer w.breakerMu.Unlock()
+	return time.Now().Before(w.pauseUntil)
 }
 
 func (w *Worker) defaults() { w.once.Do(w.setDefaults) }
@@ -55,6 +98,15 @@ func (w *Worker) liveReady(ctx context.Context) bool {
 }
 
 func (w *Worker) setDefaults() {
+	if w.BreakerThreshold <= 0 {
+		w.BreakerThreshold = 5
+	}
+	if w.BreakerBase <= 0 {
+		w.BreakerBase = 15 * time.Second
+	}
+	if w.BreakerMax <= 0 {
+		w.BreakerMax = 5 * time.Minute
+	}
 	if w.Poll <= 0 {
 		w.Poll = time.Second
 	}
@@ -140,7 +192,7 @@ func (w *Worker) RunOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	modes := []string{"sandbox"}
-	if w.SMTP != nil && w.liveReady(ctx) {
+	if w.SMTP != nil && !w.LivePaused() && w.liveReady(ctx) {
 		modes = append(modes, "live")
 	}
 	claimed, err := w.Svc.Claim(ctx, w.Batch, w.Lease, modes)
@@ -254,6 +306,7 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 		res = w.SMTP.Send(sctx, envl)
 	}
 	cancel()
+	w.breaker(res)
 
 	switch res.Outcome {
 	case mailer.Accepted:
