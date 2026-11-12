@@ -58,6 +58,7 @@ Runtime:
         -adopt -approve DIGEST -record]
                               plan prints the exact changes and a digest; apply needs -approve with that digest,
                               backs up, validates (postfix check, opendkim -n) and rolls back on failure
+  installer dkim-rotate prepare|activate|cancel|retire|status -selector S   (staged DKIM key rotation)
   retention                   run the retention job once
 
 Provisioning (operator CLI only):
@@ -693,6 +694,10 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		die(errors.New("usage: njiwa-mail installer plan|apply|rollback|status [flags]"))
 	}
 	sub, args := args[0], args[1:]
+	action := "" // dkim-rotate's own sub-command, taken before the flags
+	if sub == "dkim-rotate" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		action, args = args[0], args[1:]
+	}
 	fs := flag.NewFlagSet("installer "+sub, flag.ExitOnError)
 	def := func(env, fallback string) string { return firstNonEmpty(os.Getenv(env), fallback) }
 	bounceDomain := ""
@@ -743,53 +748,9 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		}
 		show(pl, pl.Summary()+"\nReview the changes, then run:\n  njiwa-mail installer apply -approve "+pl.Digest+" (same flags)\n")
 	case "apply":
-		if os.Geteuid() != 0 {
-			die(errors.New("the installer must run as root on the mail host"))
-		}
-		rc, err := managed.Apply(p, *approve, execRunner{}, time.Now())
-		if rc != nil {
-			var b strings.Builder
-			for _, s := range rc.Steps {
-				st := "ok  "
-				if !s.OK {
-					st = "FAIL"
-				}
-				fmt.Fprintf(&b, "%s %s %s\n", st, s.Name, s.Detail)
-			}
-			fmt.Fprintf(&b, "\nResult: %s (receipt %s)\n", rc.Result, rc.ID)
-			if rc.Result == "ok" {
-				b.WriteString("\nPublish these DKIM records, then check each domain on the Domains page:\n")
-				for d, txt := range rc.DKIMRecords {
-					fmt.Fprintf(&b, "  %s._domainkey.%s TXT \"%s\"\n", rc.Params.Selector, d, txt)
-				}
-			}
-			show(rc, b.String())
-		}
-		if err != nil {
-			die(err)
-		}
-		if *record {
-			if deps == nil {
-				die(errors.New("-record needs the database configuration"))
-			}
-			read := func(path string) []byte {
-				b, err := os.ReadFile(path)
-				if err != nil {
-					die(err)
-				}
-				return b
-			}
-			host, _, _ := strings.Cut(rc.Params.SubmissionBind, ":")
-			portN := managed.SubmissionPort(rc.Params.SubmissionBind)
-			if err := deps.svc.RecordManagedInstall(ctx, service.CLIActor, service.ManagedInstall{ReceiptID: rc.ID, PlanDigest: rc.PlanDigest,
-				ApprovedBy: "cli", BackupRef: rc.BackupDir, PostfixVersion: rc.PostfixVersion, SubmissionHost: host, SubmissionPort: portN,
-				ServerName: rc.Params.Hostname, Selector: rc.Params.Selector, DKIMRecords: rc.DKIMRecords,
-				ClientCertPEM: read("/etc/njiwa-mail/submission/client.crt"), ClientKeyPEM: read("/etc/njiwa-mail/submission/client.key"),
-				CAPEM: read("/etc/njiwa-mail/submission/ca.crt")}); err != nil {
-				die(err)
-			}
-			fmt.Println("Recorded. Run the connection test on the Delivery infrastructure page next.")
-		}
+		applyInstaller(ctx, deps, p, *approve, *record, show)
+	case "dkim-rotate":
+		runRotation(ctx, deps, p, action, *approve, *record, show)
 	case "rollback":
 		if os.Geteuid() != 0 {
 			die(errors.New("the installer must run as root on the mail host"))
@@ -909,5 +870,123 @@ func runDKIMVerify(args []string) {
 	}
 	if !ok {
 		os.Exit(1)
+	}
+}
+
+// applyInstaller runs an approved apply, prints the receipt and, with
+// record, stores it in the database.
+func applyInstaller(ctx context.Context, deps *installerDeps, p managed.Params, approve string, record bool, show func(any, string)) *managed.Receipt {
+	if os.Geteuid() != 0 {
+		die(errors.New("the installer must run as root on the mail host"))
+	}
+	rc, err := managed.Apply(p, approve, execRunner{}, time.Now())
+	if rc != nil {
+		var b strings.Builder
+		for _, s := range rc.Steps {
+			st := "ok  "
+			if !s.OK {
+				st = "FAIL"
+			}
+			fmt.Fprintf(&b, "%s %s %s\n", st, s.Name, s.Detail)
+		}
+		fmt.Fprintf(&b, "\nResult: %s (receipt %s)\n", rc.Result, rc.ID)
+		if rc.Result == "ok" {
+			b.WriteString("\nPublish these DKIM records, then check each domain on the Domains page:\n")
+			for d, txt := range rc.DKIMRecords {
+				fmt.Fprintf(&b, "  %s._domainkey.%s TXT \"%s\"\n", rc.Params.Selector, d, txt)
+			}
+		}
+		show(rc, b.String())
+	}
+	if err != nil {
+		die(err)
+	}
+	if record {
+		if deps == nil {
+			die(errors.New("-record needs the database configuration"))
+		}
+		read := func(path string) []byte {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				die(err)
+			}
+			return b
+		}
+		host, _, _ := strings.Cut(rc.Params.SubmissionBind, ":")
+		portN := managed.SubmissionPort(rc.Params.SubmissionBind)
+		if err := deps.svc.RecordManagedInstall(ctx, service.CLIActor, service.ManagedInstall{ReceiptID: rc.ID, PlanDigest: rc.PlanDigest,
+			ApprovedBy: "cli", BackupRef: rc.BackupDir, PostfixVersion: rc.PostfixVersion, SubmissionHost: host, SubmissionPort: portN,
+			ServerName: rc.Params.Hostname, Selector: rc.Params.Selector, DKIMRecords: rc.DKIMRecords,
+			ClientCertPEM: read("/etc/njiwa-mail/submission/client.crt"), ClientKeyPEM: read("/etc/njiwa-mail/submission/client.key"),
+			CAPEM: read("/etc/njiwa-mail/submission/ca.crt")}); err != nil {
+			die(err)
+		}
+		fmt.Println("Recorded. Run the connection test on the Delivery infrastructure page next.")
+	}
+	return rc
+}
+
+// runRotation is the staged DKIM key rotation (see internal/installer/managed/rotate.go).
+func runRotation(ctx context.Context, deps *installerDeps, p managed.Params, action, approve string, record bool, show func(any, string)) {
+	if action != "status" && os.Geteuid() != 0 {
+		die(errors.New("the installer must run as root on the mail host"))
+	}
+	switch action {
+	case "prepare":
+		rot, err := managed.PrepareRotation(p, p.Selector, time.Now())
+		if err != nil {
+			die(err)
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "New keys for selector %s are ready; mail is still signed with %s.\n\nPublish these records (keep the %s records too):\n", rot.To, rot.From, rot.From)
+		for _, d := range rot.Domains {
+			fmt.Fprintf(&b, "  %s._domainkey.%s TXT \"%s\"\n", rot.To, d, rot.Records[d])
+		}
+		fmt.Fprintf(&b, "\nWhen DNS shows them, review and activate:\n  njiwa-mail installer plan -selector %s (same flags)\n  njiwa-mail installer dkim-rotate activate -selector %s -approve <digest> (same flags)\n", rot.To, rot.To)
+		show(rot, b.String())
+	case "activate":
+		rot, err := managed.LoadRotation(p)
+		if err != nil {
+			die(err)
+		}
+		if rot.To != p.Selector {
+			die(fmt.Errorf("the prepared rotation is to %s; pass -selector %s", rot.To, rot.To))
+		}
+		dctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		probs := managed.RotationDNSProblems(dctx, net.DefaultResolver, rot)
+		cancel()
+		if len(probs) > 0 {
+			die(errors.New("not activating, mail would fail DKIM: " + strings.Join(probs, "; ")))
+		}
+		if rc := applyInstaller(ctx, deps, p, approve, record, show); rc != nil && rc.Result == "ok" {
+			if err := managed.FinishRotation(p); err != nil {
+				die(err)
+			}
+			fmt.Printf("\nSigning now uses %s. Keep the %s DNS records for at least 7 days, then: njiwa-mail installer dkim-rotate retire -selector %s\n", rot.To, rot.From, rot.From)
+		}
+	case "retire":
+		removed, err := managed.RetireSelector(p, p.Selector)
+		if err != nil {
+			die(err)
+		}
+		show(removed, fmt.Sprintf("Removed %d private key(s) for selector %s. You can now delete its DNS records.\n", len(removed), p.Selector))
+	case "cancel":
+		rot, err := managed.CancelRotation(p)
+		if err != nil {
+			die(err)
+		}
+		show(rot, "Cancelled the rotation to "+rot.To+"; its keys were deleted. Signing is unchanged.\n")
+	case "status":
+		cur, err := managed.CurrentSelector(p)
+		if err != nil {
+			die(err)
+		}
+		msg := "Signing selector: " + cur + "\n"
+		if rot, err := managed.LoadRotation(p); err == nil {
+			msg += "Prepared rotation: " + rot.From + " -> " + rot.To + " (" + rot.PreparedAt.Format(time.RFC3339) + ")\n"
+		}
+		show(map[string]string{"selector": cur}, msg)
+	default:
+		die(errors.New("usage: njiwa-mail installer dkim-rotate prepare|activate|cancel|retire|status -selector S"))
 	}
 }

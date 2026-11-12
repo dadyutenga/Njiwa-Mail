@@ -90,3 +90,22 @@ func TestDeliveryFailuresDegradeReadiness(t *testing.T) {
 		t.Fatalf("a submission after the failures recovers: %+v", r)
 	}
 }
+
+func TestBounceStepIsOptionalAndHonest(t *testing.T) {
+	f := Facts{Now: now, Mode: ModeExisting, ProfileRevision: 1, ConfigComplete: true,
+		Checks: map[string]Check{"connection": pass(1, time.Hour), "test_send": pass(1, time.Hour)}}
+	f.Bounces = &BounceFacts{}
+	r := Compute(f)
+	last := r.Steps[len(r.Steps)-1]
+	if r.Status != Ready || r.Progress.Required != 4 || last.ID != "bounce_reports" || last.Required || last.ProblemCode != CodeBouncesNotSetUp {
+		t.Fatalf("no bounce path must be reported but must not block: %+v", r)
+	}
+	f.Bounces = &BounceFacts{Configured: true}
+	if s := Compute(f).Steps[4]; s.ProblemCode != CodeBounceListener {
+		t.Fatalf("listener down: %+v", s)
+	}
+	f.Bounces = &BounceFacts{Configured: true, ListenerUp: true}
+	if s := Compute(f).Steps[4]; s.Status != Ready || s.CheckedAt != nil {
+		t.Fatalf("ready without reports: %+v", s)
+	}
+}

@@ -54,6 +54,19 @@ func forbiddenTarget(ip net.IP) bool {
 	return ip == nil || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast()
 }
 
+var errForbiddenTarget = errors.New("mail server address is link-local or multicast")
+
+// refuseForbidden is a net.Dialer Control hook: it runs on the address
+// actually being connected to, after DNS, so the guard also holds for real
+// sends and cannot be sidestepped by a DNS answer that changes later.
+func refuseForbidden(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil || forbiddenTarget(net.ParseIP(host)) {
+		return errForbiddenTarget
+	}
+	return nil
+}
+
 // Diagnose runs the connection checks one by one and stops at the first
 // failure: DNS, TCP, TLS (verified certificate), login, and, when sender is
 // set, whether the server lets this login send as sender. No mail is sent:

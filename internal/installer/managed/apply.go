@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -240,6 +241,11 @@ func reload(p Params, run Runner) error {
 		}
 		return nil
 	}
+	// Without systemd, OpenDKIM is restarted by hand so it reads changed key
+	// and signing tables (it would otherwise keep signing with the old ones).
+	if _, err := os.Stat(p.path(dkimConf)); err == nil {
+		restartOpenDKIM(p, run)
+	}
 	if _, err := run.Run("postfix", "status"); err == nil {
 		if out, err := run.Run("postfix", "reload"); err != nil {
 			return fmt.Errorf("postfix reload: %s %w", out, err)
@@ -423,4 +429,26 @@ func parseIPs(vals ...string) []net.IP {
 		}
 	}
 	return out
+}
+
+// restartOpenDKIM stops the running signer (from its pid file) and starts it
+// again with the current configuration. Used only on hosts without systemd.
+func restartOpenDKIM(p Params, run Runner) {
+	pidFile := p.path("/run/opendkim/opendkim.pid")
+	if b, err := os.ReadFile(pidFile); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 1 {
+			if proc, err := os.FindProcess(pid); err == nil && proc.Signal(syscall.SIGTERM) == nil {
+				for i := 0; i < 50; i++ { // up to 5 s for it to exit
+					if proc.Signal(syscall.Signal(0)) != nil {
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
+		_ = os.Remove(pidFile)
+	}
+	_ = os.MkdirAll(p.path("/run/opendkim"), 0o755)
+	chownTo(p.path("/run/opendkim"), "opendkim")
+	_, _ = run.Run("opendkim", "-x", p.path(dkimConf))
 }

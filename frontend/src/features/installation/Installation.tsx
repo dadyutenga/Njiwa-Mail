@@ -210,6 +210,10 @@ export const problemFixes: Record<string, string> = {
     "The server does not offer STARTTLS on this port. Use port 465 with TLS, or enable STARTTLS on the server.",
   SMTP_TLS_CERT_INVALID:
     "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
+  BOUNCES_NOT_CONFIGURED:
+    "Set BOUNCE_ADDRESS to an address on a domain whose MX reaches Njiwa-Mail (your mail server relays it to the inbound listener), and run the inbound role. Sending works without it, but hard bounces are not suppressed automatically.",
+  BOUNCE_LISTENER_DOWN:
+    "Start the inbound role (docker compose --profile inbound up -d) so bounce reports can be received.",
   TRANSPORT_FAILING:
     "Live mail is not reaching the mail server right now. Messages stay queued and are retried, nothing is lost. Run the connection test to see what is wrong.",
   SMTP_SERVER_TEMP_REFUSED:
@@ -352,6 +356,11 @@ export function ReadinessSteps({
               <div className="min-w-0 flex-1 text-sm">
                 <p className="font-medium">
                   {phrase(st.title)}{" "}
+                  {!st.required && (
+                    <span className="text-xs font-normal text-muted-foreground">
+                      ({phrase("optional")}){" "}
+                    </span>
+                  )}
                   <span
                     className="text-xs font-normal text-muted-foreground"
                     data-status={st.status}

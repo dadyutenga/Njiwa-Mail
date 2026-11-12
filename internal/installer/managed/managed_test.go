@@ -1,6 +1,7 @@
 package managed
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -243,5 +244,140 @@ func TestFirewallTableIsSafeAndScoped(t *testing.T) {
 		if f.Path == FirewallFile {
 			t.Fatal("firewall planned with NoFirewall")
 		}
+	}
+}
+
+type txtMap map[string][]string
+
+func (m txtMap) LookupTXT(_ context.Context, n string) ([]string, error) { return m[n], nil }
+
+func TestStagedDKIMRotation(t *testing.T) {
+	p := params(t) // selector "njiwa"
+	pl, _ := BuildPlan(p)
+	rc, err := Apply(p, pl.Digest, &fakeRun{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := rc.DKIMRecords["notify.example.com"]
+
+	if _, err := PrepareRotation(p, "njiwa", now); err == nil {
+		t.Fatal("rotating to the current selector allowed")
+	}
+	rot, err := PrepareRotation(p, "njiwa2", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rot.From != "njiwa" || len(rot.Records) != 2 || rot.Records["notify.example.com"] == old {
+		t.Fatalf("%+v", rot)
+	}
+	// Prepare changes nothing about signing.
+	if cur, _ := CurrentSelector(p); cur != "njiwa" {
+		t.Fatalf("prepare switched signing to %s", cur)
+	}
+	again, _ := PrepareRotation(p, "njiwa2", now.Add(time.Minute))
+	if again.Records["notify.example.com"] != rot.Records["notify.example.com"] {
+		t.Fatal("re-running prepare replaced the new key")
+	}
+
+	dns := txtMap{}
+	if probs := RotationDNSProblems(context.Background(), dns, rot); len(probs) != 2 {
+		t.Fatalf("unpublished keys: %v", probs)
+	}
+	dns["njiwa2._domainkey.notify.example.com"] = []string{rot.Records["notify.example.com"]}
+	dns["njiwa2._domainkey.other.example.org"] = []string{old} // the wrong key
+	if probs := RotationDNSProblems(context.Background(), dns, rot); len(probs) != 1 || !strings.Contains(probs[0], "other.example.org") {
+		t.Fatalf("wrong key not caught: %v", probs)
+	}
+	dns["njiwa2._domainkey.other.example.org"] = []string{rot.Records["other.example.org"]}
+	if probs := RotationDNSProblems(context.Background(), dns, rot); len(probs) != 0 {
+		t.Fatalf("published keys: %v", probs)
+	}
+
+	// Activation is a normal approved apply with the new selector.
+	q := p
+	q.Selector = "njiwa2"
+	pl2, _ := BuildPlan(q)
+	rc2, err := Apply(q, pl2.Digest, &fakeRun{}, now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rc2.DKIMRecords["notify.example.com"] != rot.Records["notify.example.com"] {
+		t.Fatal("activation did not use the prepared key")
+	}
+	if cur, _ := CurrentSelector(q); cur != "njiwa2" {
+		t.Fatalf("signing selector after activation: %s", cur)
+	}
+	e := FinishRotation(q)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, err := RetireSelector(q, "njiwa2"); err == nil {
+		t.Fatal("retired the signing selector")
+	}
+	removed, err := RetireSelector(q, "njiwa")
+	if err != nil || len(removed) != 2 {
+		t.Fatalf("retire old selector: %v %v", removed, err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Root, "/etc/opendkim/keys/notify.example.com/njiwa.private")); !os.IsNotExist(err) {
+		t.Fatal("old key still on disk")
+	}
+	if _, err := os.Stat(filepath.Join(p.Root, "/etc/opendkim/keys/notify.example.com/njiwa2.private")); err != nil {
+		t.Fatal("new key removed")
+	}
+}
+
+func TestCancelRotation(t *testing.T) {
+	p := params(t)
+	pl, _ := BuildPlan(p)
+	if _, err := Apply(p, pl.Digest, &fakeRun{}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareRotation(p, "next", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CancelRotation(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Root, "/etc/opendkim/keys/notify.example.com/next.private")); !os.IsNotExist(err) {
+		t.Fatal("cancelled keys left behind")
+	}
+	if _, err := LoadRotation(p); err == nil {
+		t.Fatal("rotation state left behind")
+	}
+	if cur, _ := CurrentSelector(p); cur != "njiwa" {
+		t.Fatal("cancel changed signing")
+	}
+}
+
+// status, retire and cancel are called without a state directory; they must
+// use the default one, not the filesystem root.
+func TestRotationUsesDefaultStateDir(t *testing.T) {
+	p := params(t)
+	pl, _ := BuildPlan(p)
+	if _, err := Apply(p, pl.Digest, &fakeRun{}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareRotation(p, "next", now); err != nil {
+		t.Fatal(err)
+	}
+	bare := Params{Root: p.Root} // as the CLI passes it for cancel/status
+	if _, err := LoadRotation(bare); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CancelRotation(bare); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(p.Root, "/var/lib/njiwa-mail/installer/rotation.json")); !os.IsNotExist(err) {
+		t.Fatal("rotation state not removed from the default state directory")
+	}
+	run := &fakeRun{}
+	if _, err := Apply(p, func() string { q, _ := BuildPlan(p); return q.Digest }(), run, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		return // with systemd the unit is restarted instead
+	}
+	if !strings.Contains(strings.Join(run.calls, "\n"), "opendkim -x "+filepath.Join(p.Root, "/etc/opendkim.conf")) {
+		t.Fatalf("signer not restarted without systemd: %v", run.calls)
 	}
 }
