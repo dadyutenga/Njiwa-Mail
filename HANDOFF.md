@@ -1,14 +1,18 @@
 # Njiwa-Mail — handoff: everything still to do
 
 **Date:** 2026-11-12 · **Written for:** continuing the work from the office PC (which can reach the server).
-**Current branch:** `main` · **Latest implementation commit:** `539078a` (worker transport cut-over and handoff documents).
+**Current branch:** `main` · **Worker cut-over commit:** `9ed3800` (after the author-history rewrite).
+
+The `main` and `claude/happy-brahmagupta-pbfu6r` branches were rewritten on 2026-11-12 to assign the 33 former
+Claude-authored commits to `Dadi Nasser Utenga <dadyutenga@yahoo.com>`. Existing clones must fetch and reconcile their local
+branches with the new history before pushing; old commit links and PR commit references may still show the previous hashes.
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of
 gaps is [`REMAINING_WORK.md`](docs/REMAINING_WORK.md); operating instructions are in [`OPERATIONS.md`](docs/OPERATIONS.md); the security
 review is [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md).
 
-**Update on 2026-11-12:** C01 code was committed and pushed to `main` as `539078a`. Production worker dispatch now uses
+**Update on 2026-11-12:** C01 code was committed and pushed to `main` as `9ed3800`. Production worker dispatch now uses
 `transport.Transport`. The stored-profile adapter implements that interface and preserves the profile revision used for each
 send; environment SMTP still uses its existing failover client. The old `mailer.Transport` field remains as a compatibility seam
 for existing tests and callers. Focused worker and transport tests, `go vet ./...`, integration-test compilation, and
@@ -329,7 +333,7 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 
 ### C01 — worker cut-over to `transport.Transport`
 
-- **Code landed (`539078a`):** production worker dispatch uses `transport.Transport`; `StoredTransport` implements the
+- **Code landed (`9ed3800`):** production worker dispatch uses `transport.Transport`; `StoredTransport` implements the
   contract and pins the active profile revision. The environment SMTP path wraps the same failover client. Legacy
   `mailer.Transport` callers still work through a compatibility field.
 - **Verified:** focused worker and transport tests, `go vet ./...`, and compilation of the integration test package passed.
