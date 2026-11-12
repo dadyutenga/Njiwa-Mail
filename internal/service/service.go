@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -46,12 +47,22 @@ type Options struct {
 	// per-project quotas (backlog F04). 0 disables a limit.
 	LiveGlobalPerMinute, LiveGlobalPerHour int
 	LiveDomainPerMinute, LiveDomainPerHour int
+
+	// LiveQueueMax bounds the Live backlog (queued, waiting to retry, sending,
+	// scheduled). Beyond it new Live mail is refused with a retryable 503 so
+	// the queue cannot grow without limit while the mail server is down.
+	// 0 disables the bound.
+	LiveQueueMax int
 }
 
 type Service struct {
 	Pool *db.DB
 	Box  *secure.Box
 	Opts Options
+
+	queueMu    sync.Mutex
+	queueDepth int
+	queueAt    time.Time
 }
 
 func New(pool *db.DB, box *secure.Box, o Options) *Service {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/njiwa-tz/mail/internal/db"
 )
@@ -179,3 +180,48 @@ FROM delivery_events WHERE message_id=$1 ORDER BY observed_at, id`, messageID)
 	}
 	return rows, summary, nil
 }
+
+// reserveLiveSlot admits one more Live message unless the backlog (Live
+// messages Njiwa still has to hand over) has reached LiveQueueMax. The count
+// is read from the database at most every few seconds and each admission
+// reserves a slot in between, so a burst cannot overshoot the bound and the
+// check stays cheap when the queue is long.
+func (s *Service) reserveLiveSlot(ctx context.Context) (bool, error) {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	if time.Since(s.queueAt) >= 3*time.Second {
+		n, err := s.countLiveBacklog(ctx)
+		if err != nil {
+			return false, err
+		}
+		s.queueDepth, s.queueAt = n, time.Now()
+	}
+	if s.queueDepth >= s.Opts.LiveQueueMax {
+		return false, nil
+	}
+	s.queueDepth++
+	return true, nil
+}
+
+func (s *Service) countLiveBacklog(ctx context.Context) (int, error) {
+	var n int
+	err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM messages m JOIN environments e ON e.id=m.environment_id
+WHERE e.mode='live' AND m.state IN ('queued','retry_wait','submitting','scheduled') LIMIT $1) b`, s.Opts.LiveQueueMax+1).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// TransportDown reports a temporary failure reason that means the mail server
+// cannot be reached or refuses everyone (connect, timeout, TLS, 421/454, not
+// configured), as opposed to a problem with one message.
+func TransportDown(reason string) bool {
+	switch reason {
+	case "smtp_connect_failed", "smtp_timeout", "smtp_tls_handshake_failed", "smtp_io_error", "smtp_421", "smtp_454", "smtp_not_configured":
+		return true
+	}
+	return false
+}
+
+var transportDownReasons = []string{"smtp_connect_failed", "smtp_timeout", "smtp_tls_handshake_failed", "smtp_io_error", "smtp_421", "smtp_454", "smtp_not_configured"}

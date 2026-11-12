@@ -1,6 +1,7 @@
 # Implementation status
 
 Design reference: the Njiwa-Mail implementation pack (`15_IMPLEMENTATION_BACKLOG`, master spec).
+What is **not** done yet (checkpoint): [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md).
 This file is the live tracker the backlog asks for. A ticket is Done only when its backend predicate is tested.
 
 Baseline: `cd129e2` — `go test ./...` green on PostgreSQL 16 (throwaway DB; the suite resets `public`).
@@ -43,6 +44,10 @@ Baseline: `cd129e2` — `go test ./...` green on PostgreSQL 16 (throwaway DB; th
 | E08 + F01 | `delivery_events` (migration 0013): submission with MTA queue id from the 250 reply, `njiwa-mail mta-log [-follow]` Postfix log collector (sent/deferred/bounced/expired, correlated by queue id, addresses/IPs stripped, deduplicated), DSNs, complaints, operator resolutions; message page timeline + summary that never says delivered | `TestDeliveryEvidenceTimeline`, `TestParseMTALines` (line captured from Postfix 3.8.6) |
 | F04 | `LIVE_GLOBAL_PER_MINUTE/HOUR`, `LIVE_DOMAIN_PER_MINUTE/HOUR` (600/20000, 300/10000; 0 = off) atomically in the accept transaction for all Live mail | `TestInstallationAndDomainLiveLimits`, `TestParallelFloodIsBounded` (25 parallel vs limit 5 → exactly 5 stored) |
 | F06 (existing) | Hard-bounce/complaint suppression only for a DSN correlated to our message AND its recipient (pre-existing, kept); MTA-log bounces never suppress | `TestDeliveryEvidenceTimeline` |
+| G03 | `scripts/backup.sh` / `restore.sh`: owner-only output with a checksum manifest; on a managed host also Postfix/OpenDKIM config, DKIM keys, CA and worker certificate, receipts, and (`BACKUP_QUEUE=1`) the Postfix queue; restore verifies the manifest, keeps owners/permissions, rebuilds maps, validates, restarts | **Restore drill in the dev container**: DB rows and a queued message restored, keys byte-identical, permissions intact, `installer plan` unchanged, `managed_e2e` green |
+| F03 | Bounded Live backlog (`LIVE_QUEUE_MAX`, retryable `503 queue_full`, nothing stored); worker circuit breaker on connection-level failures (no attempts burnt while paused, exactly-once on recovery); `TRANSPORT_FAILING` readiness step while Live mail is not going out | `TestTransportOutageBreakerAndDegradedReadiness`, `TestLiveQueueIsBounded`, `TestDeliveryFailuresDegradeReadiness` |
+| D06 | RFC 6376 DKIM verifier (`dnsauth.VerifyDKIM`); signed-mail proof recorded per domain from a pasted received message or automatically from the project's own inbox; `njiwa-mail dkim-verify`; Domains page separates "published" from "proven" | `TestVerifiesARealOpenDKIMSignature` (message signed by OpenDKIM 2.11.0), tamper/key tests, `TestSignedMailEvidence`, `TestInboundMessageRecordsSignedEvidence`, `Domains.test.tsx` |
+| — | Diagnosis names a 4xx answer to STARTTLS (managed Postfix with the signer down) `SMTP_SERVER_TEMP_REFUSED` with the server's reply | reproduced against real Postfix (`454 4.3.0 Try again later`) |
 | G01 | Core `compose.yaml` has no Mailcow network; fixed configurable subnet (`NJIWA_SUBNET`, host = `.1`) so the worker reaches host Postfix; inbound published on `127.0.0.1:2525` only; `compose.mailcow.yaml` override for Mailcow relay | `docker compose config` (both), CI asserts core has no Mailcow |
 | G07 (part) | CI: frontend lint; compose override check; `govulncheck@v1.9.0` and a `managed-mta` job (installer + `managed_e2e` on a hosted runner), both non-blocking until their first green run | — (vuln.go.dev is blocked from this container, so the scan was not run here) |
 | G08 (part) | README and OpenAPI describe both modes and the new Live error codes | — |

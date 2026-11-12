@@ -456,6 +456,7 @@ export function DomainDetail() {
                 ))}
               </ul>
             </Section>
+            {d.purpose !== "receiving" && <SignedProof id={id ?? ""} d={d} />}
             {d.provider_type === "mailcow" ? (
               <Section className="mt-4" title={phrase("Mailcow")}>
                 {d.mailcow_api ? (
@@ -647,6 +648,96 @@ export function DomainDetail() {
         );
       }}
     </DataState>
+  );
+}
+
+type SignedCheck = {
+  from_domain: string;
+  aligned: boolean;
+  recorded: boolean;
+  message: string;
+  signatures: { d: string; s: string; result: string; reason?: string }[];
+};
+
+/**
+ * A published DKIM key only shows the key exists. This section records proof
+ * that mail is actually signed: a received message with a valid signature
+ * aligned with the domain (D06).
+ */
+function SignedProof({ id, d }: { id: string; d: Row }) {
+  const phrase = usePhrase();
+  const { api } = useWorkspace();
+  const key = useWsKey();
+  const client = useQueryClient();
+  const [raw, setRaw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<SignedCheck | null>(null);
+  return (
+    <Section className="mt-4" title={phrase("Proof that mail is signed")}>
+      <p className="text-sm" data-testid="dkim-proof">
+        {d.dkim_verified_at ? (
+          <>
+            <StateBadge state="pass" label={phrase("Signed mail verified")} />{" "}
+            {phrase("A received message carried a valid DKIM signature for this domain")} (s=
+            {s(d.dkim_verified_selector)}), <Time value={d.dkim_verified_at} relative />.
+          </>
+        ) : (
+          <>
+            <StateBadge state="pending" label={phrase("Not proven yet")} />{" "}
+            {phrase(
+              "A published DKIM record does not prove your mail is signed. Send a test to your own mailbox, open the original message (Show original / View source) and paste it here.",
+            )}
+          </>
+        )}
+      </p>
+      <textarea
+        aria-label={phrase("Received message, headers included")}
+        className="mt-3 h-32 w-full rounded-md border border-input bg-background p-2 font-mono text-xs"
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        placeholder="Received: …\nDKIM-Signature: v=1; a=rsa-sha256; …\nFrom: …"
+      />
+      <Button
+        className="mt-2"
+        variant="outline"
+        disabled={busy || !raw.trim()}
+        onClick={async () => {
+          setBusy(true);
+          const r = await run(
+            () => api.send<SignedCheck>(`/domains/${id}/verify-message`, "POST", { raw }),
+            "",
+          );
+          setBusy(false);
+          if (r) {
+            setRes(r);
+            if (r.recorded) client.invalidateQueries({ queryKey: key("domain", id) });
+          }
+        }}
+      >
+        {busy ? phrase("Checking…") : phrase("Check signature")}
+      </Button>
+      {res && (
+        <div role="status" className="mt-3 text-sm">
+          <p>
+            <StateBadge
+              state={res.aligned ? "pass" : "fail"}
+              label={res.aligned ? phrase("Verified") : phrase("Not verified")}
+            />{" "}
+            {phrase(res.message)}
+          </p>
+          {res.signatures.length > 0 && (
+            <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+              {res.signatures.map((sig, i) => (
+                <li key={i}>
+                  {sig.result} · d={sig.d} · s={sig.s}
+                  {sig.reason ? ` · ${sig.reason}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Section>
   );
 }
 

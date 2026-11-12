@@ -86,6 +86,7 @@ type Config struct {
 	// Installation-wide Live sending limits (0 disables one).
 	LiveGlobalPerMinute, LiveGlobalPerHour int
 	LiveDomainPerMinute, LiveDomainPerHour int
+	LiveQueueMax                           int
 }
 
 func boolVar(name string) (bool, error) {
@@ -348,6 +349,7 @@ func Load() (*Config, error) {
 	}{
 		{"LIVE_GLOBAL_PER_MINUTE", 600, &c.LiveGlobalPerMinute}, {"LIVE_GLOBAL_PER_HOUR", 20000, &c.LiveGlobalPerHour},
 		{"LIVE_DOMAIN_PER_MINUTE", 300, &c.LiveDomainPerMinute}, {"LIVE_DOMAIN_PER_HOUR", 10000, &c.LiveDomainPerHour},
+		{"LIVE_QUEUE_MAX", 50000, &c.LiveQueueMax},
 	} {
 		if *l.dst, err = intVar(l.name, l.def); err != nil {
 			return nil, err
