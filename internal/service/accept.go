@@ -579,6 +579,19 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 			return nil, false, &Error{Status: 429, Code: "rate_limited", RetryAfter: wait}
 		}
 	}
+	// The Live backlog is bounded: when the mail server has been down long
+	// enough to fill it, refuse new work with a retryable answer rather than
+	// let the queue grow without limit. Nothing is stored for a refused request.
+	if p.Mode == "live" && s.Opts.LiveQueueMax > 0 {
+		ok, err := s.reserveLiveSlot(ctx)
+		if err != nil {
+			return nil, false, unavailable("queue_depth", err)
+		}
+		if !ok {
+			return nil, false, &Error{Status: 503, Code: "queue_full", RetryAfter: time.Minute,
+				Message: "the Live queue is full because mail is not going out; try again later"}
+		}
+	}
 	// Installation-wide caps protect the server's reputation from a single
 	// compromised key or a parallel flood across projects. They apply to all
 	// Live mail, bulk included; Sandbox never sends and is not counted.

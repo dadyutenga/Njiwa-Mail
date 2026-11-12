@@ -6,14 +6,22 @@ Njiwa Mail posts a signed JSON event to your endpoint when something happens to 
 
 | Type | When | `data` |
 |---|---|---|
-| `email.submitted` | Mailcow acknowledged the message. This is **not** proof of delivery. | `message_id`, `state`, `reason`, `template`, `request_id` |
+| `email.submitted` | Your mail server (managed Postfix or your existing SMTP server) acknowledged the message. This is **not** proof of delivery. | `message_id`, `state`, `reason`, `template`, `request_id` |
 | `email.failed` | Permanent failure before acceptance, or retries exhausted | same |
 | `email.unknown` | Acceptance could not be confirmed; an operator will reconcile | same |
 | `email.expired` | TTL passed before submission started | same |
 | `email.bounced` | A delivery status notification came back | `message_id`, `bounce_id`, `type` (`hard`, `soft`, `policy`, `unknown`), `status`, `suppressed` |
+| `email.delivery_deferred` | The mail server log shows the recipient's server has not accepted it yet; the mail server keeps retrying | `message_id`, `event`, `status` (enhanced status code) |
+| `email.delivery_remote_accepted` | The mail server log shows the recipient's mail server accepted it. This does **not** show inbox placement | same |
+| `email.delivery_bounced` | The mail server log shows a permanent rejection | same |
+| `email.delivery_expired_in_queue` | The mail server gave up retrying | same |
 | `inbound.received` | Mail was parsed for one of your inbound addresses | `inbound_id`, `address_id`, `attachment_count`, `raw_size` |
 
 There is no `email.delivered` event and there never will be: the service cannot prove delivery.
+
+The `email.delivery_*` events come from the mail server log (`njiwa-mail mta-log`, see `docs/OPERATIONS.md`) and are only sent when
+that collector runs; they are evidence, and a message's `state` never changes because of them. Each log line produces at most one
+event.
 
 Payloads contain ids, states and safe reason codes only. They never contain bodies, variables, tokens or recipient addresses. To read an inbound message, call `GET /v1/inbound/{inbound_id}` with a key that has the `inbound:read` scope.
 

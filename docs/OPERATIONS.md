@@ -131,6 +131,21 @@ It correlates lines to messages by queue ID (messages submitted in the last 7 da
 or IPs from the log, and records each line once. A permanent MTA bounce marks the message bounced but never suppresses the
 recipient; only a bounce report correlated to the message's own recipient does.
 
+## Proof that mail is signed (DKIM)
+
+A DKIM record in DNS only proves a key is published. The Domains page records separate proof that mail from the domain is actually
+signed: a received message with a valid DKIM signature whose `d=` aligns with the domain (as DMARC requires).
+
+- Send a test (Delivery infrastructure → Send through the queue) to a mailbox you control, open the original message
+  ("Show original" / "View source"), and paste it under **Proof that mail is signed** on the domain's page.
+- Or send it to one of the project's own Njiwa inbound addresses: the inbound processor checks it automatically.
+- From a shell: `njiwa-mail dkim-verify -file message.eml` prints the result of every signature (pass, fail with the reason,
+  permerror, temperror). It needs DNS only.
+
+The verifier implements RFC 6376 (rsa-sha256 and ed25519-sha256, simple and relaxed canonicalization, `l=`, `x=`) and is tested
+against a message signed by OpenDKIM. A message from another domain, a changed body or header, a revoked or wrong key, or a
+signature by a non-aligned domain is never recorded as proof.
+
 ## Sending domains and claims
 
 Live mail and Live sender addresses require a sending domain that the project added on the Domains page, verified with its
@@ -205,11 +220,42 @@ The scheduler (and the worker, harmlessly twice) runs retention every `RETENTION
 `METADATA_RETENTION` (30d), and clears any payload on a non-active row older than `UNKNOWN_PAYLOAD_PURGE` (≤24h; content is normally cleared at the terminal outcome).
 One-off: `njiwa-mail retention`. **Backups can retain older encrypted data until the backup's own retention expires.**
 
+## When the mail server is down
+
+- Messages are never lost or sent twice: a temporary failure before acceptance is retried with backoff until the message's TTL;
+  an ambiguous outcome is marked `unknown` and never resent automatically.
+- After 5 consecutive connection-level failures (connect, timeout, TLS, `421`/`454`) the worker stops claiming Live mail for 15 s,
+  doubling up to 5 min, so queued messages keep their attempts and TTL instead of each failing against a server that is down. One
+  successful hand-over resets it. Sandbox is unaffected.
+- The Delivery infrastructure page and every project's banner show "Live mail is going out — Error (TRANSPORT_FAILING)" while
+  recent Live attempts fail with no successful submission since; it clears on the next successful send.
+- The Live backlog is bounded by `LIVE_QUEUE_MAX` (default 50 000). When it is full, new Live requests get
+  `503 queue_full` with `Retry-After`; nothing is stored for them, so clients can retry safely with the same idempotency key.
+
 ## Backups
 
-`pg_dump` the `mail` database on a schedule, back up the `maildata` volume (inbound attachments and unparsed spool) with it, and store `ENCRYPTION_KEY`/`HMAC_KEY` in a separate protected location. A backup without the keys cannot decrypt in-flight payloads.
-**No restore test has been performed**; do not claim disaster-recovery readiness until one is done and recorded.
+`scripts/backup.sh [OUT_DIR]` (reads `DATABASE_URL`, `DATA_DIR`) writes, owner-only, with a `MANIFEST.sha256`:
 
+| File | Contents |
+|---|---|
+| `mail.dump` | PostgreSQL (`pg_dump -Fc`) |
+| `data.tgz` | `DATA_DIR`: inbound attachments and unparsed spool |
+| `managed.tgz` | managed host only, run as root: Postfix and OpenDKIM configuration, DKIM private keys, the local CA and the worker's certificate, installer receipts |
+| `postfix-queue.tgz` | with `BACKUP_QUEUE=1`: the Postfix queue (Postfix is stopped for the few seconds of the copy so the queue is consistent) |
+
+`ENCRYPTION_KEY` and `HMAC_KEY` are **not** in the backup: store them separately and protected. Without them, encrypted payloads in a
+restored database cannot be read. The backup itself contains private keys: keep it encrypted and off the host.
+
+`scripts/restore.sh BACKUP_DIR` verifies the manifest first, restores the database and `DATA_DIR`, and on a managed host (as root)
+restores the files with their owners and permissions, rebuilds the Postfix lookup tables, runs `postfix check` and `opendkim -n`,
+and restarts the services (restores the queue when `postfix-queue.tgz` is present).
+
+**Restore drill (2026-11-12, development container, Postfix 3.8.6 + OpenDKIM):** seeded a database and one queued message, ran
+`BACKUP_QUEUE=1 scripts/backup.sh`, deleted the DKIM keys, certificates, Postfix/OpenDKIM configuration, installer receipts, the
+queue and the database, then ran `scripts/restore.sh`. Result: the database rows and the queued message were back, the DKIM key and
+the worker's client key were byte-identical (same SHA-256), owners and permissions were intact (`opendkim 0750` key directories,
+`0600` keys), `installer plan` showed nothing to change, and all `managed_e2e` checks passed. Repeat the drill on the production host
+before relying on it.
 ## Rollback
 
 1. Pause acceptance for the affected project (`project disable`) **or** switch the application's provider flag for *new* requests.

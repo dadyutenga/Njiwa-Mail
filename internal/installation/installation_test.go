@@ -67,3 +67,26 @@ func TestManagedNeverReadyWithoutInstaller(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 }
+
+func TestDeliveryFailuresDegradeReadiness(t *testing.T) {
+	f := Facts{Now: now, Mode: ModeExisting, ProfileRevision: 1, ConfigComplete: true,
+		Checks: map[string]Check{"connection": pass(1, time.Hour), "test_send": pass(1, time.Hour)}}
+	if r := Compute(f); r.Status != Ready || len(r.Steps) != 4 {
+		t.Fatalf("baseline: %+v", r)
+	}
+	fail := now.Add(-time.Minute)
+	f.Delivery = &DeliveryHealth{TransportFailures: 2, LastFailure: &fail, LastCode: "smtp_connect_failed"}
+	if r := Compute(f); r.Status != Ready {
+		t.Fatalf("below the threshold must not degrade: %+v", r)
+	}
+	f.Delivery.TransportFailures = 3
+	r := Compute(f)
+	if r.Status != Error || r.Steps[len(r.Steps)-1].ProblemCode != CodeTransportFailing {
+		t.Fatalf("failing delivery must degrade: %+v", r)
+	}
+	later := now
+	f.Delivery.LastSubmitted = &later
+	if r := Compute(f); r.Status != Ready {
+		t.Fatalf("a submission after the failures recovers: %+v", r)
+	}
+}

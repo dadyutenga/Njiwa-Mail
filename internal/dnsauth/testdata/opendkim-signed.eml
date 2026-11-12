@@ -1,0 +1,34 @@
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=notify.example.test;
+	s=njiwa; t=1794457139;
+	bh=kPl3+VyyQsdFQn/xOUBiuxSlq/vQ9tgPD/3P16OJRos=;
+	h=From:To:Subject:Date:From;
+	b=O/wpy5g8EAeDzochHaMy582N+e7bBUZ6RqbKbMNTA9bkDElipe5iVPYzR09yLQEzN
+	 YFassUVKhr1Usal61GewKcoEIFSFK/ze+KiS++GER9oLQ12ga+BUr2RfNR6pdC8qv3
+	 eyLnoZ8YlTacDsIB8gFxP+CToDNqUIwRE97K+3T3tSpI86yKo/CfMYaMILzYwVIHU4
+	 4QAsD0m+F80ho+mBALRCsFaM74RN5iUxrXWA7aBSynBikApFP9xZx6PzmQNbn5Eoig
+	 mdYMreXTDIuc3edBpfRKBtF0z7LdQdhXzznaOkiKOpAo4FbJ/hzfG4i/iRbONl8kFM
+	 msMlPYfZ4+s+A==
+Received: from njiwa-worker (localhost [127.0.0.1])
+	by mailout.example.test (Postfix) with UTF8SMTPS id 3BF76CBA001
+	for <dsn-check@bounce.example.test>; Thu, 12 Nov 2026 04:18:59 +0000 (UTC)
+From: "Njiwa" <hello@notify.example.test>
+To: <dsn-check@bounce.example.test>
+Subject: managed e2e
+Date: Thu, 12 Nov 2026 04:18:59 +0000
+Message-ID: <e2e-041859.197@notify.example.test>
+MIME-Version: 1.0
+Auto-Submitted: auto-generated
+X-Auto-Response-Suppress: All
+Content-Type: multipart/alternative; boundary=dm-7713ece10b4aa340b5142123
+
+--dm-7713ece10b4aa340b5142123
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/plain; charset=utf-8
+
+hello from the managed MTA test
+--dm-7713ece10b4aa340b5142123
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/html; charset=utf-8
+
+
+--dm-7713ece10b4aa340b5142123--

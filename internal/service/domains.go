@@ -111,6 +111,7 @@ func (s *Service) WSDomain(ctx context.Context, sc *Scope, id string) (map[strin
 	}
 	d, err := s.one(ctx, `SELECT d.id::text AS id, d.name, d.purpose, d.bulk, d.verified_at, d.spf_ok, d.dkim_ok, d.dmarc_ok, d.mx_ok,
   d.last_checked_at, d.created_at, d.records, d.mailcow_provisioned_at, 'njiwa-mail-verify=' || d.verify_token AS txt_challenge,
+  d.dkim_verified_at, d.dkim_verified_selector, d.dkim_verified_source,
   (d.verified_at IS NULL OR (d.purpose IN ('sending','both') AND NOT (d.spf_ok AND d.dkim_ok AND d.dmarc_ok))
      OR (d.purpose IN ('receiving','both') AND NOT d.mx_ok)) AS needs_attention
 FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)

@@ -193,7 +193,32 @@ FROM installation_checks WHERE profile_id=$1::uuid ORDER BY check_key, checked_a
 		return installation.Readiness{}, err
 	}
 	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM installer_receipts WHERE profile_id=$1::uuid AND result_code='ok' AND verified_at IS NOT NULL AND rollback_state <> 'rolled_back')`, id).Scan(&f.ManagedInstalled)
+	var active bool
+	_ = s.Pool.QueryRow(ctx, `SELECT is_active FROM transport_profiles WHERE id=$1::uuid`, id).Scan(&active)
+	if active {
+		f.Delivery = s.deliveryHealth(ctx)
+	}
 	return installation.Compute(f), nil
+}
+
+// deliveryHealth looks at the last 15 minutes of Live send attempts.
+func (s *Service) deliveryHealth(ctx context.Context) *installation.DeliveryHealth {
+	d := &installation.DeliveryHealth{}
+	var code *string
+	err := s.Pool.QueryRow(ctx, `SELECT
+  count(*) FILTER (WHERE ev.event_type='retry_scheduled' AND ev.reason_code = ANY($1)),
+  max(ev.created_at) FILTER (WHERE ev.event_type='retry_scheduled' AND ev.reason_code = ANY($1)),
+  (array_agg(ev.reason_code ORDER BY ev.created_at DESC) FILTER (WHERE ev.event_type='retry_scheduled' AND ev.reason_code = ANY($1)))[1],
+  max(ev.created_at) FILTER (WHERE ev.event_type='submitted')
+FROM message_events ev JOIN messages m ON m.id=ev.message_id JOIN environments e ON e.id=m.environment_id
+WHERE e.mode='live' AND ev.created_at > now() - interval '15 minutes'`, transportDownReasons).Scan(&d.TransportFailures, &d.LastFailure, &code, &d.LastSubmitted)
+	if err != nil {
+		return nil
+	}
+	if code != nil {
+		d.LastCode = *code
+	}
+	return d
 }
 
 // ---------------------------------------------------------------- registry

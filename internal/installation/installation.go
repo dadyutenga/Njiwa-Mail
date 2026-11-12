@@ -30,6 +30,7 @@ const (
 	CodeCheckFailed      = "CHECK_FAILED"
 	CodeInstallerMissing = "INSTALLER_NOT_AVAILABLE"
 	CodeEgressBlocked    = "SMTP_EGRESS_BLOCKED"
+	CodeTransportFailing = "TRANSPORT_FAILING"
 )
 
 // DefaultCheckTTL is how long a passing check stays trustworthy.
@@ -58,6 +59,29 @@ type Facts struct {
 	Checks          map[string]Check // latest per check key (any revision)
 	// ManagedInstalled is true only when a verified installer receipt exists.
 	ManagedInstalled bool
+	// Delivery is what the worker saw recently on the active profile. Checks
+	// can pass while mail is not going out; this keeps the status honest.
+	Delivery *DeliveryHealth
+}
+
+// DeliveryHealth summarises recent Live send attempts.
+type DeliveryHealth struct {
+	TransportFailures int        // connection-level temporary failures in the window
+	LastFailure       *time.Time // most recent of those
+	LastCode          string     // its reason code
+	LastSubmitted     *time.Time // most recent successful hand-over
+}
+
+// FailureThreshold failures with no successful submission since make the
+// installation degraded.
+const FailureThreshold = 3
+
+// Failing reports whether recent attempts show mail is not going out.
+func (d *DeliveryHealth) Failing() bool {
+	if d == nil || d.TransportFailures < FailureThreshold || d.LastFailure == nil {
+		return false
+	}
+	return d.LastSubmitted == nil || d.LastSubmitted.Before(*d.LastFailure)
 }
 
 type Action struct {
@@ -132,6 +156,15 @@ func Compute(f Facts) Readiness {
 		}
 		r.Steps = append(r.Steps, pre, inst,
 			checkStep(f, "verify_transport", "Verify local submission", "connection", f.ManagedInstalled))
+	}
+	// Shown only while mail is failing to go out, so a quiet installation is
+	// not given a green it has no evidence for.
+	if f.Delivery.Failing() {
+		t := *f.Delivery.LastFailure
+		r.Steps = append(r.Steps, Step{ID: "live_delivery", Title: "Live mail is going out", Status: Error, Required: true,
+			CheckedAt: &t, ProblemCode: CodeTransportFailing,
+			Message: "Recent Live messages could not reach the mail server (" + f.Delivery.LastCode + "). They stay queued and are retried; fix the mail server and test again.",
+			Action:  &Action{Label: "Test connection", Route: "/app/installation"}})
 	}
 	return finish(r)
 }
