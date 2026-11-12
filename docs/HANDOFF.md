@@ -1,0 +1,448 @@
+# Njiwa-Mail — handoff: everything still to do
+
+**Date:** 2026-11-12 · **Written for:** continuing the work from the office PC (which can reach the server).
+**Branch used so far:** `claude/happy-brahmagupta-pbfu6r` · **Merged:** PRs #1–#9 (everything is on `main`).
+
+Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
+each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](../STATUS.md); the short list of
+gaps is [`REMAINING_WORK.md`](REMAINING_WORK.md); operating instructions are in [`OPERATIONS.md`](OPERATIONS.md); the security
+review is [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
+
+---
+
+## 0. Muhtasari (Kiswahili)
+
+- **Kilichokamilika:** API moja na dashboard, njia mbili za kutuma (`managed_mta` = Postfix + OpenDKIM kwenye VPS yako,
+  `existing_smtp` = server yako ya barua au Mailcow), installer yenye plan/apply/rollback, DKIM rotation, renewal ya certificates,
+  ukaguzi wa SPF/DKIM/DMARC/PTR, ushahidi wa delivery, rate limits, metrics na alerts, security matrix, backup/restore.
+- **Kilichobaki kinagawanyika mara mbili:**
+  1. **Kinahitaji server halisi** (sehemu ya 3): G05 (managed mode kwenye VPS + Gmail/Outlook), G04 (existing SMTP halisi),
+     E06/E07 (delivery na bounce halisi), E12 (Debian/Ubuntu tofauti), G06 (kubadilisha mode na barua kwenye foleni), systemd path,
+     CI jobs kuwa blocking.
+  2. **Hakihitaji server** (sehemu ya 4): F09 (roles + MFA), F10 (retention/encryption), C01 (worker cut-over), E10 (queue controls
+     kwenye dashboard), F07, F02, G08/A01 (docs), B07 (Kiswahili + accessibility), C02, C05, D04, F06, A02/G07, G09/G10.
+- **Anza hivi ofisini:** clone → fuata sehemu ya 1 (setup) → sehemu ya 3.1 (G05) hatua kwa hatua.
+- Ukitumia Claude Code kwenye PC, mpe maelekezo ya sehemu ya 7.
+
+---
+
+## 1. Setting up the office PC
+
+### 1.1 Get the code
+
+```bash
+git clone https://github.com/dadyutenga/Njiwa-Mail.git
+```
+
+```bash
+cd Njiwa-Mail && git checkout main && git pull
+```
+
+Everything is on `main`. Start new work on a new branch (`git checkout -b <name>`).
+
+### 1.2 Tools
+
+| Tool | Version | Used for |
+|---|---|---|
+| Go | 1.26 (`go.mod`: `go 1.26.0`) | backend, CLI, installer, tests |
+| Node.js | ≥ 24 (`frontend/package.json` engines) | dashboard |
+| PostgreSQL | 16 | tests need a throwaway database |
+| Docker + Compose v2 | recent | running the stack, `docker compose config` checks |
+| ssh | any | reaching the server |
+
+### 1.3 Run the test suites (all must stay green)
+
+A **throwaway** database is required: the integration suite drops and recreates the `public` schema. Never point it at real data.
+
+```bash
+docker run -d --name njiwa-test-pg -e POSTGRES_PASSWORD=pw -p 127.0.0.1:5433:5432 postgres:16
+```
+
+```bash
+export TEST_DATABASE_URL="postgres://postgres:pw@localhost:5433/postgres?sslmode=disable"
+```
+
+```bash
+set -o pipefail; go vet ./... && go test ./... -race -count=1 -timeout 500s
+```
+
+Frontend (from `frontend/`):
+
+```bash
+cd frontend && npm ci && npm run typecheck && npx vitest run && npm run lint && npm run build
+```
+
+Expected today: Go packages all `ok`; frontend 55 tests pass, lint 0 errors (24 warnings are pre-existing).
+
+**Always use `set -o pipefail`** when piping test output (`| tail`, `| grep`): without it a failing test can look green.
+
+### 1.4 Managed end-to-end tests (Linux host with Postfix + OpenDKIM only)
+
+These run against a real Postfix that the installer configured (they are what CI's `managed-mta` job runs):
+
+```bash
+go test -tags managed_e2e ./internal/installer/managed -run E2E -count=1 -v
+```
+
+Environment knobs: `NJIWA_E2E_SELECTOR` (default `njiwa`), `NJIWA_E2E_CAPTURE` (file to save the received message),
+`NJIWA_E2E_CLIENT_DIR` (directory with another `client.crt`/`client.key`, e.g. a replaced certificate).
+
+---
+
+## 2. Where things are (map of the code)
+
+| Area | Path |
+|---|---|
+| CLI (all commands, usage text) | `internal/cli/cli.go` |
+| HTTP API, routes | `internal/api/` (`app.go`, `installation.go`, …) |
+| Business logic | `internal/service/` (`transport.go`, `installation.go`, `managed.go`, `domains.go`, `dns.go`, `evidence.go`, `ops.go`, `facts.go`, `claims.go`, `dkimproof.go`) |
+| Readiness model (pure) | `internal/installation/installation.go` |
+| Transport interface | `internal/transport/` |
+| SMTP client, diagnosis, SSRF guard | `internal/mailer/` (`smtp.go`, `diagnose.go`) |
+| Worker | `internal/worker/` |
+| SPF/DMARC/DKIM | `internal/dnsauth/` |
+| Managed installer (Postfix/OpenDKIM/PKI/firewall/rotation) | `internal/installer/managed/` |
+| Host preflight | `internal/installer/preflight/` |
+| Migrations (0001–0015) | `internal/db/migrations/` |
+| Integration tests | `test/` (helpers in `helpers_test.go`, `v2_test.go`, `transport_test.go`) |
+| Dashboard | `frontend/src/features/` (`installation/`, `workspace/pages/`) |
+| Deployment | `compose.yaml`, `compose.mailcow.yaml`, `Dockerfile`, `deploy/` (nginx, systemd units, Prometheus rules), `scripts/backup.sh`, `scripts/restore.sh` |
+| CI | `.github/workflows/ci.yml` (jobs: `test`, `frontend`, `image`, `govulncheck`, `managed-mta`) |
+
+---
+
+## 3. Work that needs the real server
+
+Do these in order. Record the evidence for each (commands, outputs, headers, screenshots) and add a row to `STATUS.md` when done.
+
+### 3.0 Server requirements (check before starting)
+
+- [ ] Debian 12, Ubuntu 22.04 or Ubuntu 24.04, root access, systemd.
+- [ ] **Outbound port 25 open.** Many providers block it; ask them to unblock it. Test: `nc -vz gmail-smtp-in.l.google.com 25`.
+- [ ] A static public IPv4 and a **PTR** (reverse DNS) set at the provider to the mail hostname, e.g. `mailout.example.com`.
+- [ ] DNS you control for: the mail hostname (A record → server IP), the sending domain (e.g. `notify.example.com`), and a bounce
+      domain (e.g. `bounce.example.com`).
+- [ ] At least 2 GB RAM and 10 GB free disk; correct time (NTP).
+- [ ] A Gmail and an Outlook/Hotmail mailbox to receive test mail.
+- [ ] No other mail server on the host (Exim, Mailcow, a Postfix not set up by Njiwa); the installer refuses them.
+
+### 3.1 G05 — managed mode end to end (P0 release blocker)
+
+**Goal:** a fresh server sends Live mail to Gmail and Outlook through the managed Postfix, DKIM-signed and passing SPF/DKIM/DMARC.
+
+1. **Install packages** (Postfix: choose "No configuration"):
+
+   ```bash
+   apt-get update && apt-get install -y postfix opendkim nftables docker.io docker-compose-v2 git
+   ```
+
+2. **Get the code and build the binary on the host** (the installer runs on the host, not in a container):
+
+   ```bash
+   git clone https://github.com/dadyutenga/Njiwa-Mail.git /opt/njiwa-mail && cd /opt/njiwa-mail
+   ```
+
+   ```bash
+   docker build -t njiwa-mail:local . && docker create --name nm-tmp njiwa-mail:local && docker cp nm-tmp:/usr/local/bin/njiwa-mail /usr/local/bin/njiwa-mail && docker rm nm-tmp
+   ```
+
+   (Or install Go 1.26 and `go build -o /usr/local/bin/njiwa-mail .`.) Check the binary path inside the image with
+   `docker run --rm --entrypoint sh njiwa-mail:local -c 'command -v njiwa-mail'` if the copy fails.
+
+3. **Preflight** (read-only):
+
+   ```bash
+   njiwa-mail preflight -hostname mailout.example.com
+   ```
+
+   Every line must be `pass` or understood. `cannot_confirm` means it could not be proven; fix or note why. Key checks: hostname A,
+   PTR/FCrDNS, outbound 25, existing MTAs, `PRIVATE_PORT_PUBLIC`.
+
+4. **Configure `.env`** (copy from `.env.example`):
+   - `POSTGRES_PASSWORD`, `ENCRYPTION_KEY` (`openssl rand -base64 32`), `HMAC_KEY` (`openssl rand -base64 48`).
+     **Back these up** — losing them makes queued mail unreadable.
+   - `BOUNCE_ADDRESS=bounces@bounce.example.com`, `MAIL_HOSTNAME=mailout.example.com`, `OUTBOUND_IP=<server IP>`,
+     `DKIM_SELECTOR=njiwa` (or what you pass to the installer), `PUBLIC_URL=https://mail-api.example.com`, `TRUST_PROXY=true`,
+     `METRICS_TOKEN=<16+ chars>`, `INBOUND_ALLOWED_SOURCES=172.30.0.1` (host Postfix relaying bounces).
+   - Leave `SMTP_HOST` empty (it would override the managed profile).
+
+5. **Start the stack** (with the inbound listener for bounces):
+
+   ```bash
+   docker compose --profile inbound up -d --build
+   ```
+
+   Check `curl -s 127.0.0.1:8080/health/ready`. Create the first admin: `docker compose exec api njiwa-mail user create -email you@example.com -role owner` (password on stdin).
+
+6. **Let the host CLI reach the database for `-record`.** PostgreSQL is not published to the host. Find its address on the
+   Compose network and export the same secrets as `.env`:
+
+   ```bash
+   PGIP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' njiwa-mail-postgres-1)
+   ```
+
+   ```bash
+   set -a; . /opt/njiwa-mail/.env; set +a; export DATABASE_URL="postgres://mail:${POSTGRES_PASSWORD}@${PGIP}:5432/mail?sslmode=disable"
+   ```
+
+   (Container name may differ: `docker compose ps`.) **Note for the code:** this step is friction; consider a documented
+   `docker compose run` path or publishing PostgreSQL on `172.30.0.1` only. Record what worked.
+
+7. **Choose managed mode** in the dashboard (Installation page → "Send from my VPS"), then add the project, the sending domain
+   `notify.example.com`, publish its ownership TXT and let the check verify it (domain claim). Then:
+
+   ```bash
+   njiwa-mail preflight -hostname mailout.example.com -record
+   ```
+
+8. **Install the mail service** — the worker container reaches host Postfix at the Compose gateway:
+
+   ```bash
+   njiwa-mail installer plan -hostname mailout.example.com -domains notify.example.com -bounce-domain bounce.example.com -selector njiwa -submission 172.30.0.1:10587
+   ```
+
+   Read the plan. Then apply with the printed digest:
+
+   ```bash
+   njiwa-mail installer apply -hostname mailout.example.com -domains notify.example.com -bounce-domain bounce.example.com -selector njiwa -submission 172.30.0.1:10587 -approve <digest> -record
+   ```
+
+   This is the **first run of the systemd path** (`systemctl enable/restart opendkim`, `reload-or-restart postfix`, the firewall
+   unit). Check: `systemctl status postfix@- opendkim njiwa-mail-firewall`, `nft list table inet njiwa_mail`,
+   `njiwa-mail installer status`.
+
+9. **Publish DNS** (values printed by apply and shown on the Domains page):
+   - `njiwa._domainkey.notify.example.com TXT "v=DKIM1; k=rsa; p=…"`
+   - SPF on `notify.example.com`: `v=spf1 ip4:<server IP> -all` (the Domains page shows the exact record).
+   - DMARC: `_dmarc.notify.example.com TXT "v=DMARC1; p=none; rua=mailto:…"` (start with `p=none`).
+   - Bounce domain MX: `bounce.example.com MX 10 mailout.example.com`.
+   - `mailout.example.com A <server IP>`; PTR at the provider.
+   Then "Check now" on the Domains page until everything passes.
+
+10. **Connection test and activation:** Installation page → run the connection test on the managed profile (must pass) → review
+    the switch plan → activate. Readiness must show all required steps ready.
+
+11. **Send Live mail** to Gmail and Outlook (a Live API key: `njiwa-mail key create -project <p> -mode live`; a Live sender on
+    `notify.example.com`). Use the dashboard's transport test or `curl` to `/v1/emails`.
+
+12. **Record evidence** for each provider: "Show original" (Gmail) / message source (Outlook). Save the `Received:` chain and
+    `Authentication-Results:` — need `spf=pass`, `dkim=pass header.d=notify.example.com header.s=njiwa`, `dmarc=pass`. Paste the
+    message into the Domains page "Check signature" (records DKIM proof). Check inbox vs spam.
+
+13. **Run the e2e suite on the server** (`go test -tags managed_e2e …`, needs Go) or at least confirm by hand:
+    port 25 refuses relaying (`swaks --to someone@gmail.com --server mailout.example.com` → `554 5.7.1`), submission without the
+    client certificate is refused.
+
+14. **Start the log collector** and confirm delivery evidence appears on the message page:
+
+    ```bash
+    cp deploy/njiwa-mail-mta-log.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now njiwa-mail-mta-log
+    ```
+
+    The unit runs as `njiwa-mail` and reads `/etc/njiwa-mail/env`: create that user (`useradd -r njiwa-mail`) and env file
+    (`DATABASE_URL`, `ENCRYPTION_KEY`, `HMAC_KEY` from step 6), or adapt the unit. First real run of this unit — record any fix.
+
+15. **HTTPS:** install nginx + certbot, use `deploy/nginx.conf`, `certbot certonly --webroot -w /var/www/certbot -d mail-api.example.com`.
+
+**Done when:** Gmail and Outlook both show SPF/DKIM/DMARC pass with the headers saved in `docs/` (e.g. `docs/evidence/G05.md`,
+addresses removed), the systemd path worked (or was fixed), and `STATUS.md` has a G05 row.
+
+### 3.2 E06 — direct-to-MX delivery and queue durability
+
+- [ ] Send to 3+ external providers (Gmail, Outlook, Yahoo or a corporate domain); `njiwa-mail mta-log` shows `remote_accepted`.
+- [ ] Queue survives restart: block outbound 25 temporarily (`nft add rule …` or provider firewall), send, see `deferred` in
+      `postqueue -p`, reboot the host, unblock, confirm delivery.
+- [ ] Queue survives an upgrade: `apt-get upgrade postfix` with mail in the queue.
+- **Done when:** evidence recorded in `STATUS.md` (E06 row).
+
+### 3.3 E07 — real bounce through managed Postfix
+
+- [ ] Send Live mail to a non-existent address at Gmail (`does-not-exist-xyz@gmail.com`).
+- [ ] The DSN arrives at `bounces@bounce.example.com` → port 25 → relayed to `127.0.0.1:2525` → inbound listener.
+- [ ] The message shows `bounced`, the recipient is suppressed (hard bounce), a `email.bounced` webhook fires, the Installation
+      page `bounce_reports` step shows "Bounce reports are received" with the time.
+- **Done when:** recorded in `STATUS.md` (E07 row).
+
+### 3.4 E05 remainder — certificate and HELO
+
+- [ ] Optional: a publicly trusted certificate for inbound port 25 (today it uses the installer's private CA; fine for
+      opportunistic TLS). If done, add an installer flag such as `-smtpd-cert`/`-smtpd-key`.
+- [ ] Check the HELO remote servers see (`Received: from mailout.example.com`) matches the PTR.
+
+### 3.5 E12 — clean-install matrix
+
+Repeat 3.1 steps 1–13 on fresh Debian 12, Ubuntu 22.04 and Ubuntu 24.04 (cheap throwaway VPSes are fine). Record Postfix/OpenDKIM
+versions and any differences in a compatibility table (also needed for G10).
+
+### 3.6 G04 + C06 — existing SMTP for real
+
+- [ ] **Mailcow:** follow `docs/MAILCOW_SETUP.md`; profile type Mailcow; connection test; DKIM key pasted (sending facts); send to
+      Gmail/Outlook; headers recorded. With and without the Mailcow API key.
+- [ ] **Generic Postfix or Exim server** (not managed by Njiwa): profile type generic; enter sending facts (egress IP / SPF
+      include / DKIM selector and key) on the Installation page; check that the Domains page asks for exactly the right SPF/DKIM;
+      send; headers recorded.
+- [ ] C06: turn the generic-server run into a repeatable staging test (a script or a `//go:build staging` test using the same API).
+
+### 3.7 G06 — mode switch with a non-empty queue
+
+- [ ] Start in existing SMTP with mail queued (stop the SMTP server so mail waits in `retry_wait`).
+- [ ] Switch to managed: the plan shows pending counts; activation needs `migrate_pending`; after acknowledging, queued mail goes
+      out through managed Postfix, each message pinned to the profile that sent it.
+- [ ] Roll back to the previous profile and repeat in the other direction.
+- [ ] Legacy upgrade: install an old release with a `mail_server` row, upgrade, confirm migration `0010` made the active profile and
+      sending continues.
+
+### 3.8 Backups, restore drill and firewall on the real host (G03/G02 on production)
+
+- [ ] `scripts/backup.sh` (with `BACKUP_QUEUE=1`), copy off the host, restore on a fresh VPS with `scripts/restore.sh`, run e2e.
+- [ ] From another machine: port 25 open; 2525, 5432, 8080, 3000, 8891, 10587 not reachable (`nmap -p …`).
+
+### 3.9 CI and supply chain (G07)
+
+- [ ] Look at the `govulncheck` and `managed-mta` jobs on GitHub Actions. When both are green once, remove `continue-on-error`
+      in `.github/workflows/ci.yml` so they block merges.
+- [ ] Fix any reported vulnerability (`govulncheck ./...`).
+
+---
+
+## 4. Work that does NOT need the server
+
+Each item: what to build, where, and acceptance criteria. Suggested order: F09 → C01 → F10 → E10 → F07/F02 → docs → B07.
+
+### F09 — operator roles and MFA (security, high value)
+
+- Today: roles are owner/admin and project roles; every admin can change installation settings.
+- Build: a separate **installation operator** permission (transport profiles, installer records, domain claims, activation, keys
+  of the installation) vs project roles; check it in `internal/api/installation.go` and the claims routes.
+- MFA: TOTP (RFC 6238) enrolment for admin users (secret sealed with `ENCRYPTION_KEY`), required at login when enabled; recovery
+  codes (hashed); an operator setting "require MFA for all admins". Migration `0016`.
+- Tests: role matrix (extend `test/security_matrix_test.go` with a non-operator admin), TOTP enrol/login/replay/lockout; update
+  `docs/SECURITY_REVIEW.md`.
+
+### C01 — worker cut-over to `transport.Transport`
+
+- Today: `internal/transport` defines the interface and an SMTP wrapper, but the worker still uses `mailer.Transport` /
+  `StoredTransport`.
+- Build: the worker resolves the active profile to a `transport.Transport` (existing SMTP, managed MTA), keeps the outcome
+  classification, profile pinning, circuit breaker and failover exactly as now.
+- Tests: all existing worker tests unchanged and green (`TestWorkerUsesActiveProfileAndPinsMessages`,
+  `TestUnknownOutcomeIsPinnedAndNotResent`, `TestTransportOutageBreakerAndDegradedReadiness`).
+
+### F10 — retention, export, delete; encryption at rest
+
+- Retention for `delivery_events` and `installer_receipts` (settings like the existing `METADATA_RETENTION`), applied by the
+  retention job.
+- Export (CSV/JSON) and delete per message/recipient for data-subject requests.
+- Encrypt inbound attachments on disk (today plain files under `DATA_DIR`): seal with `ENCRYPTION_KEY`, decrypt on download;
+  migrate existing files.
+
+### E10 — MTA queue controls in the dashboard
+
+- The API runs in a container and must not get host root. Design: a small host-side agent (`njiwa-mail mta-agent`, systemd,
+  root) that exposes `postqueue -j` (view), `postsuper -h/-H/-r/-d` (hold, release, requeue, delete) on a Unix socket or the
+  private network with the installer's mTLS CA; the API proxies to it; every action audited; delete needs typed confirmation.
+- Tests with a fake agent; real run on the server.
+
+### F07 — webhook event versioning
+
+- Add `schema_version` to every event payload, document it in `docs/WEBHOOKS.md`, keep old shapes for one version.
+- Retry and idempotency tests for `email.delivery_*` events (same delivery id on retries, receivers can de-duplicate).
+
+### F02 — reconciliation queue
+
+- A dashboard screen listing `unknown` messages; suggest an outcome from MTA log evidence (queue id from "queued as" +
+  `delivery_events`); operator confirms with a note (already audited).
+
+### F06 — stronger bounce correlation
+
+- Today DSN correlation uses the unguessable message UUID in returned headers. Add a signed VERP-style return path
+  (`bounces+<id>.<hmac>@bounce…`) or an HMAC header, verify on intake, keep the old method as fallback.
+  Postfix side: `recipient_delimiter = +` on the bounce domain (installer change + test).
+
+### C02 — secrets
+
+- Secrets from mounted files already exist for env (`*_FILE`); add the same for profile secrets if needed.
+- `ENCRYPTION_KEY` rotation: `ENCRYPTION_KEY_PREVIOUS` read-only, a `njiwa-mail rekey` command that re-seals every sealed column,
+  then the old key can be removed. Tests: decrypt with either key during the window.
+
+### C05 — Mailcow adapter boundary
+
+- Move `internal/mailcow` behind a provider package/interface; audit records with before/after (no secrets) for every Mailcow API
+  write.
+
+### D04 — per-domain return path
+
+- Today one installation-wide `BOUNCE_ADDRESS`. Allow a bounce domain per sending domain (DMARC SPF alignment per domain);
+  installer accepts several bounce domains; Domains page shows the return-path record per domain.
+
+### B07 / B09 / UI gaps
+
+- Kiswahili for all older strings (`frontend/src/features/i18n`), keyboard and screen-reader pass, DNS record table usable on
+  phones.
+- Health card: managed details (Postfix deferred count, signer status) — needs E10's agent or the metrics.
+- Screens: installer receipts list, delivery-evidence ingestion status (last `mta-log` event time), edit an existing transport
+  profile in place, a DKIM rotation status screen (CLI exists: `installer dkim-rotate status`).
+- After a new domain is verified in managed mode, show "run the installer again to create its DKIM key" (today a manual step).
+
+### A01 / G08 — documentation
+
+- A01: endpoint list and schema map (`docs/ENDPOINTS.md`): generate the route list from `GetRoutes` (the security matrix test
+  already walks it) and describe each table.
+- G08: OpenAPI for the admin API (installation, transport profiles, wizard, domain claims, transport test, sending facts) in
+  `docs/openapi-admin.yaml`; SDK examples; a troubleshooting guide keyed by problem codes (`SMTP_*`, `CLIENT_CERT_*`,
+  `BOUNCES_NOT_CONFIGURED`, `TRANSPORT_FAILING`, …).
+
+### A02 / G07 — CI
+
+- Container smoke test in CI: `docker compose up -d`, wait for `/health/ready`, `docker compose down -v`.
+- SBOM (`syft` or `go version -m`), reproducible tagged build, browser end-to-end tests (Playwright) for login, installation
+  wizard, domains.
+
+### G09 / G10 — release
+
+- G09: someone who did not write the code installs both modes from a clean server using only the docs; note every place they got
+  stuck.
+- G10: `docs/RELEASE_REPORT.md` for the version (it predates this work), rollback runbook, compatibility table (distros, Postfix,
+  OpenDKIM, PostgreSQL versions from E12).
+
+---
+
+## 5. Known limitations (by design — keep documented, do not "fix" silently)
+
+- Rollback boundary: an older binary ignores the new tables; Mail server edits made by an old binary after a rollback are not seen
+  by the transport profile until re-saved.
+- `SMTP_HOST` in the environment overrides saved settings at runtime; its mail is not pinned to a profile.
+- Mode switch: jobs queued before a switch go out via the new profile only after `migrate_pending` is acknowledged; a worker may
+  finish sends through the previous profile for up to 30 s (pinned to the profile that really sent them).
+- Accepted messages are not re-checked against domain claims at dispatch.
+- Strict domain gate: Live mail from unregistered domains is refused; `ALLOW_UNREGISTERED_LIVE_DOMAINS=true` is a temporary bridge.
+- Fixed Compose subnet `172.30.0.0/24` (`NJIWA_SUBNET`); Live rate limits default 600/min, 20 000/h (installation), 300/min,
+  10 000/h (per domain); `LIVE_QUEUE_MAX` default 50 000.
+- The installer does not install packages; new sending domains need another `installer plan/apply -record`; the CA (10 years) is
+  replaced by hand.
+- SMTP to loopback/private addresses is allowed (a relay on the same host is normal); link-local/multicast is refused.
+
+---
+
+## 6. Rules the work has followed (keep them)
+
+- Never say "delivered": a remote server accepting mail is `remote_accepted`, not inbox placement.
+- Readiness must be honest: `cannot_confirm` instead of a guessed pass; optional steps never block; no green without evidence.
+- Every installer change: plan → digest approval → backup → validate (`postfix check`, `opendkim -n`, `nft -c`) → reload →
+  receipt → automatic rollback on failure.
+- Secrets are sealed, never returned or logged (`TestNoSecretInAnyAdminResponse`, `TestSecretsNeverLoggedOrReturned`).
+- Every new route must pass `TestEveryRouteRequiresAuthAndCSRF` (add it to a group, or to `publicRoutes` with a reason).
+- Migrations are additive; tests re-run them on legacy snapshots.
+- A ticket is done only when its predicate is tested; real-host claims need recorded evidence.
+- One PR per round; never push to a branch whose PR is already merged — start a new branch from `main`.
+
+---
+
+## 7. Prompt for Claude Code on the office PC
+
+Copy this as the first message in a Claude Code session started inside the cloned `Njiwa-Mail` folder:
+
+> Read docs/HANDOFF.md, STATUS.md, docs/REMAINING_WORK.md and docs/OPERATIONS.md. We are continuing from the handoff. The
+> server is reachable with `ssh <user>@<server>`. Start with section 3.1 (G05), step by step: run each command, show me the
+> output, and stop before anything that changes DNS or sends Live mail so I can confirm. Record evidence as the handoff
+> describes. Do not change code without running the suites in section 1.3.
