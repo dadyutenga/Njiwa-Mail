@@ -225,6 +225,15 @@ export function useI18n() {
 }
 
 const swPhrases: Record<string, string> = {
+  "Mail host": "Seva ya barua",
+  "Installer runs": "Matumizi ya kisakinishi",
+  "Delivery evidence": "Ushahidi wa utumaji",
+  "DKIM key rotation": "Kubadilisha ufunguo wa DKIM",
+  "Run the installer again": "Endesha kisakinishi tena",
+  deferred: "zimeahirishwa",
+  "on hold": "zimeshikiliwa",
+  running: "inafanya kazi",
+  stopped: "imesimama",
   "Return path (bounce domain)": "Njia ya kurudisha (kikoa cha bounce)",
   "Return-path domain": "Kikoa cha njia ya kurudisha",
   "Mail queue": "Foleni ya barua",

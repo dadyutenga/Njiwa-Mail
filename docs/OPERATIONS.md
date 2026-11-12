@@ -327,6 +327,26 @@ njiwa-mail env restrict -project P -mode live -on=false               # remove r
 ```
 Hard bounces are suppressed automatically once bounce routing is set up; until then, review Mailcow delivery failures and suppress confirmed-invalid recipients by hand.
 
+## Mail host screen (managed mode)
+
+Admin → Mail host (operators) shows what the installer recorded: its runs (action, result, Postfix version, approver, plan digest,
+rollback state), whether delivery evidence is arriving (last event and count per source; silence is reported as a fact, not as a
+fault), verified sending domains that still have no DKIM key on the host (with the exact `installer plan`/`apply` commands to paste), and a
+staged DKIM rotation. For the rotation to appear, run `installer dkim-rotate prepare|activate|cancel|retire` with `-record`; while it is
+prepared the page checks in DNS that each new key is published and says when it is safe to activate. An existing-SMTP profile can be edited in
+place (Admin → Delivery infrastructure → Edit; a blank password keeps the stored one; editing invalidates the earlier connection test).
+With the queue agent set up, the delivery health card also shows Postfix and signer state and the deferred/held counts.
+
+## Mail host screen (managed mode)
+
+Admin → Mail host (operators) shows what the installer recorded: its runs (action, result, Postfix version, approver, plan digest,
+rollback state), whether delivery evidence is arriving (last event and count per source; silence is reported as a fact, not as a
+fault), verified sending domains that still have no DKIM key on the host (with the exact `installer plan`/`apply` commands to paste), and a
+staged DKIM rotation. For the rotation to appear, run `installer dkim-rotate prepare|activate|cancel|retire` with `-record`; while it is
+prepared the page checks in DNS that each new key is published and says when it is safe to activate. An existing-SMTP profile can be edited in
+place (Admin → Delivery infrastructure → Edit; a blank password keeps the stored one; editing invalidates the earlier connection test).
+With the queue agent set up, the delivery health card also shows Postfix and signer state and the deferred/held counts.
+
 ## Per-domain return path (D04)
 
 DMARC counts SPF only when the SMTP envelope sender's domain is aligned with the From domain. The installation's `BOUNCE_ADDRESS` domain

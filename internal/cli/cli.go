@@ -64,7 +64,7 @@ Runtime:
         -adopt -approve DIGEST -record]
                               plan prints the exact changes and a digest; apply needs -approve with that digest,
                               backs up, validates (postfix check, opendkim -n) and rolls back on failure
-  installer dkim-rotate prepare|activate|cancel|retire|status -selector S   (staged DKIM key rotation)
+  installer dkim-rotate prepare|activate|cancel|retire|status -selector S [-record]   (staged DKIM key rotation; -record shows its state on the dashboard)
   retention                   run the retention job once
   rekey [-check]              after changing ENCRYPTION_KEY (old key in ENCRYPTION_KEY_PREVIOUS): re-seal every sealed value with the
                               current key; -check only counts. Repeat until nothing is left, then drop ENCRYPTION_KEY_PREVIOUS
@@ -1036,6 +1036,7 @@ func runRotation(ctx context.Context, deps *installerDeps, p managed.Params, act
 		}
 		fmt.Fprintf(&b, "\nWhen DNS shows them, review and activate:\n  njiwa-mail installer plan -selector %s (same flags)\n  njiwa-mail installer dkim-rotate activate -selector %s -approve <digest> (same flags)\n", rot.To, rot.To)
 		show(rot, b.String())
+		recordRotation(ctx, deps, record, map[string]any{"state": "prepared", "from": rot.From, "to": rot.To, "prepared_at": rot.PreparedAt, "records": rot.Records})
 	case "activate":
 		rot, err := managed.LoadRotation(p)
 		if err != nil {
@@ -1054,6 +1055,7 @@ func runRotation(ctx context.Context, deps *installerDeps, p managed.Params, act
 			if err := managed.FinishRotation(p); err != nil {
 				die(err)
 			}
+			recordRotation(ctx, deps, record, map[string]any{"state": "activated", "from": rot.From, "to": rot.To, "activated_at": time.Now().UTC()})
 			fmt.Printf("\nSigning now uses %s. Keep the %s DNS records for at least 7 days, then: njiwa-mail installer dkim-rotate retire -selector %s\n", rot.To, rot.From, rot.From)
 		}
 	case "retire":
@@ -1062,12 +1064,14 @@ func runRotation(ctx context.Context, deps *installerDeps, p managed.Params, act
 			die(err)
 		}
 		show(removed, fmt.Sprintf("Removed %d private key(s) for selector %s. You can now delete its DNS records.\n", len(removed), p.Selector))
+		recordRotation(ctx, deps, record, map[string]any{"state": "retired", "retired_selector": p.Selector, "retired_at": time.Now().UTC()})
 	case "cancel":
 		rot, err := managed.CancelRotation(p)
 		if err != nil {
 			die(err)
 		}
 		show(rot, "Cancelled the rotation to "+rot.To+"; its keys were deleted. Signing is unchanged.\n")
+		recordRotation(ctx, deps, record, map[string]any{"state": "cancelled", "from": rot.From, "to": rot.To, "cancelled_at": time.Now().UTC()})
 	case "status":
 		cur, err := managed.CurrentSelector(p)
 		if err != nil {
@@ -1080,6 +1084,16 @@ func runRotation(ctx context.Context, deps *installerDeps, p managed.Params, act
 		show(map[string]string{"selector": cur}, msg)
 	default:
 		die(errors.New("usage: njiwa-mail installer dkim-rotate prepare|activate|cancel|retire|status -selector S"))
+	}
+}
+
+// recordRotation tells the dashboard where a DKIM rotation stands (with -record).
+func recordRotation(ctx context.Context, deps *installerDeps, record bool, state map[string]any) {
+	if !record || deps == nil || deps.svc == nil {
+		return
+	}
+	if err := deps.svc.RecordRotation(ctx, service.CLIActor, state); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not record the rotation state:", err)
 	}
 }
 

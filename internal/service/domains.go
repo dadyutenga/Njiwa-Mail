@@ -138,6 +138,7 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 	}
 	bd, _ := d["bounce_domain"].(string)
 	expected := s.expectedRecords(kind, f, s.selectorFor(ctx, kind, f), name, purpose, token, known, bd)
+	d["managed_key_missing"] = kind == senderManaged && sendingPurpose(purpose) && known == ""
 	d["requirements_changed"] = false
 	if recs, ok := d["records"].([]any); !ok || len(recs) == 0 {
 		d["records"] = expected

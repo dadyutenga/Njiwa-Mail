@@ -128,3 +128,51 @@ it("shows delivery health on the dashboard", async () => {
   expect(within(card).getByText("Unknown outcome").nextSibling).toHaveTextContent("1");
   expect(within(card).getByText("Existing mail server")).toBeInTheDocument();
 });
+
+it("edits a profile in place and keeps the stored password when the field is left empty", async () => {
+  mock({});
+  const send = vi.spyOn(admin, "send").mockResolvedValue({} as never);
+  wrap(<TransportProfiles />);
+  const row = (await screen.findByText("New SMTP")).closest("li") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+  const host = within(row).getByLabelText("SMTP host");
+  expect(host).toHaveValue("new.example");
+  fireEvent.change(host, { target: { value: "smtp2.example" } });
+  fireEvent.click(within(row).getByRole("button", { name: "Save profile" }));
+  await waitFor(() => expect(send).toHaveBeenCalled());
+  const [path, method, body] = send.mock.calls[0] as [
+    string,
+    string,
+    { smtp: Record<string, unknown> },
+  ];
+  expect(path).toBe("/installation/transport-profiles/b");
+  expect(method).toBe("PUT");
+  expect(body.smtp.host).toBe("smtp2.example");
+  expect("password" in body.smtp).toBe(false);
+});
+
+it("shows the mail host's Postfix and signer health to operators in managed mode", async () => {
+  vi.spyOn(admin, "get").mockImplementation(async (path: string) => {
+    if (path === "/installation")
+      return {
+        readiness: {
+          mode: "managed_mta",
+          status: "ready",
+          progress: { complete: 1, required: 1 },
+          steps: [],
+        },
+      };
+    if (path === "/mta/status")
+      return {
+        configured: true,
+        reachable: true,
+        status: { queue: { deferred: 3, hold: 1 }, postfix_active: true, signer_active: false },
+      };
+    return {};
+  });
+  wrap(<DeliveryHealthCard />);
+  const line = await screen.findByTestId("host-health");
+  expect(line).toHaveTextContent("Postfix running");
+  expect(line).toHaveTextContent("DKIM signer stopped");
+  expect(line).toHaveTextContent("3 deferred");
+});

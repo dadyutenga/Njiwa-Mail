@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
+import { useOptionalAuth } from "@/features/auth/auth";
 import { useWorkspace } from "@/features/workspace/context";
 import {
   ConfirmButton,
@@ -32,7 +33,13 @@ type Profile = {
   status: string;
   is_active: boolean;
   last_tested_at?: string;
-  config: { host?: string; port?: number; submission_host?: string };
+  config: {
+    host?: string;
+    port?: number;
+    tls_mode?: string;
+    username?: string;
+    submission_host?: string;
+  };
 };
 
 type Plan = {
@@ -162,14 +169,15 @@ function SwitchReview({ p, onDone }: { p: Profile; onDone: () => void }) {
   );
 }
 
-function NewSMTPProfile({ onDone }: { onDone: () => void }) {
+/** Adds an SMTP profile, or edits `edit` in place (a blank password keeps the stored one). */
+function SMTPProfileForm({ onDone, edit }: { onDone: () => void; edit?: Profile }) {
   const phrase = usePhrase();
   const [f, setF] = useState({
-    label: "",
-    host: "",
-    port: "587",
-    tls_mode: "starttls",
-    username: "",
+    label: edit?.label ?? "",
+    host: edit?.config.host ?? "",
+    port: String(edit?.config.port ?? 587),
+    tls_mode: edit?.config.tls_mode ?? "starttls",
+    username: edit?.config.username ?? "",
     password: "",
   });
   const set = (k: keyof typeof f, v: string) => setF({ ...f, [k]: v });
@@ -178,21 +186,33 @@ function NewSMTPProfile({ onDone }: { onDone: () => void }) {
       className="mt-3 grid gap-3 rounded-lg border p-3 sm:grid-cols-2"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await run(
-          () =>
-            admin.send("/installation/transport-profiles", "POST", {
-              mode: "existing_smtp",
-              label: f.label,
-              smtp: {
-                host: f.host,
-                port: Number(f.port),
-                tls_mode: f.tls_mode,
-                username: f.username,
-                password: f.password,
-              },
-            }),
-          phrase("Profile added. Run its connection test before switching to it."),
-        );
+        const smtp = {
+          host: f.host,
+          port: Number(f.port),
+          tls_mode: f.tls_mode,
+          username: f.username,
+          // Editing: leave the password out to keep the stored one.
+          ...(edit && f.password === "" ? {} : { password: f.password }),
+        };
+        const r = edit
+          ? await run(
+              () =>
+                admin.send(`/installation/transport-profiles/${edit.id}`, "PUT", {
+                  mode: "existing_smtp",
+                  label: f.label,
+                  smtp,
+                }),
+              phrase("Profile saved. Its earlier connection test no longer counts; run it again."),
+            )
+          : await run(
+              () =>
+                admin.send("/installation/transport-profiles", "POST", {
+                  mode: "existing_smtp",
+                  label: f.label,
+                  smtp,
+                }),
+              phrase("Profile added. Run its connection test before switching to it."),
+            );
         if (r) onDone();
       }}
     >
@@ -242,12 +262,13 @@ function NewSMTPProfile({ onDone }: { onDone: () => void }) {
           type="password"
           autoComplete="new-password"
           value={f.password}
+          placeholder={edit ? phrase("Leave empty to keep the stored password") : undefined}
           onChange={(e) => set("password", e.target.value)}
         />
       </Field>
       <div className="sm:col-span-2">
         <Button type="submit" disabled={!f.label || !f.host}>
-          {phrase("Add profile")}
+          {edit ? phrase("Save profile") : phrase("Add profile")}
         </Button>
       </div>
     </form>
@@ -265,6 +286,7 @@ export function TransportProfiles() {
   });
   const [review, setReview] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const refresh = () => {
     client.invalidateQueries({ queryKey: profilesKey });
@@ -290,7 +312,7 @@ export function TransportProfiles() {
         )}
       </p>
       {adding && (
-        <NewSMTPProfile
+        <SMTPProfileForm
           onDone={() => {
             setAdding(false);
             refresh();
@@ -346,6 +368,15 @@ export function TransportProfiles() {
                   >
                     {testing === p.id ? phrase("Testing…") : phrase("Test connection")}
                   </Button>
+                  {p.mode === "existing_smtp" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditing(editing === p.id ? null : p.id)}
+                    >
+                      {editing === p.id ? phrase("Cancel") : phrase("Edit")}
+                    </Button>
+                  )}
                   {!p.is_active && (
                     <Button
                       size="sm"
@@ -374,6 +405,15 @@ export function TransportProfiles() {
                     </ConfirmButton>
                   )}
                 </div>
+                {editing === p.id && (
+                  <SMTPProfileForm
+                    edit={p}
+                    onDone={() => {
+                      setEditing(null);
+                      refresh();
+                    }}
+                  />
+                )}
                 {review === p.id && (
                   <SwitchReview
                     p={p}
@@ -404,6 +444,21 @@ export function DeliveryHealthCard() {
   });
   const rd = inst.data?.readiness;
   const n = (v: unknown) => (typeof v === "number" ? v : Number(v) || 0);
+  // Managed mode, operators only: what the mail host itself reports (E10 agent).
+  const user = useOptionalAuth()?.user;
+  const managed = rd?.mode === "managed_mta" && user?.installation_operator !== false;
+  const host = useQuery({
+    queryKey: ["mta", "status"],
+    queryFn: () =>
+      admin.get<{
+        configured: boolean;
+        reachable?: boolean;
+        status?: { queue: Record<string, number>; postfix_active: boolean; signer_active: boolean };
+      }>("/mta/status"),
+    enabled: managed,
+    refetchInterval: 30_000,
+  });
+  const hs = host.data?.status;
   return (
     <Section
       title={phrase("Delivery infrastructure")}
@@ -441,6 +496,18 @@ export function DeliveryHealthCard() {
         {phrase("Last handed to the mail server")}:{" "}
         <Time value={st.data?.last_submitted_at} relative />
       </p>
+      {managed && hs && (
+        <p className="mt-1 text-xs" data-testid="host-health">
+          {phrase("Mail host")}: Postfix {hs.postfix_active ? phrase("running") : phrase("stopped")}{" "}
+          · {phrase("DKIM signer")} {hs.signer_active ? phrase("running") : phrase("stopped")} ·{" "}
+          {n(hs.queue.deferred)} {phrase("deferred")} · {n(hs.queue.hold)} {phrase("on hold")}
+        </p>
+      )}
+      {managed && host.data?.configured === false && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {phrase("Set up the queue agent to see Postfix and signer health here.")}
+        </p>
+      )}
     </Section>
   );
 }

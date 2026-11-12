@@ -528,6 +528,13 @@ export function DomainDetail() {
                 ))}
               </ul>
             </Section>
+            {d.managed_key_missing === true && (
+              <p role="status" className="mt-4 rounded-lg border p-3 text-sm">
+                {phrase(
+                  "This domain has no DKIM key on your mail host yet. Run the installer again (Admin → Mail host shows the exact command), then publish the DKIM record it prints.",
+                )}
+              </p>
+            )}
             {d.purpose !== "receiving" && (
               <ReturnPath
                 id={id ?? ""}

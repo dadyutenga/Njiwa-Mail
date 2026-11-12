@@ -57,7 +57,7 @@ cannot be done from the development container.
 | ID | Status | What is missing |
 |---|---|---|
 | B07 | 🟡 | Kiswahili exists for the new installation screens only; older strings untranslated. No full keyboard / screen-reader test pass; the DNS record table is not yet reworked for phones. |
-| B09 | 🟡 | Health card on every dashboard (mode, readiness, queue, retrying, unknown, last hand-over). Missing: managed-specific details (Postfix deferred count, signer status). |
+| B09 | ✅ | Health card shows managed details (Postfix/signer state, deferred and held counts) from the queue agent; Mail host page with installer receipts, evidence ingestion status, DKIM rotation state and the command for domains without a key. |
 | — | 🟡 | Screens still missing for: installer receipts, delivery-evidence ingestion status, editing an existing transport profile's settings in place. |
 
 ## 6. Reliability, security, operations (F-series) gaps

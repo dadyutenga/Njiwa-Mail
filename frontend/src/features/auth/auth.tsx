@@ -71,6 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     </Context.Provider>
   );
 }
+/** The signed-in context when there is one; null outside the provider (shared widgets and tests). */
+export function useOptionalAuth() {
+  return useContext(Context);
+}
 export function useAuth() {
   const value = useContext(Context);
   if (!value) throw new Error("AuthProvider is missing");

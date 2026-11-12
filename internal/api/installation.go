@@ -33,6 +33,28 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		}
 		return nil, svc.TransferDomainClaim(reqCtx(c), u.Actor(), in.Name, in.Project)
 	})))
+	// The managed mail host as the installer recorded it: receipts, delivery evidence flow,
+	// signing domains without a key yet, and a staged DKIM rotation.
+	h("GET", "/mail-host", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		receipts, err := svc.InstallerReceipts(reqCtx(c), 50)
+		if err != nil {
+			return nil, err
+		}
+		evidence, err := svc.EvidenceStatus(reqCtx(c))
+		if err != nil {
+			return nil, err
+		}
+		missing, err := svc.DomainsMissingKey(reqCtx(c))
+		if err != nil {
+			return nil, err
+		}
+		rotation, err := svc.RotationView(reqCtx(c), s.Resolver)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"receipts": receipts, "evidence": evidence, "domains_missing_key": missing,
+			"suggested_commands": svc.SuggestedInstallerCommands(reqCtx(c)), "dkim_rotation": rotation}, nil
+	})
 	h("GET", "", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		st, err := svc.InstallationState(reqCtx(c))
 		if err != nil {

@@ -92,7 +92,14 @@ func TestSignedReturnPathCorrelation(t *testing.T) {
 	if forged == e.svc.VerpAddress(a) {
 		t.Fatal("test setup")
 	}
-	badTag := e.svc.VerpAddress(a)[:len(e.svc.VerpAddress(a))-len("@"+strings.SplitN(bounceAddr, "@", 2)[1])-1] + "0@" + strings.SplitN(bounceAddr, "@", 2)[1]
+	valid := e.svc.VerpAddress(a)
+	at := strings.LastIndex(valid, "@")
+	last := valid[at-1]
+	flip := byte('0')
+	if last == '0' {
+		flip = 'f' // always differ from the real signature's last digit
+	}
+	badTag := valid[:at-1] + string(flip) + valid[at:]
 	for i, to := range []string{forged, badTag} {
 		// (a different notification each time, or the second would be a duplicate of the first)
 		deliver(to, dsnMail([]string{a, b}[i], "gone-a@example.org", "5.1.1", "failed", "550 5.1.1 User unknown"))
