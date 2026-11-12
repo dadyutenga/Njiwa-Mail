@@ -6,7 +6,7 @@ toolchain go1.26.11
 
 require (
 	github.com/emersion/go-smtp v0.24.0
-	github.com/gofiber/fiber/v2 v2.52.9
+	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jhillyerd/enmime/v2 v2.4.1
 	golang.org/x/crypto v0.58.0
