@@ -207,9 +207,28 @@ One-off: `njiwa-mail retention`. **Backups can retain older encrypted data until
 
 ## Backups
 
-`pg_dump` the `mail` database on a schedule, back up the `maildata` volume (inbound attachments and unparsed spool) with it, and store `ENCRYPTION_KEY`/`HMAC_KEY` in a separate protected location. A backup without the keys cannot decrypt in-flight payloads.
-**No restore test has been performed**; do not claim disaster-recovery readiness until one is done and recorded.
+`scripts/backup.sh [OUT_DIR]` (reads `DATABASE_URL`, `DATA_DIR`) writes, owner-only, with a `MANIFEST.sha256`:
 
+| File | Contents |
+|---|---|
+| `mail.dump` | PostgreSQL (`pg_dump -Fc`) |
+| `data.tgz` | `DATA_DIR`: inbound attachments and unparsed spool |
+| `managed.tgz` | managed host only, run as root: Postfix and OpenDKIM configuration, DKIM private keys, the local CA and the worker's certificate, installer receipts |
+| `postfix-queue.tgz` | with `BACKUP_QUEUE=1`: the Postfix queue (Postfix is stopped for the few seconds of the copy so the queue is consistent) |
+
+`ENCRYPTION_KEY` and `HMAC_KEY` are **not** in the backup: store them separately and protected. Without them, encrypted payloads in a
+restored database cannot be read. The backup itself contains private keys: keep it encrypted and off the host.
+
+`scripts/restore.sh BACKUP_DIR` verifies the manifest first, restores the database and `DATA_DIR`, and on a managed host (as root)
+restores the files with their owners and permissions, rebuilds the Postfix lookup tables, runs `postfix check` and `opendkim -n`,
+and restarts the services (restores the queue when `postfix-queue.tgz` is present).
+
+**Restore drill (2026-11-12, development container, Postfix 3.8.6 + OpenDKIM):** seeded a database and one queued message, ran
+`BACKUP_QUEUE=1 scripts/backup.sh`, deleted the DKIM keys, certificates, Postfix/OpenDKIM configuration, installer receipts, the
+queue and the database, then ran `scripts/restore.sh`. Result: the database rows and the queued message were back, the DKIM key and
+the worker's client key were byte-identical (same SHA-256), owners and permissions were intact (`opendkim 0750` key directories,
+`0600` keys), `installer plan` showed nothing to change, and all `managed_e2e` checks passed. Repeat the drill on the production host
+before relying on it.
 ## Rollback
 
 1. Pause acceptance for the affected project (`project disable`) **or** switch the application's provider flag for *new* requests.

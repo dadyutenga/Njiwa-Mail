@@ -113,6 +113,8 @@ export const problemFixes: Record<string, string> = {
     "The server does not offer STARTTLS on this port. Use port 465 with TLS, or enable STARTTLS on the server.",
   SMTP_TLS_CERT_INVALID:
     "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
+  SMTP_SERVER_TEMP_REFUSED:
+    "The server is temporarily refusing mail. On a managed host this usually means the DKIM signer is stopped: start opendkim (systemctl start opendkim) and test again.",
   SMTP_NO_GREETING: "The server did not answer like a mail server. Check the host and port.",
   SMTP_AUTH_MISSING: "Enter the SMTP username and password.",
   SMTP_AUTH_REJECTED: "The login was rejected. Check the username and enter the password again.",
