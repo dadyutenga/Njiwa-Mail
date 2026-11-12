@@ -1,6 +1,7 @@
 package managed
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -97,6 +98,9 @@ func chownTo(path, name string) {
 // rebuilt now; any drift is refused. On a validation or reload failure every
 // file is restored from the backup and the receipt says so.
 func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, error) {
+	if p.Now.IsZero() {
+		p.Now = now
+	}
 	pl, err := BuildPlan(p)
 	if err != nil {
 		return nil, err
@@ -119,7 +123,7 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	}
 	targets = append(targets, njDir+"/ca.crt", njDir+"/ca.key", njDir+"/server.crt", njDir+"/server.key",
 		njDir+"/relay_clientcerts", njDir+"/relay_clientcerts.db", njDir+"/senders.db", njDir+"/transport.db",
-		clientDir+"/client.crt", clientDir+"/client.key", clientDir+"/ca.crt")
+		clientDir+"/client.crt", clientDir+"/client.key", clientDir+"/ca.crt", clientDir+"/client.prev.crt")
 	for _, d := range p.Domains {
 		targets = append(targets, dkimKeyPath(d, p.Selector))
 	}
@@ -169,7 +173,13 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 		return fail()
 	}
 	files := append([]File{}, pl.Files...)
-	files = append(files, File{Path: njDir + "/relay_clientcerts", Mode: 0644, Content: []byte(Marker + "\n" + rc.ClientFingerprint + " njiwa-worker\n")})
+	relay := Marker + "\n" + rc.ClientFingerprint + " njiwa-worker\n"
+	if prev := previousClientFingerprint(p, now); prev != "" && prev != rc.ClientFingerprint {
+		relay += prev + " njiwa-worker-previous\n"
+		rc.Steps = append(rc.Steps, Step{Name: "keep previous client certificate", OK: true,
+			Detail: "accepted until the worker uses the new one (at most " + PreviousClientGrace.String() + ")"})
+	}
+	files = append(files, File{Path: njDir + "/relay_clientcerts", Mode: 0644, Content: []byte(relay)})
 	for _, f := range files {
 		if !step("write "+f.Path, writeFileAtomic(p.path(f.Path), f.Content, f.Mode), "") {
 			return fail()
@@ -259,6 +269,8 @@ func reload(p Params, run Runner) error {
 func ensurePKI(p Params, now time.Time) error {
 	caCrt, caKeyPath := p.path(njDir+"/ca.crt"), p.path(njDir+"/ca.key")
 	if _, err := os.Stat(caCrt); err != nil {
+		// A new CA: certificates issued by a previous one must be reissued.
+		p.RenewCerts = true
 		ca, _, _, err := newCA(now)
 		if err != nil {
 			return err
@@ -282,7 +294,7 @@ func ensurePKI(p Params, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(p.path(njDir + "/server.crt")); err != nil {
+	if certDue(p.path(njDir+"/server.crt"), now, p.RenewCerts) {
 		host, _, _ := strings.Cut(p.SubmissionBind, ":")
 		host = strings.Trim(host, "[]")
 		srv, err := issue(ca, caKey, p.Hostname, []string{p.Hostname, "localhost"}, parseIPs(host, "127.0.0.1"), false, now)
@@ -296,7 +308,15 @@ func ensurePKI(p Params, now time.Time) error {
 			return err
 		}
 	}
-	if _, err := os.Stat(p.path(clientDir + "/client.crt")); err != nil {
+	if certDue(p.path(clientDir+"/client.crt"), now, p.RenewCerts) {
+		// Keep the replaced certificate so Postfix can accept it for a grace
+		// period (see previousClientFingerprint).
+		if old, err := os.ReadFile(p.path(clientDir + "/client.crt")); err == nil {
+			stamp := []byte(prevStamp + now.UTC().Format(time.RFC3339) + "\n")
+			if err := writeFileAtomic(p.path(clientDir+"/client.prev.crt"), append(stamp, old...), 0o644); err != nil {
+				return err
+			}
+		}
 		cl, err := issue(ca, caKey, "njiwa-worker", nil, nil, true, now)
 		if err != nil {
 			return err
@@ -309,6 +329,29 @@ func ensurePKI(p Params, now time.Time) error {
 		}
 	}
 	return writeFileAtomic(p.path(clientDir+"/ca.crt"), cb, 0o644)
+}
+
+// prevStamp starts the first line of client.prev.crt, followed by the time the
+// certificate was replaced (the file's mtime would not survive a restore).
+const prevStamp = "# replaced at "
+
+// previousClientFingerprint is the replaced client certificate's fingerprint
+// while it is within the grace period after renewal and not expired.
+func previousClientFingerprint(p Params, now time.Time) string {
+	b, err := os.ReadFile(p.path(clientDir + "/client.prev.crt"))
+	if err != nil || !bytes.HasPrefix(b, []byte(prevStamp)) {
+		return ""
+	}
+	line, _, _ := strings.Cut(strings.TrimPrefix(string(b), prevStamp), "\n")
+	replaced, err := time.Parse(time.RFC3339, line)
+	if err != nil || now.Sub(replaced) > PreviousClientGrace {
+		return ""
+	}
+	if exp, err := PEMExpiry(b); err != nil || !now.Before(exp) {
+		return ""
+	}
+	fp, _ := Fingerprint(b)
+	return fp
 }
 
 // ensureDKIM keeps an existing key (rotation is a separate, deliberate step)

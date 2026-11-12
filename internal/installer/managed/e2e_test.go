@@ -72,7 +72,13 @@ func managedConfig(t *testing.T, withCert bool) mailer.SMTPConfig {
 	pool.AppendCertsFromPEM(ca)
 	cfg := mailer.SMTPConfig{Host: "127.0.0.1", Port: 10587, ServerName: "mailout.example.test", RootCAs: pool, HeloName: "njiwa-worker", Timeout: 15 * time.Second}
 	if withCert {
-		pair, err := tls.LoadX509KeyPair("/etc/njiwa-mail/submission/client.crt", "/etc/njiwa-mail/submission/client.key")
+		// NJIWA_E2E_CLIENT_DIR points at another client.crt/client.key, for
+		// example a copy of the certificate replaced by a renewal.
+		dir := "/etc/njiwa-mail/submission"
+		if d := os.Getenv("NJIWA_E2E_CLIENT_DIR"); d != "" {
+			dir = d
+		}
+		pair, err := tls.LoadX509KeyPair(dir+"/client.crt", dir+"/client.key")
 		if err != nil {
 			t.Fatal(err)
 		}

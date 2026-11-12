@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Marker is the first line of every file the installer owns.
@@ -45,6 +46,12 @@ type Params struct {
 	// ComposeSubnet is the Docker network the worker connects from when the
 	// submission listener is on its gateway (default 172.30.0.0/24).
 	ComposeSubnet string
+	// RenewCerts reissues the server and client certificates now, even when
+	// they are not yet due (they are reissued automatically within
+	// RenewBefore of expiry).
+	RenewCerts bool
+	// Now is the planning time (tests); zero means the current time.
+	Now time.Time
 }
 
 func (p *Params) normalise() error {
@@ -160,6 +167,8 @@ type Plan struct {
 	// Conflict is set when the host has a mail server the installer did not
 	// install; Apply refuses unless Params.Adopt.
 	Conflict string `json:"conflict,omitempty"`
+	// Warnings need the operator's attention but do not block apply.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Paths of everything the installer owns.
@@ -229,6 +238,17 @@ func BuildPlan(p Params) (*Plan, error) {
 	pl.Files = want
 	_, caErr := os.Stat(p.path(njDir + "/ca.crt"))
 	pl.Actions = append(pl.Actions, Action{Kind: "generate_pki", Target: njDir + " and " + clientDir, Needed: caErr != nil})
+	if caErr == nil {
+		now := p.now()
+		for _, c := range []struct{ kind, path string }{{"renew_server_certificate", njDir + "/server.crt"}, {"renew_client_certificate", clientDir + "/client.crt"}} {
+			if certDue(p.path(c.path), now, p.RenewCerts) {
+				pl.Actions = append(pl.Actions, Action{Kind: c.kind, Target: c.path, Needed: true})
+			}
+		}
+		if exp, err := CertExpiry(p.path(njDir + "/ca.crt")); err == nil && exp.Sub(now) < CAWarnBefore {
+			pl.Warnings = append(pl.Warnings, fmt.Sprintf("the local submission CA expires on %s; it is not renewed automatically (see OPERATIONS.md)", exp.Format("2006-01-02")))
+		}
+	}
 	for _, d := range p.Domains {
 		_, err := os.Stat(p.path(dkimKeyPath(d, p.Selector)))
 		pl.Actions = append(pl.Actions, Action{Kind: "generate_dkim_key", Target: dkimKeyPath(d, p.Selector), Needed: err != nil})
@@ -257,11 +277,18 @@ func (pl *Plan) Summary() string {
 	}
 	for _, a := range pl.Actions {
 		if a.Needed {
-			fmt.Fprintf(&b, "  %-9s %s\n", "generate", a.Target)
+			verb := "generate"
+			if strings.HasPrefix(a.Kind, "renew_") {
+				verb = "renew"
+			}
+			fmt.Fprintf(&b, "  %-9s %s\n", verb, a.Target)
 		}
 	}
 	if pl.Conflict != "" {
 		fmt.Fprintf(&b, "\nCONFLICT: %s.\n", pl.Conflict)
+	}
+	for _, w := range pl.Warnings {
+		fmt.Fprintf(&b, "\nWARNING: %s.\n", w)
 	}
 	fmt.Fprintf(&b, "\nPlan digest: %s\n", pl.Digest)
 	return b.String()

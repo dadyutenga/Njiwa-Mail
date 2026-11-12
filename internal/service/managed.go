@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 
 	"github.com/njiwa-tz/mail/internal/db"
@@ -56,8 +57,16 @@ func (s *Service) RecordManagedInstall(ctx context.Context, a Actor, in ManagedI
 	if err != nil {
 		return unavailable("seal", err)
 	}
-	cfg, _ := json.Marshal(map[string]any{"submission_host": in.SubmissionHost, "submission_port": in.SubmissionPort,
-		"server_name": in.ServerName, "selector": in.Selector, "dkim_records": in.DKIMRecords})
+	conf := map[string]any{"submission_host": in.SubmissionHost, "submission_port": in.SubmissionPort,
+		"server_name": in.ServerName, "selector": in.Selector, "dkim_records": in.DKIMRecords}
+	// The expiry is kept in the clear (it is not secret) so readiness can warn
+	// before the worker's certificate stops working.
+	if blk, _ := pem.Decode(in.ClientCertPEM); blk != nil {
+		if c, err := x509.ParseCertificate(blk.Bytes); err == nil {
+			conf["client_cert_not_after"] = c.NotAfter.UTC()
+		}
+	}
+	cfg, _ := json.Marshal(conf)
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return unavailable("managed_install", err)

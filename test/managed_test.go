@@ -17,6 +17,10 @@ import (
 )
 
 func pemPair(t *testing.T, cn string) (certPEM, keyPEM []byte) {
+	return pemPairFor(t, cn, 5*365*24*time.Hour)
+}
+
+func pemPairFor(t *testing.T, cn string, valid time.Duration) (certPEM, keyPEM []byte) {
 	t.Helper()
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
 	e := func(err error) {
@@ -26,7 +30,7 @@ func pemPair(t *testing.T, cn string) (certPEM, keyPEM []byte) {
 	}
 	e(err)
 	tpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: cn},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(valid), IsCA: true, BasicConstraintsValid: true}
 	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &k.PublicKey, k)
 	e(err)
 	kd, err := x509.MarshalPKCS8PrivateKey(k)
@@ -138,5 +142,37 @@ func TestManagedSelectorFollowsRotation(t *testing.T) {
 	rec := recordByKey(det, "dkim")
 	if str(rec, "host") != "rot2._domainkey.notify.example.com" || str(rec, "value") != dkim || det.JSON["dkim_selector"] != "rot2" {
 		t.Fatalf("selector after rotation: %v %v", rec, det.JSON["dkim_selector"])
+	}
+}
+
+// E11: readiness warns before the worker's managed submission certificate
+// expires, and reports an expired one as an error.
+func TestManagedClientCertificateExpiry(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"})
+	ca, _ := pemPair(t, "ca")
+	record := func(valid time.Duration) installation.Step {
+		cert, key := pemPairFor(t, "njiwa-worker", valid)
+		e.must(e.svc.RecordManagedInstall(ctx, service.CLIActor, service.ManagedInstall{ReceiptID: "r", PlanDigest: "d" + valid.String(),
+			ApprovedBy: "cli", PostfixVersion: "3.8.6", SubmissionHost: "127.0.0.1", SubmissionPort: 10587, ServerName: "mailout.example.com",
+			Selector: "njiwa", DKIMRecords: map[string]string{"notify.example.com": dkimRecord(t)}, ClientCertPEM: cert, ClientKeyPEM: key, CAPEM: ca}))
+		for _, s := range e.readiness().Steps {
+			if s.ID == "install" {
+				return s
+			}
+		}
+		t.Fatal("no install step")
+		return installation.Step{}
+	}
+	if s := record(4 * 365 * 24 * time.Hour); s.Status != installation.Ready || s.ProblemCode != "" {
+		t.Fatalf("fresh certificate: %+v", s)
+	}
+	if s := record(10 * 24 * time.Hour); s.Status != installation.NeedsAction || s.ProblemCode != installation.CodeCertExpiring {
+		t.Fatalf("expiring certificate: %+v", s)
+	}
+	if s := record(-time.Minute); s.Status != installation.Error || s.ProblemCode != installation.CodeCertExpired {
+		t.Fatalf("expired certificate: %+v", s)
 	}
 }
