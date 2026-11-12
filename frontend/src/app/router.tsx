@@ -39,6 +39,7 @@ import ProjectDetail from "@/features/mail/ProjectDetail";
 import SettingsPage from "@/features/mail/Settings";
 import Profile from "@/features/mail/Profile";
 import { Empty } from "@/features/workspace/ui";
+import { DomainClaims } from "@/features/installation/Claims";
 
 const page = (el: ReactNode) => <Suspense fallback={<PageLoader />}>{el}</Suspense>;
 
@@ -88,6 +89,7 @@ const workspacePages: [string, ReactNode][] = [
   ["projects/:name", <ProjectDetail />],
   ["users", <Users />],
   ["mail-server", <MailServer />],
+  ["domain-claims", <DomainClaims />],
   ["analytics", <Analytics />],
   ["alerts", <Alerts />],
   ["system", <System />],
