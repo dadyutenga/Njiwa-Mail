@@ -89,6 +89,14 @@ func (s *Server) installationRoutes(app *fiber.App) {
 	h("DELETE", "/transport-profiles/:id", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		return nil, svc.RetireTransportProfile(reqCtx(c), u.Actor(), c.Params("id"))
 	})
+	// What an existing SMTP server sends from (C07).
+	h("PUT", "/transport-profiles/:id/sending-facts", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in service.SendingFactsInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		return svc.SetSendingFacts(reqCtx(c), u.Actor(), c.Params("id"), in)
+	})
 	// Connection diagnosis for one profile, recorded against its exact revision.
 	h("POST", "/transport-profiles/:id/test", func(c *fiber.Ctx, u *service.AdminUser) (any, error) {
 		id := c.Params("id")

@@ -258,3 +258,32 @@ it("sends a controlled test through the queue of the current project", async () 
     "/p/demo/messages/m-1",
   );
 });
+
+it("saves an existing server's sending facts for its profile", async () => {
+  mockAdmin(state({}));
+  const send = vi.spyOn(admin, "send").mockResolvedValue({} as never);
+  wrap(<MailServer />);
+  fireEvent.change(await screen.findByLabelText(/^Sending IP addresses or ranges/), {
+    target: { value: "198.51.100.7, 2001:db8:5::/48" },
+  });
+  fireEvent.change(screen.getByLabelText(/^SPF include/), {
+    target: { value: "spf.provider.example" },
+  });
+  fireEvent.change(screen.getByLabelText(/^DKIM selector/), { target: { value: "s1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save sending facts" }));
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith("/installation/transport-profiles/p1/sending-facts", "PUT", {
+      egress_ips: ["198.51.100.7", "2001:db8:5::/48"],
+      spf_include: "spf.provider.example",
+      dkim_selector: "s1",
+    }),
+  );
+});
+
+it("does not ask managed or Mailcow installations for sending facts", async () => {
+  mockAdmin(state({}), { provider_type: "mailcow" });
+  wrap(<MailServer />);
+  expect(await screen.findByLabelText(/^SMTP host/)).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByLabelText(/^Mail server type/)).toHaveValue("mailcow"));
+  expect(screen.queryByText("What your mail server sends from")).not.toBeInTheDocument();
+});

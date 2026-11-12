@@ -49,12 +49,109 @@ export type InstallationState = {
     | "degraded"
     | "completed";
   wizard: { selected_mode?: DeliveryMode; confirmed_at?: string };
-  active_profile: { id: string; mode: DeliveryMode; config_revision: number } | null;
+  active_profile: {
+    id: string;
+    mode: DeliveryMode;
+    config_revision: number;
+    sending_facts?: SendingFacts;
+  } | null;
   profile: { id: string; mode: DeliveryMode; config_revision: number } | null;
   environment_override?: boolean;
 };
 
+export type SendingFacts = {
+  egress_ips?: string[];
+  spf_include?: string;
+  dkim_selector?: string;
+  dkim_keys?: Record<string, string>;
+};
+
 export const installationKey = ["installation"] as const;
+
+/**
+ * Where an existing SMTP server sends from (C07). Njiwa-Mail cannot see a
+ * server it does not run; with these facts SPF and DKIM are checked against
+ * the real values instead of templates.
+ */
+export function SendingFactsForm({
+  profileId,
+  facts,
+}: {
+  profileId: string;
+  facts?: SendingFacts;
+}) {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const [ips, setIps] = useState((facts?.egress_ips ?? []).join(", "));
+  const [include, setInclude] = useState(facts?.spf_include ?? "");
+  const [selector, setSelector] = useState(facts?.dkim_selector ?? "");
+  const [saving, setSaving] = useState(false);
+  return (
+    <Section title={phrase("What your mail server sends from")}>
+      <p className="mb-3 text-xs text-muted-foreground">
+        {phrase(
+          "Njiwa-Mail cannot see the server it hands mail to. Enter what your mail server's operator documents, so SPF and DKIM are checked against the real values. These do not change the connection settings.",
+        )}
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium">{phrase("Sending IP addresses or ranges")}</span>
+          <input
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            value={ips}
+            onChange={(e) => setIps(e.target.value)}
+            placeholder="198.51.100.7, 2001:db8:5::/48"
+          />
+        </label>
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium">{phrase("SPF include")}</span>
+          <input
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            value={include}
+            onChange={(e) => setInclude(e.target.value)}
+            placeholder="spf.provider.example"
+          />
+        </label>
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium">{phrase("DKIM selector")}</span>
+          <input
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            value={selector}
+            onChange={(e) => setSelector(e.target.value)}
+            placeholder="s1"
+          />
+        </label>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {phrase("The DKIM public key for each domain is entered on that domain's page.")}
+      </p>
+      <Button
+        className="mt-3"
+        variant="outline"
+        disabled={saving}
+        onClick={async () => {
+          setSaving(true);
+          const r = await run(
+            () =>
+              admin.send(`/installation/transport-profiles/${profileId}/sending-facts`, "PUT", {
+                egress_ips: ips
+                  .split(/[\s,]+/)
+                  .map((x) => x.trim())
+                  .filter(Boolean),
+                spf_include: include,
+                dkim_selector: selector,
+              }),
+            phrase("Saved. Check each domain again to see the new requirements."),
+          );
+          setSaving(false);
+          if (r) client.invalidateQueries({ queryKey: installationKey });
+        }}
+      >
+        {saving ? phrase("Saving…") : phrase("Save sending facts")}
+      </Button>
+    </Section>
+  );
+}
 
 export function useInstallation() {
   return useQuery({

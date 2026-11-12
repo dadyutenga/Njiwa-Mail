@@ -191,10 +191,16 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	if !step("opendkim configuration check", err, out) {
 		return fail()
 	}
+	if !p.NoFirewall {
+		out, err = run.Run("nft", "-c", "-f", p.path(FirewallFile))
+		if !step("firewall rules check", err, out) {
+			return fail()
+		}
+	}
 	if v, err := run.Run("postconf", "-h", "mail_version"); err == nil {
 		rc.PostfixVersion = strings.TrimSpace(v)
 	}
-	if !step("reload services", reload(run), "") {
+	if !step("reload services", reload(p, run), "") {
 		return fail()
 	}
 	rc.Result = "ok"
@@ -204,9 +210,21 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	return rc, nil
 }
 
-// reload starts or reloads Postfix and restarts OpenDKIM. With systemd it
-// uses the units; without (containers) it uses the programs directly.
-func reload(run Runner) error {
+// reload starts or reloads Postfix and restarts OpenDKIM, and loads (or, when
+// its file is gone after a rollback, removes) the firewall table. With
+// systemd it uses the units; without (containers) the programs directly.
+func reload(p Params, run Runner) error {
+	if _, err := os.Stat(p.path(FirewallFile)); err == nil {
+		if out, err := run.Run("nft", "-f", p.path(FirewallFile)); err != nil {
+			return fmt.Errorf("firewall: %s %w", out, err)
+		}
+		if _, err := os.Stat("/run/systemd/system"); err == nil {
+			_, _ = run.Run("systemctl", "daemon-reload")
+			_, _ = run.Run("systemctl", "enable", "njiwa-mail-firewall")
+		}
+	} else {
+		_, _ = run.Run("nft", "delete", "table", "inet", "njiwa_mail") // absent is fine
+	}
 	if _, err := os.Stat("/run/systemd/system"); err == nil {
 		if out, err := run.Run("systemctl", "enable", "--now", "opendkim"); err != nil {
 			return fmt.Errorf("opendkim: %s %w", out, err)
@@ -343,7 +361,7 @@ func restore(p Params, rc *Receipt, run Runner) {
 			_ = os.Remove(p.path(f.Path))
 		}
 	}
-	_ = reload(run)
+	_ = reload(p, run)
 }
 
 func saveReceipt(p Params, rc *Receipt) error {
