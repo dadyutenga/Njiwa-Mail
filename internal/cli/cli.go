@@ -712,6 +712,7 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 	inbound := fs.String("inbound", "127.0.0.1:2525", "Njiwa inbound listener that receives DSNs (host:port)")
 	adopt := fs.Bool("adopt", false, "replace an existing Postfix configuration not written by Njiwa-Mail (backed up first)")
 	noFirewall := fs.Bool("no-firewall", false, "do not install the nftables table that drops Njiwa's private ports from outside")
+	renewCerts := fs.Bool("renew-certs", false, "reissue the submission server and worker certificates now (otherwise done automatically within 60 days of expiry)")
 	subnet := fs.String("compose-subnet", firstNonEmpty(os.Getenv("NJIWA_SUBNET"), "172.30.0.0/24"), "Docker network the worker connects from")
 	approve := fs.String("approve", "", "apply only if the plan digest equals this value")
 	receipt := fs.String("receipt", "", "rollback: receipt id (default: the latest)")
@@ -732,7 +733,7 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		}
 	}
 	p := managed.Params{Hostname: *hostname, BounceDomain: *bounce, Domains: ds, Selector: *selector,
-		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt, NoFirewall: *noFirewall, ComposeSubnet: *subnet}
+		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt, NoFirewall: *noFirewall, ComposeSubnet: *subnet, RenewCerts: *renewCerts}
 	show := func(v any, text string) {
 		if *asJSON {
 			_ = json.NewEncoder(os.Stdout).Encode(v)
@@ -770,7 +771,12 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		if err != nil {
 			die(err)
 		}
-		show(rc, fmt.Sprintf("Latest receipt %s: %s, rollback %s, digest %s, Postfix %s\n", rc.ID, rc.Result, rc.RollbackState, rc.PlanDigest, rc.PostfixVersion))
+		var b strings.Builder
+		fmt.Fprintf(&b, "Latest receipt %s: %s, rollback %s, digest %s, Postfix %s\n", rc.ID, rc.Result, rc.RollbackState, rc.PlanDigest, rc.PostfixVersion)
+		for _, c := range managed.Certificates(p) {
+			fmt.Fprintf(&b, "%-30s expires %s%s\n", c.Name, c.NotAfter.Format("2006-01-02"), c.Note)
+		}
+		show(rc, b.String())
 	default:
 		die(errors.New("usage: njiwa-mail installer plan|apply|rollback|status [flags]"))
 	}

@@ -33,6 +33,8 @@ const (
 	CodeTransportFailing = "TRANSPORT_FAILING"
 	CodeBouncesNotSetUp  = "BOUNCES_NOT_CONFIGURED"
 	CodeBounceListener   = "BOUNCE_LISTENER_DOWN"
+	CodeCertExpiring     = "CLIENT_CERT_EXPIRING"
+	CodeCertExpired      = "CLIENT_CERT_EXPIRED"
 )
 
 // DefaultCheckTTL is how long a passing check stays trustworthy.
@@ -61,6 +63,9 @@ type Facts struct {
 	Checks          map[string]Check // latest per check key (any revision)
 	// ManagedInstalled is true only when a verified installer receipt exists.
 	ManagedInstalled bool
+	// ClientCertNotAfter is when the worker's submission certificate
+	// (managed mode) expires; nil when unknown.
+	ClientCertNotAfter *time.Time
 	// Delivery is what the worker saw recently on the active profile. Checks
 	// can pass while mail is not going out; this keeps the status honest.
 	Delivery *DeliveryHealth
@@ -84,6 +89,11 @@ type DeliveryHealth struct {
 	LastCode          string     // its reason code
 	LastSubmitted     *time.Time // most recent successful hand-over
 }
+
+// CertWarnBefore is how early readiness warns about the worker's managed
+// submission certificate. The installer renews it within 60 days, so seeing
+// this means the installer has not been re-run.
+const CertWarnBefore = 30 * 24 * time.Hour
 
 // FailureThreshold failures with no successful submission since make the
 // installation degraded.
@@ -163,6 +173,16 @@ func Compute(f Facts) Readiness {
 		inst := Step{ID: "install", Title: "Install the mail delivery service", Required: true}
 		if f.ManagedInstalled {
 			inst.Status = Ready
+			if na := f.ClientCertNotAfter; na != nil {
+				switch {
+				case !f.Now.Before(*na):
+					inst.Status, inst.ProblemCode = Error, CodeCertExpired
+					inst.Message = "The worker's submission certificate expired on " + na.Format("2006-01-02") + ". Mail cannot be handed to the mail delivery service until it is renewed."
+				case na.Sub(f.Now) < CertWarnBefore:
+					inst.Status, inst.ProblemCode = NeedsAction, CodeCertExpiring
+					inst.Message = "The worker's submission certificate expires on " + na.Format("2006-01-02") + ". Renew it on the host before then."
+				}
+			}
 		} else {
 			inst.Status, inst.ProblemCode = NotStarted, CodeInstallerMissing
 			inst.Message = "The managed installer has not been run on this host."

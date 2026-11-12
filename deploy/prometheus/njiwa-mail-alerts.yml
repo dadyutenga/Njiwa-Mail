@@ -1,0 +1,86 @@
+# Prometheus alert rules for Njiwa-Mail (backlog F08). Load with
+#   rule_files: [/etc/prometheus/njiwa-mail-alerts.yml]
+# and scrape the API on 127.0.0.1:8080/metrics with
+#   authorization: { credentials: <METRICS_TOKEN> }
+# Route the alerts with Alertmanager to e-mail, chat or a pager. Do not route
+# them only through Njiwa-Mail itself: when sending is broken, so is that path.
+groups:
+  - name: njiwa-mail
+    rules:
+      - alert: NjiwaMailDown
+        expr: up{job="njiwa-mail"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Njiwa-Mail /metrics is not answering"
+
+      - alert: NjiwaMailTransportFailing
+        expr: njiwa_mail_transport_failing == 1
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Live mail cannot reach the mail server (TRANSPORT_FAILING)"
+          description: "Messages stay queued and are retried. Run the connection test on the Installation page."
+
+      - alert: NjiwaMailSignerRefusing
+        expr: njiwa_mail_transport_retries_15m{reason="smtp_454"} > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "The mail server refuses mail temporarily (454)"
+          description: "On a managed host this usually means OpenDKIM is down: systemctl status opendkim."
+
+      - alert: NjiwaMailBacklogNearLimit
+        expr: njiwa_mail_live_backlog > 0.8 * njiwa_mail_live_backlog_limit
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Live backlog above 80% of LIVE_QUEUE_MAX; new Live mail will soon be refused with 503 queue_full"
+
+      - alert: NjiwaMailQueueStuck
+        expr: njiwa_mail_oldest_queued_age_seconds > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "A message has waited more than 30 minutes for hand-over"
+
+      - alert: NjiwaMailDeferredRateHigh
+        expr: >
+          njiwa_mail_delivery_events_1h{event="deferred"}
+            / clamp_min(njiwa_mail_delivery_events_1h{event="deferred"} + njiwa_mail_delivery_events_1h{event="remote_accepted"}, 1)
+            > 0.2
+          and njiwa_mail_delivery_events_1h{event="remote_accepted"} + njiwa_mail_delivery_events_1h{event="deferred"} >= 20
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 20% of remote deliveries in the last hour were deferred"
+          description: "Check the Postfix queue (postqueue -p), blocklists and the DNS check. Needs the mta-log collector."
+
+      - alert: NjiwaMailNotReady
+        expr: njiwa_mail_installation_ready == 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Installation readiness is not complete"
+          description: "See njiwa_mail_installation_problem for the problem codes and the Installation page for the fix."
+
+      - alert: NjiwaMailClientCertExpiring
+        expr: njiwa_mail_client_cert_expiry_seconds < 30 * 86400
+        labels: { severity: warning }
+        annotations:
+          summary: "The managed submission certificate expires within 30 days"
+          description: "Run njiwa-mail installer plan and apply -record on the mail host (OPERATIONS.md, Renewing the submission certificates)."
+
+      - alert: NjiwaMailRoleDown
+        expr: njiwa_mail_role_up == 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "A Njiwa-Mail role ({{ $labels.role }}) stopped sending heartbeats"
+
+      - alert: NjiwaMailOperatorAlerts
+        expr: njiwa_mail_open_alerts > 0
+        for: 1m
+        labels: { severity: info }
+        annotations:
+          summary: "Unacknowledged Njiwa-Mail alerts (bounce rates, disabled webhooks): see the Overview page"

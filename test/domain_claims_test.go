@@ -253,13 +253,21 @@ func TestDNSRecordsFollowTheActualSender(t *testing.T) {
 	owner := e.user("owner@njiwa.co.tz", "owner")
 	e.admOK(owner, "PUT", "/admin/v1/mail-server", map[string]any{"smtp_host": "smtp.provider.example", "smtp_port": 587,
 		"smtp_tls_mode": "starttls", "smtp_username": "njiwa@example.com", "provider_type": "mailcow"})
-	// The page shows the records of the last check; a re-check uses the new sender.
+	// Before a new check the page already shows the new requirements and says
+	// the saved result was for different ones; a re-check clears that.
+	r = e.admOK(admin, "GET", path, nil)
+	if r.JSON["requirements_changed"] != true || str(recordByKey(r, "spf"), "value") != "v=spf1 mx ip4:203.0.113.10 -all" {
+		t.Fatalf("stale requirements after the provider change: %s", r.Raw)
+	}
 	r = e.admOK(admin, "POST", path+"/check", nil)
 	if spf := recordByKey(r, "spf"); spf["placeholder"] == true || str(spf, "value") != "v=spf1 mx ip4:203.0.113.10 -all" {
 		t.Fatalf("mailcow SPF: %v", spf)
 	}
 	if dkim := recordByKey(r, "dkim"); dkim["placeholder"] != true || !strings.Contains(str(dkim, "value"), "Mailcow") {
 		t.Fatalf("mailcow DKIM without the API is still a template: %v", dkim)
+	}
+	if r = e.admOK(admin, "GET", path, nil); r.JSON["requirements_changed"] != false || recordByKey(r, "mx")["pass"] != true {
+		t.Fatalf("after the re-check: %s", r.Raw)
 	}
 }
 

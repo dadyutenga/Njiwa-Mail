@@ -193,6 +193,13 @@ FROM installation_checks WHERE profile_id=$1::uuid ORDER BY check_key, checked_a
 		return installation.Readiness{}, err
 	}
 	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM installer_receipts WHERE profile_id=$1::uuid AND result_code='ok' AND verified_at IS NOT NULL AND rollback_state <> 'rolled_back')`, id).Scan(&f.ManagedInstalled)
+	if mode == installation.ModeManaged {
+		var na struct {
+			NotAfter *time.Time `json:"client_cert_not_after"`
+		}
+		_ = json.Unmarshal(cj, &na)
+		f.ClientCertNotAfter = na.NotAfter
+	}
 	var active bool
 	_ = s.Pool.QueryRow(ctx, `SELECT is_active FROM transport_profiles WHERE id=$1::uuid`, id).Scan(&active)
 	if active {

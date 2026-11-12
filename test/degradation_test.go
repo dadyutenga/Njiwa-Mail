@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,5 +125,54 @@ func TestBounceVisibilityStep(t *testing.T) {
 	t.Cleanup(func() { e.svc.Opts.BounceAddress = bounceAddr })
 	if s := step(); s.ProblemCode != installation.CodeBouncesNotSetUp {
 		t.Fatalf("no bounce address: %+v", s)
+	}
+}
+
+// F08: /metrics reports transport health, signer refusals, the Live backlog
+// against its limit and installation readiness, so alerts can fire on them.
+func TestDeliveryHealthMetrics(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.saveSMTP("mail.example.com", "pw")
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "connection", true, okSteps))
+	e.must(e.svc.RecordMailTest(ctx, e.pin(), "test_send", true, map[string]any{"state": "submitted"}))
+	k := e.provision("metrics")
+	metrics := func() string {
+		r := e.raw("GET", "/metrics", map[string]string{"Authorization": "Bearer metrics-token-0123456789"}, nil)
+		if r.Code != 200 {
+			t.Fatalf("%d %s", r.Code, r.Raw)
+		}
+		return r.Raw
+	}
+	has := func(m string, want ...string) {
+		t.Helper()
+		for _, w := range want {
+			if !strings.Contains(m, w+"\n") {
+				t.Errorf("metrics missing %q", w)
+			}
+		}
+	}
+	has(metrics(), `njiwa_mail_installation_ready{mode="existing_smtp"} 1`, "njiwa_mail_transport_failing 0",
+		`njiwa_mail_transport_retries_15m{reason="smtp_454"} 0`, "njiwa_mail_live_backlog 0", `njiwa_mail_delivery_events_1h{event="deferred"} 0`)
+
+	// The server refuses temporarily, as a managed Postfix does with its
+	// signer down.
+	e.tr.fn = func(int, mailer.Envelope) mailer.Result {
+		return mailer.Result{Outcome: mailer.TempFailure, Reason: "smtp_454"}
+	}
+	for i := 0; i < 4; i++ {
+		if r := e.post(k.live, idem("m"+string(rune('a'+i))), otpBody(testRcpt)); r.Code != 202 {
+			t.Fatalf("%d %s", r.Code, r.Raw)
+		}
+	}
+	e.runWorker()
+	m := metrics()
+	has(m, `njiwa_mail_installation_ready{mode="existing_smtp"} 0`, `njiwa_mail_installation_problem{code="TRANSPORT_FAILING"} 1`,
+		"njiwa_mail_transport_failing 1", `njiwa_mail_transport_retries_15m{reason="smtp_454"} 4`, "njiwa_mail_live_backlog 4")
+	if strings.Contains(m, "njiwa_mail_last_live_submission_age_seconds") {
+		t.Error("no Live submission yet, so no age may be reported")
+	}
+	if strings.Contains(m, "njiwa_mail_client_cert_expiry_seconds") {
+		t.Error("certificate expiry reported outside managed mode")
 	}
 }
