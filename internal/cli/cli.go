@@ -27,6 +27,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/dnsauth"
 	"github.com/njiwa-tz/mail/internal/inbound"
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 	"github.com/njiwa-tz/mail/internal/installer/managed"
 	"github.com/njiwa-tz/mail/internal/installer/preflight"
 	"github.com/njiwa-tz/mail/internal/mailer"
@@ -56,6 +57,11 @@ Runtime:
                               record delivery evidence (sent, deferred, bounced) from Postfix log lines,
                               correlated to messages by queue ID; "-" reads stdin (journalctl -fu postfix | ...)
   smtp-check                  verify TLS + auth against the SMTP server (sends nothing)
+  discover [-json] [-record] [-docker=false]
+                              read-only scan of this host before installing: mail servers (Mailcow, Postfix,
+                              Exim, OpenDKIM, ...), ports, proxies, certificates, Docker networks, resources;
+                              recommends a delivery mode and explains anything that blocks managed mode.
+                              Changes nothing. -record stores it for the setup wizard (needs the database)
   preflight [-hostname H -ip IP -spool DIR -probe DOMAIN -json -record]
                               read-only host checks for "Send from my VPS" (managed mode); changes nothing.
                               -record stores the result for the Delivery infrastructure page (needs the database)
@@ -117,6 +123,12 @@ func Run(args []string) {
 	// only -record needs the full configuration.
 	if args[0] == "preflight" && !hasFlag(args[1:], "record") {
 		runPreflight(context.Background(), nil, args[1:])
+		return
+	}
+	// Discovery is read-only and runs before Njiwa-Mail is configured; only
+	// -record needs the database.
+	if args[0] == "discover" && !hasFlag(args[1:], "record") {
+		runDiscover(context.Background(), nil, args[1:])
 		return
 	}
 	if args[0] == "mta-agent" {
@@ -212,6 +224,8 @@ func Run(args []string) {
 		fmt.Println(*role, "healthy")
 	case "installer":
 		runInstaller(ctx, &installerDeps{svc: svc, cfg: cfg}, args)
+	case "discover":
+		runDiscover(ctx, svc, args)
 	case "preflight":
 		runPreflight(ctx, &preflightDeps{svc: svc, hostname: cfg.MailHostname, ip: cfg.OutboundIP, spool: cfg.DataDir}, args)
 	case "mta-log":
@@ -1166,4 +1180,47 @@ func lookupGID(s string) (int, error) {
 		return 0, err
 	}
 	return strconv.Atoi(g.Gid)
+}
+
+// runDiscover is the read-only host discovery (installation step 2).
+func runDiscover(ctx context.Context, svc *service.Service, args []string) {
+	fs := flag.NewFlagSet("discover", flag.ExitOnError)
+	asJSON := fs.Bool("json", false, "print the report as JSON")
+	record := fs.Bool("record", false, "store the report for the setup wizard")
+	useDocker := fs.Bool("docker", true, "list running containers with a read-only 'docker ps' when the Docker socket is readable")
+	fs.Parse(args)
+	r := discover.Scan(discover.HostEnv(*useDocker))
+	rec := discover.Recommend(r, discoverNeeds())
+	r.Recommendation = &rec
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(r)
+	} else {
+		fmt.Print(discover.Text(r))
+	}
+	if *record {
+		if svc == nil {
+			die(errors.New("-record needs the database configuration (.env)"))
+		}
+		if err := svc.RecordDiscovery(ctx, service.CLIActor, r); err != nil {
+			die(err)
+		}
+		fmt.Println("Recorded: the setup wizard now shows this result.")
+	}
+}
+
+// discoverNeeds are the ports and network this installation will use.
+func discoverNeeds() discover.Needs {
+	n := discover.DefaultNeeds()
+	n.Subnet = firstNonEmpty(os.Getenv("NJIWA_SUBNET"), n.Subnet)
+	for _, v := range []struct {
+		env string
+		dst *int
+	}{{"NJIWA_API_PORT", &n.APIPort}, {"NJIWA_DASHBOARD_PORT", &n.DashboardPort}, {"NJIWA_INBOUND_PORT", &n.InboundPort}} {
+		if p, err := strconv.Atoi(os.Getenv(v.env)); err == nil && p > 0 {
+			*v.dst = p
+		}
+	}
+	return n
 }

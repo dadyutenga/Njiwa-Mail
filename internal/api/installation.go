@@ -57,6 +57,10 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		return map[string]any{"receipts": receipts, "evidence": evidence, "domains_missing_key": missing,
 			"suggested_commands": svc.SuggestedInstallerCommands(reqCtx(c)), "dkim_rotation": rotation}, nil
 	})
+	// What the latest read-only host discovery found (njiwa-mail discover -record).
+	h("GET", "/discovery", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.Discovery(reqCtx(c))
+	})
 	h("GET", "", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		st, err := svc.InstallationState(reqCtx(c))
 		if err != nil {
