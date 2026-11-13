@@ -233,7 +233,7 @@ export const problemFixes: Record<string, string> = {
   SMTP_OUTCOME_UNKNOWN:
     "The server may or may not have accepted the test. Check its logs before testing again; nothing is resent automatically.",
   HOST_OS_UNSUPPORTED:
-    "Use Debian 12 or Ubuntu 22.04/24.04 for managed delivery, or connect an existing mail server.",
+    "Use Debian 12 or Ubuntu 22.04/24.04/26.04 for managed delivery, or connect an existing mail server.",
   HOST_NO_SYSTEMD: "Managed delivery needs systemd to run the mail service.",
   HOST_DISK_LOW: "Free at least 2 GiB and 100,000 inodes for the mail queue and logs.",
   HOST_MEMORY_LOW: "Provide at least 512 MiB of free memory.",

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/dadyutenga/Njiwa-Mail/security/advisories/new
+    about: Please report security problems privately, not in a public issue.
+  - name: Installation guide
+    url: https://github.com/dadyutenga/Njiwa-Mail/blob/dev/docs/INSTALL.md
+    about: Step-by-step install, and what to do when managed mode is blocked.

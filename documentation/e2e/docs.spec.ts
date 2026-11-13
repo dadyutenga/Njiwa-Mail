@@ -113,7 +113,7 @@ test.describe("desktop", () => {
 
     await trigger.click();
     await page.getByTestId("open-chatgpt").click();
-    let opened = await page.evaluate(() => (window as unknown as { __opened: string[][] }).__opened);
+    const opened = await page.evaluate(() => (window as unknown as { __opened: string[][] }).__opened);
     expect(opened).toHaveLength(1);
     const [url, target, features] = opened[0];
     const u = new URL(url);
@@ -128,8 +128,9 @@ test.describe("desktop", () => {
 
     await trigger.click();
     await page.getByTestId("open-claude").click();
-    opened = await page.evaluate(() => (window as unknown as { __opened: string[][] }).__opened);
-    expect(opened[1][0]).toBe("https://claude.ai/new");
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __opened: string[][] }).__opened[1]?.[0]))
+      .toBe("https://claude.ai/new");
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("send-email.md");
     await expect(page.getByTestId("toast").last()).toContainText("Prompt copied");
   });
@@ -143,8 +144,9 @@ test.describe("desktop", () => {
     await page.goto("http://127.0.0.1:4173/docs/api/send-email");
     await page.getByTestId("open-menu").click();
     await page.getByTestId("open-chatgpt").click();
-    const opened = await page.evaluate(() => (window as unknown as { __opened: string[][] }).__opened);
-    expect(opened[0][0]).toBe("https://chatgpt.com/");
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __opened: string[][] }).__opened[0]?.[0]))
+      .toBe("https://chatgpt.com/");
   });
 
   test("404 page", async ({ page }) => {

@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 	"net"
 	"os"
 	"strconv"
@@ -58,7 +59,8 @@ type Check struct {
 
 // Supported lists the distributions the installer is tested on. Anything else
 // is refused rather than half-supported.
-var Supported = map[string][]string{"debian": {"12"}, "ubuntu": {"22.04", "24.04"}}
+// One list for the preflight and discovery (see discover.Supported).
+var Supported = discover.Supported
 
 type Resolver interface {
 	LookupAddr(ctx context.Context, addr string) ([]string, error)
@@ -160,14 +162,12 @@ func checkOS(env Env) Check {
 		c.Fix = "Run the preflight on the host itself, not inside a container."
 		return c
 	}
-	for _, v := range Supported[id] {
-		if v == ver {
-			c.Status, c.Detail = Ready, pretty
-			return c
-		}
+	if discover.OSSupported(id, ver) {
+		c.Status, c.Detail = Ready, pretty
+		return c
 	}
 	c.Status, c.Code, c.Detail = NeedsAction, CodeOSUnsupported, pretty+" is not a tested distribution"
-	c.Fix = "Use Debian 12, or Ubuntu 22.04 or 24.04, or connect an existing mail server instead."
+	c.Fix = "Use " + discover.SupportedText + ", or connect an existing mail server instead."
 	return c
 }
 

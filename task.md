@@ -171,3 +171,30 @@ Guide: `docs/INSTALL.md`. Code: `internal/installer/discover`, `internal/install
   isolated Mailcow, Njiwa connecting over SMTP; (3) a VM with nginx and another app plus a generic SMTP provider; (4) a VM with Postfix in
   use, managed blocked; (5) upgrade an existing install (dev to this PR) without losing settings; (6) a failed apply resumed.
 - [ ] **T9.8 (owner decision)** The API now creates non-operator users by default; should the CLI (`user create`, default operator) match?
+
+## 10. Round of 2026-11-13 (evening): CI evidence and fixes
+
+- [x] **CI red on dev/main** after PRs #11-#13, fixed in PR #14:
+  - a flaky Go test (`TestLastEnabledAdminCannotBeDisabledConcurrently`, 3/10 locally; the test's users were unequal since `f08eff8`);
+  - the docs portal opened the AI service after an `await` (popup blocking, racy test).
+- [x] **First real Docker run of the new installer pieces** (PR #11's CI smoke job, GitHub runner):
+  - `scripts/discover.sh -record` worked;
+  - the backup → `docker compose down -v` → restore drill ended with the restored user signing in.
+  - It also exposed three issues, now fixed or checked:
+    - Ubuntu 26.04 (the CI OS, already installer-tested there) was not on the supported list;
+    - the restored volume lacked Compose labels;
+    - port owners were unknown before the AppArmor fix. CI now fails if Njiwa's own ports are reported as taken.
+- [ ] **T9.6** still owed on `rida-server` and a clean VM (read-only scan).
+
+## 11. RHEL family for managed mode (PR #15)
+
+- [x] **Managed installer on AlmaLinux, Rocky Linux, RHEL 9/10 and Fedora 41+:** dnf with a dry run that refuses removals or
+  unresolvable dependencies; EPEL and (EL 9) CRB enabled as visible plan steps, undone on failure or rollback; Postfix 3.5
+  compatibility on EL 9; LMDB tables on Fedora/EL 10; SELinux port and file labels; firewalld warning (never changed); discovery
+  treats the RHEL package-default Postfix as adoptable.
+- [x] CI job `managed-mta-rhel` runs discovery, plan/apply and the real Postfix/OpenDKIM e2e checks on AlmaLinux 9 and 10, Rocky
+  Linux 9 and the current Fedora (containers).
+- [ ] **T11.1 (joint, real host)** SELinux enforcing and firewalld cannot run in CI containers. Run `scripts/discover.sh`, `installer
+  plan/apply` and a Test-mode send on one real AlmaLinux or Rocky Linux 9 VM (throwaway, never `rida-server`); check `getenforce`
+  stays Enforcing, `ausearch -m avc -ts recent` is empty, and rollback removes the `smtp_port_t` label.
+- [ ] **T11.2 (owner)** RHEL proper needs a subscription for EPEL/CRB; untested until someone has a RHEL host.

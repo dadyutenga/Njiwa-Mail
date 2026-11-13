@@ -30,9 +30,33 @@ Only how mail leaves the server differs:
 
 ### Managed mode, in addition
 
-- Debian 12, Ubuntu 22.04 or Ubuntu 24.04 with systemd, run as root for the installer.
+- One of these, with systemd, run as root for the installer:
+  - Debian 12; Ubuntu 22.04, 24.04 or 26.04 (Ubuntu 26.04 is checked on every change by CI);
+  - AlmaLinux, Rocky Linux or RHEL 9 or 10, or Fedora 41 or later. AlmaLinux 9 and 10, Rocky Linux 9 and the current Fedora are
+    checked on every change by CI, with the distribution's own Postfix and OpenDKIM (see "RHEL family" below).
 - A public IPv4 with a PTR record to your mail host name, and outbound port 25 (many providers block it; ask them).
 - No other mail service on the host. If one exists, the installer refuses and changes nothing (see section 4).
+
+### RHEL family (AlmaLinux, Rocky Linux, RHEL, Fedora)
+
+The installer detects the distribution and adapts; the plan shows every difference before anything changes:
+
+- **Packages** come from dnf. OpenDKIM is in EPEL on AlmaLinux, Rocky Linux and RHEL: the plan installs `epel-release` and, on
+  version 9, enables the CodeReady Builder repository (`crb`), where OpenDKIM's libraries are. Each is its own line in the plan, is
+  recorded in the receipt, and is undone by a failed apply or by `installer rollback -remove-packages`. A dnf dry run comes first;
+  if it would remove any package or cannot resolve a dependency, nothing is installed.
+- **RHEL itself:** EPEL and CodeReady Builder are subscription repositories, so enable them yourself first (the plan prints the
+  commands) and run `plan` again.
+- **Postfix 3.5** (version 9) gets `compatibility_level = 2`; Fedora and version 10 use LMDB tables (`postfix-lmdb` is installed when
+  missing) because Berkeley DB was removed there.
+- **SELinux** stays enforcing. The plan labels the submission port `smtp_port_t` (`semanage port`) and restores file labels with
+  `restorecon`; rollback removes the port label.
+- **firewalld** is never changed. If it runs, the plan warns that port 25 (bounce reports) must be opened by you:
+  `firewall-cmd --permanent --add-service=smtp && firewall-cmd --reload`.
+- `scripts/discover.sh` passes `--security-opt label=disable` so SELinux lets the read-only scan read the host.
+
+SELinux enforcing and firewalld cannot run in CI containers; they are covered by unit tests and still need one run on a real
+AlmaLinux or Rocky Linux server.
 
 ---
 

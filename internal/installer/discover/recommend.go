@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,8 +38,40 @@ const (
 	ModeExisting = "existing_smtp"
 )
 
-// Supported distributions for the managed installer (same as preflight).
-var Supported = map[string][]string{"debian": {"12"}, "ubuntu": {"22.04", "24.04"}}
+// Supported distributions for the managed installer (the preflight uses the
+// same rule). Debian/Ubuntu by exact release; the RHEL family (AlmaLinux,
+// Rocky Linux, RHEL) by major release 9 or 10, and Fedora from release 41.
+// Ubuntu 26.04 is what the CI runners use, and CI installs and runs the
+// end-to-end checks on AlmaLinux, Rocky Linux and Fedora containers too.
+var Supported = map[string][]string{"debian": {"12"}, "ubuntu": {"22.04", "24.04", "26.04"},
+	"almalinux": {"9", "10"}, "rocky": {"9", "10"}, "rhel": {"9", "10"}, "fedora": {"41+"}}
+
+// SupportedText names the supported distributions for messages.
+const SupportedText = "Debian 12; Ubuntu 22.04, 24.04 or 26.04; AlmaLinux, Rocky Linux or RHEL 9 or 10; Fedora 41 or later"
+
+// OSSupported reports whether the managed installer supports id/version
+// (VERSION_ID from /etc/os-release).
+func OSSupported(id, version string) bool {
+	vs, ok := Supported[id]
+	if !ok {
+		return false
+	}
+	major := strings.SplitN(version, ".", 2)[0]
+	for _, v := range vs {
+		if min, ok := strings.CutSuffix(v, "+"); ok {
+			a, err1 := strconv.Atoi(major)
+			b, err2 := strconv.Atoi(min)
+			if err1 == nil && err2 == nil && a >= b {
+				return true
+			}
+			continue
+		}
+		if v == version || (!strings.Contains(v, ".") && v == major && id != "debian") {
+			return true
+		}
+	}
+	return false
+}
 
 // Needs are the host resources Njiwa-Mail itself uses.
 type Needs struct {
@@ -166,12 +199,12 @@ func Recommend(r *Report, n Needs) Recommendation {
 		}
 	}
 	// Host suitability for running Postfix.
-	if vs, ok := Supported[r.Host.OSID]; !ok || !contains(vs, r.Host.OSVersion) {
+	if !OSSupported(r.Host.OSID, r.Host.OSVersion) {
 		os := r.Host.OS
 		if os == "" {
 			os = "This operating system"
 		}
-		block(CodeOSUnsupported, os+" is not one the managed installer is tested on (Debian 12, Ubuntu 22.04, Ubuntu 24.04).", offerExisting)
+		block(CodeOSUnsupported, os+" is not one the managed installer is tested on ("+SupportedText+").", offerExisting)
 	}
 	if !r.Host.Systemd {
 		block(CodeNoSystemd, "systemd is not running; the managed installer runs Postfix and OpenDKIM as systemd services.", offerExisting)

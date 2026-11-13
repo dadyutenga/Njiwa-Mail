@@ -36,10 +36,11 @@ case " $* " in
 esac
 # Reading which process owns each port means reading /proc/PID/fd of host
 # processes (ptrace read access). Docker's default AppArmor profile denies
-# that, so the container runs unconfined; it has only the two read
+# that (and SELinux, on Fedora/RHEL hosts, denies reading host files through
+# the mount), so the container runs unconfined; it has only the two read
 # capabilities below, no new privileges, and the host mounted read-only.
 # shellcheck disable=SC2086
 exec docker run --rm --pid=host --network=host --user 0 \
 	--cap-drop ALL --cap-add DAC_READ_SEARCH --cap-add SYS_PTRACE \
-	--security-opt no-new-privileges --security-opt apparmor=unconfined \
+	--security-opt no-new-privileges --security-opt apparmor=unconfined --security-opt label=disable \
 	-v /:/host:ro $ENVARGS --entrypoint njiwa-mail "$IMAGE" "$@"

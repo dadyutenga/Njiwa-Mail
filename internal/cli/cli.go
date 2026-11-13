@@ -850,6 +850,9 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 	}
 	p := managed.Params{Hostname: *hostname, BounceDomain: *bounce, Domains: ds, Selector: *selector,
 		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt, NoFirewall: *noFirewall, ComposeSubnet: *subnet, RenewCerts: *renewCerts, RemovePackages: *removePackages}
+	// The distribution decides packages, Postfix map type and compatibility
+	// level, the systemd unit and SELinux steps (read-only detection).
+	p.Platform = managed.DetectPlatform("/", execRunner{}.Run)
 	show := func(v any, text string) {
 		if *asJSON {
 			_ = json.NewEncoder(os.Stdout).Encode(v)

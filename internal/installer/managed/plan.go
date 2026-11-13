@@ -55,6 +55,8 @@ type Params struct {
 	// RemovePackages (rollback only) also removes the packages that apply
 	// installed.
 	RemovePackages bool `json:"-"`
+	// Platform describes the distribution (detected when empty).
+	Platform Platform `json:"platform"`
 	// Now is the planning time (tests); zero means the current time.
 	Now time.Time
 }
@@ -204,6 +206,10 @@ type Plan struct {
 	// step; PackageManager is "apt" when that is possible.
 	MissingPackages []string `json:"missing_packages,omitempty"`
 	PackageManager  string   `json:"package_manager,omitempty"`
+	// EnableRepos are dnf repositories apply enables before installing
+	// (crb on Enterprise Linux 9); a failed apply or a package rollback
+	// disables them again.
+	EnableRepos []string `json:"enable_repos,omitempty"`
 	// Warnings need the operator's attention but do not block apply.
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -235,6 +241,9 @@ func BuildPlan(p Params) (*Plan, error) {
 	if err := p.normalise(); err != nil {
 		return nil, err
 	}
+	if p.Platform.Family == "" && p.Platform.ID == "" {
+		p.Platform = DetectPlatform(p.Root, nil)
+	}
 	pl := &Plan{Params: p}
 	// Production protection: the same read-only discovery as "njiwa-mail
 	// discover". A mail service in use, or a port another program owns, is a
@@ -249,6 +258,30 @@ func BuildPlan(p Params) (*Plan, error) {
 		}
 	}
 	pl.MissingPackages, pl.PackageManager = missingPackages(p)
+	if pl.PackageManager == "dnf" && p.Platform.needsEPEL() && contains(pl.MissingPackages, "opendkim") {
+		// OpenDKIM is in EPEL on Enterprise Linux: enabling it is its own,
+		// visible step (epel-release is then removed again by -remove-packages).
+		pl.MissingPackages = append([]string{"epel-release"}, pl.MissingPackages...)
+	}
+	if pl.PackageManager == "dnf" && p.Platform.needsCRB() && contains(pl.MissingPackages, "opendkim") {
+		pl.EnableRepos = []string{"crb"}
+	}
+	if p.Platform.SELinux {
+		// SELinux: Postfix may listen only on ports labelled smtp_port_t, and
+		// files written by the installer get their policy labels.
+		if _, port, err := net.SplitHostPort(p.SubmissionBind); err == nil && port != "25" && port != "465" && port != "587" {
+			pl.Actions = append(pl.Actions, Action{Kind: "selinux_port", Target: "tcp/" + port + " labelled smtp_port_t (semanage port)", Needed: true})
+		}
+		pl.Actions = append(pl.Actions, Action{Kind: "selinux_relabel", Target: "restorecon on /etc/postfix /etc/opendkim /etc/opendkim.conf /etc/njiwa-mail", Needed: true})
+	}
+	if p.Platform.Firewalld && p.BounceDomain != "" {
+		pl.Warnings = append(pl.Warnings, "firewalld is running and its default zone does not accept port 25, where bounce reports arrive. "+
+			"Njiwa-Mail does not change firewalld; open it yourself: firewall-cmd --permanent --add-service=smtp && firewall-cmd --reload")
+	}
+	if len(pl.MissingPackages) > 0 && pl.PackageManager == "" && p.Platform.ID == "rhel" {
+		pl.Warnings = append(pl.Warnings, "OpenDKIM comes from EPEL. On RHEL enable it first: subscription-manager repos --enable codeready-builder-for-rhel-"+
+			strconv.Itoa(p.Platform.major())+"-x86_64-rpms && dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-"+strconv.Itoa(p.Platform.major())+".noarch.rpm")
+	}
 
 	host, port, _ := net.SplitHostPort(p.SubmissionBind)
 	want := []File{
@@ -271,7 +304,7 @@ func BuildPlan(p Params) (*Plan, error) {
 	// Docker has created the Compose network, so at boot Postfix failed with "bind: Cannot assign requested address" and
 	// stayed down until someone restarted it (found on a clean Ubuntu 24.04 VM after the first reboot).
 	if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
-		want = append(want, File{Path: postfixBootDropIn, Mode: 0644, Content: postfixBootOrdering(host)})
+		want = append(want, File{Path: p.Platform.postfixDropIn(), Mode: 0644, Content: postfixBootOrdering(host)})
 	}
 	for i := range want {
 		cur, err := os.ReadFile(p.path(want[i].Path))
@@ -304,7 +337,7 @@ func BuildPlan(p Params) (*Plan, error) {
 	}
 
 	h := sha256.New()
-	fmt.Fprintf(h, "conflict=%s\nadopt=%v\npackages=%v %s\n", pl.Conflict, p.Adopt, pl.MissingPackages, pl.PackageManager)
+	fmt.Fprintf(h, "conflict=%s\nadopt=%v\npackages=%v %s repos=%v\n", pl.Conflict, p.Adopt, pl.MissingPackages, pl.PackageManager, pl.EnableRepos)
 	for _, b := range pl.Blockers {
 		fmt.Fprintf(h, "blocker=%s %s\n", b.Code, b.Detail)
 	}
@@ -330,16 +363,25 @@ func (pl *Plan) Summary() string {
 	for _, a := range pl.Actions {
 		if a.Needed {
 			verb := "generate"
-			if strings.HasPrefix(a.Kind, "renew_") {
+			switch {
+			case strings.HasPrefix(a.Kind, "renew_"):
 				verb = "renew"
+			case strings.HasPrefix(a.Kind, "selinux_"):
+				verb = "selinux"
 			}
 			fmt.Fprintf(&b, "  %-9s %s\n", verb, a.Target)
 		}
 	}
 	if len(pl.MissingPackages) > 0 {
-		if pl.PackageManager == "apt" {
+		switch pl.PackageManager {
+		case "apt":
 			fmt.Fprintf(&b, "  %-9s packages %s (apt-get, Postfix with \"No configuration\"; nothing is removed)\n", "install", strings.Join(pl.MissingPackages, " "))
-		} else {
+		case "dnf":
+			for _, r := range pl.EnableRepos {
+				fmt.Fprintf(&b, "  %-9s repository %s (dnf config-manager; OpenDKIM's libraries come from it)\n", "enable", r)
+			}
+			fmt.Fprintf(&b, "  %-9s packages %s (dnf; nothing is removed)\n", "install", strings.Join(pl.MissingPackages, " "))
+		default:
 			fmt.Fprintf(&b, "\nMISSING PACKAGES: install %s with your package manager first.\n", strings.Join(pl.MissingPackages, " "))
 		}
 	}
@@ -371,10 +413,10 @@ func mainCF(p Params) []byte {
 	transport := ""
 	if p.BounceDomain != "" {
 		relay = strings.Join(p.bounceDomains(), ", ")
-		transport = "hash:" + njDir + "/transport"
+		transport = p.Platform.mapType() + ":" + njDir + "/transport"
 	}
 	return []byte(Marker + `
-compatibility_level = 3.6
+compatibility_level = ` + p.Platform.compatLevel() + `
 myhostname = ` + p.Hostname + `
 myorigin = $myhostname
 smtp_helo_name = $myhostname
@@ -416,10 +458,10 @@ smtpd_tls_key_file = ` + njDir + `/server.key
 smtpd_tls_CAfile = ` + njDir + `/ca.crt
 smtpd_tls_fingerprint_digest = sha256
 smtpd_tls_loglevel = 1
-relay_clientcerts = hash:` + njDir + `/relay_clientcerts
+relay_clientcerts = ` + p.Platform.mapType() + `:` + njDir + `/relay_clientcerts
 
 # Used only by the submission service (see master.cf).
-njiwa_submission_sender_restrictions = check_sender_access hash:` + njDir + `/senders, reject
+njiwa_submission_sender_restrictions = check_sender_access ` + p.Platform.mapType() + `:` + njDir + `/senders, reject
 njiwa_submission_relay_restrictions = permit_tls_clientcerts, reject
 `)
 }
@@ -651,18 +693,31 @@ func missingPackages(p Params) ([]string, string) {
 			miss = append(miss, pkg)
 		}
 	}
+	// LMDB tables are a plugin package on the RHEL family (postfix-lmdb):
+	// needed when Postfix itself does not list lmdb.
+	if p.Platform.Family == "rhel" && p.Platform.mapType() == "lmdb" && p.Platform.MapType == "" {
+		if _, err := os.Stat(p.path("/usr/lib64/postfix/postfix-lmdb.so")); err != nil {
+			miss = append(miss, "postfix-lmdb")
+		}
+	}
 	sort.Strings(miss)
 	if len(miss) == 0 {
 		return nil, ""
 	}
-	if b, err := os.ReadFile(p.path("/etc/os-release")); err == nil {
-		for _, l := range strings.Split(string(b), "\n") {
-			if v, ok := strings.CutPrefix(l, "ID="); ok {
-				if id := strings.Trim(v, `"`); id == "debian" || id == "ubuntu" {
-					return miss, "apt"
-				}
-			}
+	pm := p.Platform.packageManager()
+	// RHEL itself has no epel-release package in its own repositories; the
+	// operator enables EPEL (a subscription matter) first.
+	if pm == "dnf" && p.Platform.ID == "rhel" && (p.Platform.needsEPEL() || p.Platform.needsCRB()) && contains(miss, "opendkim") {
+		return miss, ""
+	}
+	return miss, pm
+}
+
+func contains(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
 		}
 	}
-	return miss, ""
+	return false
 }
