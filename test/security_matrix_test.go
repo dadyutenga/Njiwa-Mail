@@ -55,15 +55,20 @@ func TestEveryRouteRequiresAuthAndCSRF(t *testing.T) {
 	checked := 0
 	for _, r := range e.h.GetRoutes(true) {
 		key := r.Method + " " + r.Path
-		if seen[key] || r.Method == "HEAD" || r.Method == "OPTIONS" || r.Method == "USE" {
+		if seen[key] || r.Method == "OPTIONS" || r.Method == "USE" {
 			continue
 		}
 		seen[key] = true
+		// Fiber v3 registers HEAD for every GET route; a HEAD is public only
+		// when its GET is, and must otherwise need a session or key as well.
+		if _, ok := publicRoutes["GET "+r.Path]; ok && r.Method == "HEAD" {
+			continue
+		}
 		if _, ok := publicRoutes[key]; ok {
 			continue
 		}
 		path := concrete(r.Path)
-		write := r.Method != http.MethodGet
+		write := r.Method != http.MethodGet && r.Method != http.MethodHead
 		switch {
 		case strings.HasPrefix(r.Path, "/admin/v1/"):
 			// No session at all.

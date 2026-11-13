@@ -73,7 +73,7 @@ func (s *Server) validSession(tok string) bool {
 }
 
 func (s *Server) setSessionCookie(c fiber.Ctx, token string, exp time.Time) {
-	secure := c.Protocol() == "https" || strings.EqualFold(c.Get("X-Forwarded-Proto"), "https")
+	secure := c.Scheme() == "https" || strings.EqualFold(c.Get("X-Forwarded-Proto"), "https")
 	setCookie(c, &http.Cookie{
 		Name:     consoleCookie,
 		Value:    token,
