@@ -39,9 +39,14 @@ njiwa-mail user create -email you@example.com -role admin     # password is read
 njiwa-mail user password -email you@example.com               # reset a password; ends that user's sessions
 njiwa-mail user disable -email someone@example.com
 ```
-There is one user role, `admin`, plus an **installation-operator** permission. Operators manage delivery infrastructure (transport profiles, mail server, domain ownership), users and settings; other admins keep the project work (messages, templates, keys, domains of a project) and read inbound bodies and sandbox captures. Every existing user and every new user is an operator unless created otherwise (`user create -operator=false`, or `installation_operator: false` in the API); `user operator -email E -on=false` changes it. The first user is always an operator and the last enabled operator cannot be demoted or disabled. Old `owner` inputs are accepted as an alias for admin.
+There is one user role, `admin`, plus an **installation-operator** permission. Operators manage delivery infrastructure (transport profiles, mail server, domain ownership), users and settings; other admins keep the project work (messages, templates, keys, domains of a project) and read inbound bodies and sandbox captures. `njiwa-mail user create` makes an operator unless `-operator=false` is passed; the admin API and the Users page create a non-operator unless `installation_operator: true` is sent (the Users page asks). `user operator -email E -on=false` changes it. The first user is always an operator and the last enabled operator cannot be demoted or disabled. Old `owner` inputs are accepted as an alias for admin.
 
 **Two-step sign-in (TOTP).** Each user can turn it on under Profile (authenticator app; ten one-time recovery codes are shown once). To require it for everyone, tick *Require two-step sign-in for every admin* in Settings (`require_mfa`): admins without it can then only enrol or sign out. Lost device and codes: an operator uses *Reset two-step* on the Users page, or `njiwa-mail user mfa-reset -email E` on the server.
+**What ends a user's sessions.** Every session records the account's credential state (`auth_version`, migration 0023). These end
+all of the user's other sessions at once: a password change or reset, a role change, disabling the account, granting or removing
+operator access, enabling or disabling two-step sign-in, an operator's *Reset two-step*, and a sign-in with a **recovery code** (the
+authenticator is lost). Sessions also end when they expire (`ADMIN_SESSION_TTL`). A normal sign-in, with or without a code, does not end
+other sessions. The dashboard then shows the sign-in page with a note saying why.
 The last enabled user cannot be disabled. Logins are limited per account and per IP (15-minute windows; see Settings).
 Every write from the UI, the CLI or an API key is recorded in `audit_log` (UI: Audit log). The admin API uses password sessions with optional TOTP; keep `/admin/v1` behind HTTPS and an IP allowlist (`deploy/nginx.conf`).
 

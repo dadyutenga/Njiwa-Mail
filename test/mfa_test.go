@@ -320,3 +320,73 @@ func TestRequireMFAPolicyAndOperatorReset(t *testing.T) {
 	e.admOK(op, "PUT", "/admin/v1/settings", map[string]int{"require_mfa": 0})
 	e.admOK(again, "GET", "/admin/v1/overview", nil)
 }
+
+// T1.2: signing in with a recovery code (lost authenticator) ends every other
+// session of the account; a TOTP sign-in does not.
+func TestRecoveryCodeSignInEndsOtherSessions(t *testing.T) {
+	e := setup(t)
+	s := e.user("lost@njiwa.co.tz", "admin")
+	secret, recovery := e.enrol(s)
+	other := e.loginWith("lost@njiwa.co.tz", totpCode(t, secret, 1))
+	if other.Code != 200 {
+		t.Fatalf("%d %s", other.Code, other.Raw)
+	}
+	o := session{cookie: strings.SplitN(other.Hdr.Get("Set-Cookie"), ";", 2)[0], csrf: str(other.JSON, "csrf_token")}
+	if r := e.adm(s, "GET", "/admin/v1/auth/me", nil); r.Code != 200 {
+		t.Fatalf("a TOTP sign-in must not end the first session: %d", r.Code)
+	}
+	r := e.loginWith("lost@njiwa.co.tz", recovery[0])
+	if r.Code != 200 {
+		t.Fatalf("%d %s", r.Code, r.Raw)
+	}
+	n := session{cookie: strings.SplitN(r.Hdr.Get("Set-Cookie"), ";", 2)[0], csrf: str(r.JSON, "csrf_token")}
+	for _, old := range []session{s, o} {
+		if res := e.adm(old, "GET", "/admin/v1/auth/me", nil); res.Code != 401 {
+			t.Fatalf("session from before the recovery sign-in still works: %d", res.Code)
+		}
+	}
+	if res := e.adm(n, "GET", "/admin/v1/auth/me", nil); res.Code != 200 {
+		t.Fatalf("new session: %d %s", res.Code, res.Raw)
+	}
+}
+
+// T1.2: changing a user's operator access, password or enabled state ends that
+// user's existing sessions immediately; an unrelated change does not.
+func TestAccountChangesEndSessions(t *testing.T) {
+	e := setup(t)
+	op := e.user("op@njiwa.co.tz", "admin")
+	idOf := func(email string) string {
+		var id string
+		e.must(e.pool.QueryRow(t.Context(), `SELECT id::text FROM users WHERE email=$1`, email).Scan(&id))
+		return id
+	}
+	for _, c := range []struct {
+		name string
+		body map[string]any
+	}{
+		{"operator access removed", map[string]any{"installation_operator": false}},
+		{"password changed", map[string]any{"password": "another-long-password-1"}},
+		{"account disabled", map[string]any{"disabled": true}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			email := strings.ReplaceAll(c.name, " ", "-") + "@njiwa.co.tz"
+			u := e.user(email, "admin")
+			if r := e.adm(u, "GET", "/admin/v1/auth/me", nil); r.Code != 200 {
+				t.Fatalf("before: %d", r.Code)
+			}
+			e.admOK(op, "PATCH", "/admin/v1/users/"+idOf(email), c.body)
+			if r := e.adm(u, "GET", "/admin/v1/auth/me", nil); r.Code != 401 {
+				t.Fatalf("session survived %s: %d", c.name, r.Code)
+			}
+			if r := e.adm(op, "GET", "/admin/v1/auth/me", nil); r.Code != 200 {
+				t.Fatalf("the operator's own session ended: %d", r.Code)
+			}
+		})
+	}
+	// Setting the same operator value again is not a change.
+	u := e.user("same@njiwa.co.tz", "admin")
+	e.admOK(op, "PATCH", "/admin/v1/users/"+idOf("same@njiwa.co.tz"), map[string]any{"installation_operator": true})
+	if r := e.adm(u, "GET", "/admin/v1/auth/me", nil); r.Code != 200 {
+		t.Fatalf("an unchanged permission ended the session: %d", r.Code)
+	}
+}

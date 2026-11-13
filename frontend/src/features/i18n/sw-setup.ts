@@ -66,4 +66,6 @@ export const swSetup: Record<string, string> = {
   "Finish the steps above.": "Kamilisha hatua zilizo juu.",
   "Setup is complete. Messages, delivery evidence and analytics are on the dashboard.":
     "Usanidi umekamilika. Ujumbe, ushahidi wa utumaji na takwimu ziko kwenye dashibodi.",
+  "You were signed out. This happens when the session expires, or after a change to the password, role, operator access or two-step sign-in of this account, or a sign-in with a recovery code.":
+    "Umetolewa. Hii hutokea muda wa kikao unapoisha, au baada ya kubadilisha nenosiri, jukumu, ruhusa ya mwendeshaji au uthibitishaji wa hatua mbili wa akaunti hii, au kuingia kwa msimbo wa kurejesha.",
 };
