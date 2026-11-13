@@ -448,6 +448,12 @@ One-off: `njiwa-mail retention`. **Backups can retain older encrypted data until
 `ENCRYPTION_KEY` and `HMAC_KEY` are **not** in the backup: store them separately and protected. Without them, encrypted payloads in a
 restored database cannot be read. The backup itself contains private keys: keep it encrypted and off the host.
 
+**Compose installs and fresh hosts.** `DATA_DIR` lives in the Compose volume `njiwa-mail_maildata`: pass `DATA_VOLUME=njiwa-mail_maildata`
+to both scripts (and `PG_CLIENT=docker` to use the `pg_dump`/`pg_restore` from the PostgreSQL image, with
+`DATABASE_URL=postgres://mail:<password>@postgres:5432/mail?sslmode=disable`). On a fresh host: `docker compose up -d postgres`, then
+`restore.sh` (it creates the data volume when it is missing), then `docker compose up -d`. CI runs exactly this on every pull request:
+backup, `docker compose down -v`, restore, and the restored user signs in.
+
 `scripts/restore.sh BACKUP_DIR` verifies the manifest first, restores the database and `DATA_DIR`, and on a managed host (as root)
 restores the files with their owners and permissions, rebuilds the Postfix lookup tables, runs `postfix check` and `opendkim -n`,
 and restarts the services (restores the queue when `postfix-queue.tgz` is present).

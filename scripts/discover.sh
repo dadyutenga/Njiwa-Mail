@@ -23,4 +23,4 @@ esac
 # shellcheck disable=SC2086
 exec docker run --rm --pid=host --network=host --user 0 \
 	--cap-drop ALL --cap-add DAC_READ_SEARCH --cap-add SYS_PTRACE --security-opt no-new-privileges \
-	--read-only -v /:/host:ro $DBARGS --entrypoint njiwa-mail "$IMAGE" "$@"
+	-v /:/host:ro $DBARGS --entrypoint njiwa-mail "$IMAGE" "$@"
