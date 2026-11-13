@@ -171,3 +171,17 @@ Guide: `docs/INSTALL.md`. Code: `internal/installer/discover`, `internal/install
   isolated Mailcow, Njiwa connecting over SMTP; (3) a VM with nginx and another app plus a generic SMTP provider; (4) a VM with Postfix in
   use, managed blocked; (5) upgrade an existing install (dev to this PR) without losing settings; (6) a failed apply resumed.
 - [ ] **T9.8 (owner decision)** The API now creates non-operator users by default; should the CLI (`user create`, default operator) match?
+
+## 10. Round of 2026-11-13 (evening): CI evidence and fixes
+
+- [x] **CI red on dev/main** after PRs #11-#13, fixed in PR #14:
+  - a flaky Go test (`TestLastEnabledAdminCannotBeDisabledConcurrently`, 3/10 locally; the test's users were unequal since `f08eff8`);
+  - the docs portal opened the AI service after an `await` (popup blocking, racy test).
+- [x] **First real Docker run of the new installer pieces** (PR #11's CI smoke job, GitHub runner):
+  - `scripts/discover.sh -record` worked;
+  - the backup → `docker compose down -v` → restore drill ended with the restored user signing in.
+  - It also exposed three issues, now fixed or checked:
+    - Ubuntu 26.04 (the CI OS, already installer-tested there) was not on the supported list;
+    - the restored volume lacked Compose labels;
+    - port owners were unknown before the AppArmor fix. CI now fails if Njiwa's own ports are reported as taken.
+- [ ] **T9.6** still owed on `rida-server` and a clean VM (read-only scan).
