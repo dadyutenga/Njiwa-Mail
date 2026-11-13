@@ -1,6 +1,6 @@
 # Remaining work — checkpoint
 
-**Checkpoint date:** 2026-11-12 (updated) · **Branch:** `claude/happy-brahmagupta-pbfu6r` (after PRs #1–#9)
+**Checkpoint date:** 2026-11-12 (updated) · **Branches:** `dev` (integration) and `main` (tested). The live to-do list is [`task.md`](../task.md); this file is kept for history
 **Reference:** `15_IMPLEMENTATION_BACKLOG` and the master specification. What *is* done, with test evidence, is in
 [`STATUS.md`](../STATUS.md). Step-by-step handoff with every open item and the server runbook: [`HANDOFF.md`](HANDOFF.md). This file lists only what is **not done**, **partly done**, or **not yet verified**.
 

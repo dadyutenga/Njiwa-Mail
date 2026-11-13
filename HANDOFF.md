@@ -1,11 +1,23 @@
 # Njiwa-Mail — handoff: everything still to do
 
 **Date:** 2026-11-12 · **Written for:** continuing the work from the office PC (which can reach the server).
-**Current branch:** `main`.
+**Branches:** `dev` (integration; all work lands here first) and `main` (only what was tested together).
 
 The `main` and `claude/happy-brahmagupta-pbfu6r` branches were rewritten on 2026-11-12 to assign the 33 former
 Claude-authored commits to `Dadi Nasser Utenga <dadyutenga@yahoo.com>`. Existing clones must fetch and reconcile their local
 branches with the new history before pushing; old commit links and PR commit references may still show the previous hashes.
+
+**Update on 2026-11-13 (one PR into `dev`, "Intelligent installation & existing infrastructure reuse"):** a fresh VPS is no longer
+an installation requirement. New: read-only host discovery (`njiwa-mail discover`, `scripts/discover.sh` from the image) with a mode
+recommendation. The managed installer now refuses any host whose mail service is in use, whatever the flags (the old `-adopt` could
+replace Mailcow or Exim); it installs missing packages safely and can purge them on rollback. Also new: a ten-step resumable setup
+journey in the dashboard, configurable host ports, a fixed PostgreSQL address for host commands, the install guide `docs/INSTALL.md`
+(user requirements vs release validation), and backup/restore with the Compose volume checked in CI. task.md items done: T1 (reviewed;
+a recovery-code sign-in now ends other sessions), T3.1, T3.3, T3.4, T3.5, T3.6, T3.7, T3.9, T7.2, T7.3, T8.1, T8.3, T8.4. Still for
+the owner: T3.2 (a decision), T3.8 (optional), and everything that needs real infrastructure (sections 2 and 4 of task.md).
+Managed mode needs a host **without a mail service in use**, not a fresh one; on a host like `rida-server` the installer refuses and
+changes nothing, and Njiwa-Mail is meant to connect to the existing server instead (but the task rules forbid creating a Mailcow
+mailbox on `rida-server`).
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of
