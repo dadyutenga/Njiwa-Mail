@@ -201,6 +201,19 @@ func (s *Service) LoadActiveSMTP(ctx context.Context) (ActiveSMTP, error) {
 	return a, err
 }
 
+// ActiveProfileVersion is the cheap check a worker runs before every send:
+// which profile is active, at which revision, last updated when. It reads no
+// secret, so the worker can notice a switch or an edit immediately and keep
+// the decrypted settings cached otherwise. found is false when no profile is
+// active (legacy settings).
+func (s *Service) ActiveProfileVersion(ctx context.Context) (pin TransportPin, updated time.Time, found bool, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT id::text, config_revision, updated_at FROM transport_profiles WHERE is_active`).Scan(&pin.ProfileID, &pin.Revision, &updated)
+	if errors.Is(err, db.ErrNoRows) {
+		return TransportPin{}, time.Time{}, false, nil
+	}
+	return pin, updated, err == nil, err
+}
+
 // StoredSMTP is LoadActiveSMTP in the older tuple form.
 func (s *Service) StoredSMTP(ctx context.Context) (cfg mailer.SMTPConfig, sender string, updated time.Time, ok bool, err error) {
 	a, err := s.LoadActiveSMTP(ctx)

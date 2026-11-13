@@ -263,10 +263,9 @@ func TestProfileActivationPlanAndGates(t *testing.T) {
 	if _, err := e.svc.ActivateTransport(ctx, actor, b, true); err != nil {
 		t.Fatal(err)
 	}
-	// Waiting mail is held back until the worker has certainly reloaded the new profile (30 s cache), so it neither goes
-	// through the old profile nor burns its last attempts there.
-	if e.count(`SELECT count(*) FROM messages WHERE id=$1 AND next_attempt_at > now() + interval '30 seconds'`, id) != 1 {
-		t.Fatal("pending mail was not held back after an acknowledged switch")
+	// The worker notices the switch before its next send (task T3.3), so waiting mail is not held back.
+	if e.count(`SELECT count(*) FROM messages WHERE id=$1 AND next_attempt_at > now() + interval '5 seconds'`, id) != 0 {
+		t.Fatal("pending mail was delayed after an acknowledged switch")
 	}
 	if str(e.activeProfile(), "id") != b || e.count(`SELECT count(*) FROM transport_profiles WHERE is_active`) != 1 {
 		t.Fatal("activation did not move the single active profile")
@@ -327,6 +326,36 @@ func TestWorkerUsesActiveProfileAndPinsMessages(t *testing.T) {
 	e.runWorker()
 	if e.count(`SELECT count(*) FROM messages WHERE id=$1 AND state='submitted' AND transport_profile_id IS NULL`, str(r.JSON, "id")) != 1 {
 		t.Fatal("unattributable submission must not be pinned")
+	}
+}
+
+// T3.3: a change of the active profile applies to the very next send, not
+// after the worker's 30 s settings cache.
+func TestProfileChangeAppliesToTheNextSend(t *testing.T) {
+	e := setup(t)
+	cert, pool := genCert(t)
+	srvA, _, portA := startSMTP(t, scenario{cert: &cert})
+	srvB, _, portB := startSMTP(t, scenario{cert: &cert})
+	e.saveSMTPPort("127.0.0.1", portA, "pw")
+	e.w.SMTP = &worker.StoredTransport{Svc: e.svc, Timeout: 3 * time.Second, RootCAs: pool}
+	k := e.provision("proj")
+	if r := e.post(k.live, idem("a"), otpBody(testRcpt)); r.Code != 202 {
+		t.Fatalf("%d %s", r.Code, r.Raw)
+	}
+	e.runWorker()
+	if !srvA.saw("DATA") {
+		t.Fatal("first message did not go to server A")
+	}
+	revA := e.count(`SELECT config_revision::int FROM transport_profiles WHERE is_active`)
+	// Edit the active profile to point at server B, then send at once.
+	e.saveSMTPPort("127.0.0.1", portB, "pw")
+	r := e.post(k.live, idem("b"), otpBody(testRcpt))
+	e.runWorker()
+	if !srvB.saw("DATA") {
+		t.Fatal("the next message still went to the old settings")
+	}
+	if e.count(`SELECT count(*) FROM messages WHERE id=$1 AND transport_revision > $2`, str(r.JSON, "id"), revA) != 1 {
+		t.Fatal("the message is not pinned to the new revision")
 	}
 }
 

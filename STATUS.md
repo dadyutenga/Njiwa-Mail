@@ -115,7 +115,7 @@ New admin routes (operator-only): `GET /admin/v1/installation`, `PUT /admin/v1/i
 - The Mail server page keeps working: `SaveMailServer` dual-writes `mail_server` and the active existing-SMTP profile in one transaction; the worker reads the active profile and falls back to the legacy row only when no profile exists.
 - **Rollback boundary:** an older binary ignores the new tables. If it edits `mail_server` after rollback, the profile will not see those edits; re-save on the Mail server page after returning to this version.
 - `SMTP_HOST` in the environment still wins at runtime (unchanged precedence). `GET /admin/v1/installation` reports `environment_override`. Mail sent through environment SMTP is not pinned to a profile.
-- A worker caches the active settings for up to 30 seconds, so after a switch it may finish sends through the previous profile; those messages are pinned to the profile that really sent them.
+- A worker checks the active profile's id and revision before every send, so a switch or edit applies to the next message (task T3.3). A send already in progress at the moment of the switch finishes through the previous profile and is pinned to it.
 - Jobs queued before a switch are sent by the new profile only after the operator acknowledges `migrate_pending`; there is no per-message hold at dispatch.
 - The checklist's legacy fallback still trusts `last_test` for environment SMTP across a restart with changed env values (pre-existing behaviour).
 - SMTP hosts may be loopback or private (a relay on the same host is normal); link-local, multicast and unspecified targets are refused for tests and sends (F05).

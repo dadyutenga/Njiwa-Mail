@@ -12,9 +12,10 @@ import (
 	"github.com/njiwa-tz/mail/internal/transport"
 )
 
-// StoredTransport sends with the SMTP settings saved on the Mail server page.
-// It is used only when the environment does not set SMTP_HOST. Settings are
-// re-read at most every 30 seconds, so a change applies without a restart.
+// StoredTransport sends with the active delivery profile (or the legacy Mail
+// server settings). It is used only when the environment does not set
+// SMTP_HOST. A switch or edit of the active profile applies to the next send;
+// the decrypted settings are otherwise re-read at most every 30 seconds.
 type StoredTransport struct {
 	Svc     *service.Service
 	Timeout time.Duration
@@ -30,10 +31,23 @@ type StoredTransport struct {
 	mode    transport.Mode
 }
 
+// changed reports a profile switch or edit since the settings were loaded.
+// It is checked before every send, so a switch applies to the very next
+// message instead of after the 30 s cache (task T3.3). Legacy settings (no
+// profile) are re-read on the 30 s cache only. On a database error the
+// cached settings are kept.
+func (t *StoredTransport) changed(ctx context.Context) bool {
+	pin, updated, found, err := t.Svc.ActiveProfileVersion(ctx)
+	if err != nil {
+		return false
+	}
+	return pin != t.pin || (found && !updated.Equal(t.updated))
+}
+
 func (t *StoredTransport) load(ctx context.Context) (*mailer.SMTP, service.TransportPin) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if time.Since(t.checked) < 30*time.Second {
+	if time.Since(t.checked) < 30*time.Second && !t.changed(ctx) {
 		return t.smtp, t.pin
 	}
 	t.checked = time.Now()

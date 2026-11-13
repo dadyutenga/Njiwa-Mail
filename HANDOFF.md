@@ -437,7 +437,7 @@ Original list:
   by the transport profile until re-saved.
 - `SMTP_HOST` in the environment overrides saved settings at runtime; its mail is not pinned to a profile.
 - Mode switch: jobs queued before a switch go out via the new profile only after `migrate_pending` is acknowledged; a worker may
-  finish sends through the previous profile for up to 30 s (pinned to the profile that really sent them).
+  finish only a send already in progress through the previous profile (pinned to it); the next send uses the new profile (T3.3).
 - Accepted messages are not re-checked against domain claims at dispatch.
 - Strict domain gate: Live mail from unregistered domains is refused; `ALLOW_UNREGISTERED_LIVE_DOMAINS=true` is a temporary bridge.
 - Fixed Compose subnet `172.30.0.0/24` (`NJIWA_SUBNET`); Live rate limits default 600/min, 20 000/h (installation), 300/min,
