@@ -5,7 +5,10 @@ import (
 	"errors"
 	"net"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/njiwa-tz/mail/internal/installer/managed"
 )
 
 type res struct {
@@ -141,6 +144,13 @@ func TestEachProblemIsReportedWithCodeAndFix(t *testing.T) {
 				}
 				return nil, os.ErrNotExist
 			}
+			orig := e.ReadFile
+			e.ReadFile = func(p string) ([]byte, error) {
+				if p == "/etc/postfix/main.cf" {
+					return []byte("myhostname = something-else\n"), nil // not written by Njiwa-Mail
+				}
+				return orig(p)
+			}
 		}, "mta_conflict", NeedsAction, CodeMTAConflict},
 		{"IP behind NAT", func(e *Env, _ *Params) {
 			e.InterfaceIPs = func() ([]net.IP, error) { return []net.IP{net.ParseIP("10.0.0.5")}, nil }
@@ -184,5 +194,88 @@ func TestEachProblemIsReportedWithCodeAndFix(t *testing.T) {
 				t.Fatal("summary must not be ready")
 			}
 		})
+	}
+}
+
+// The installer's documented first step is "apt install postfix" with "No configuration", then the preflight.
+// An installed but unconfigured Postfix is therefore not a conflict; a configuration Njiwa-Mail wrote is ours.
+func TestPostfixFromTheDocumentedInstallIsNotAConflict(t *testing.T) {
+	withPostfix := func(e *Env, mainCF *string, port25 bool) {
+		stat := e.Stat
+		e.Stat = func(p string) (os.FileInfo, error) {
+			if p == "/usr/sbin/postfix" {
+				return nil, nil
+			}
+			return stat(p)
+		}
+		read := e.ReadFile
+		e.ReadFile = func(p string) ([]byte, error) {
+			if p == "/etc/postfix/main.cf" {
+				if mainCF == nil {
+					return nil, os.ErrNotExist
+				}
+				return []byte(*mainCF), nil
+			}
+			return read(p)
+		}
+		dial := e.DialBanner
+		e.DialBanner = func(ctx context.Context, addr string) (string, error) {
+			if addr == "127.0.0.1:25" && port25 {
+				return "220 mailout.example.com ESMTP Postfix", nil
+			}
+			return dial(ctx, addr)
+		}
+	}
+	ours := ManagedMarker + " Manual changes are replaced on the next apply.\nmyhostname = mailout.example.com\n"
+	foreign := "myhostname = mail.other.example\n"
+	for _, c := range []struct {
+		name     string
+		mainCF   *string
+		port25   bool
+		conflict bool
+	}{
+		{"installed, not configured, not running", nil, false, false},
+		{"configured by the installer and running", &ours, true, false},
+		{"configured by someone else", &foreign, false, true},
+		{"unknown program answers on 25 with no Postfix configuration", nil, true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, p := goodHost()
+			withPostfix(&env, c.mainCF, c.port25)
+			got := byKey(Run(context.Background(), env, p), "mta_conflict")
+			if (got.Status != Ready) != c.conflict {
+				t.Fatalf("%+v", got)
+			}
+			if c.conflict && got.Code != CodeMTAConflict {
+				t.Fatalf("%+v", got)
+			}
+		})
+	}
+}
+
+func TestManagedMarkerMatchesTheInstaller(t *testing.T) {
+	if !strings.HasPrefix(managed.Marker, ManagedMarker) {
+		t.Fatalf("installer marker %q does not start with %q", managed.Marker, ManagedMarker)
+	}
+}
+
+// /etc/hosts maps the machine's own name to 127.0.1.1 on Debian and Ubuntu. That must not be reported as a missing A
+// record (the operator may already have published it); it is "cannot confirm" with a way to check from outside.
+func TestLoopbackHostsEntryIsNotReportedAsMissingDNS(t *testing.T) {
+	env, p := goodHost()
+	env.Resolver = res{
+		ptr: map[string][]string{"203.0.113.10": {"mailout.example.com."}},
+		a:   map[string][]string{"mailout.example.com": {"127.0.1.1"}},
+		mx:  map[string][]string{"gmail.com": {"gmail-smtp-in.l.google.com."}},
+	}
+	cs := Run(context.Background(), env, p)
+	for _, k := range []string{"hostname_a", "ptr"} {
+		got := byKey(cs, k)
+		if got.Status != CannotConfirm || !strings.Contains(got.Fix, "dig +short A mailout.example.com") {
+			t.Fatalf("%s: %+v", k, got)
+		}
+	}
+	if ok, _ := Summary(cs); ok {
+		t.Fatal("an unconfirmed host must not summarise as ready")
 	}
 }

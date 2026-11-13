@@ -252,6 +252,19 @@ func checkLocalIP(env Env, ip net.IP) Check {
 	return c
 }
 
+// onlyLoopback reports whether a lookup returned addresses and every one is a loopback address.
+func onlyLoopback(addrs []net.IPAddr) bool {
+	if len(addrs) == 0 {
+		return false
+	}
+	for _, a := range addrs {
+		if !a.IP.IsLoopback() {
+			return false
+		}
+	}
+	return true
+}
+
 func isNotFound(err error) bool {
 	var de *net.DNSError
 	return errors.As(err, &de) && de.IsNotFound
@@ -271,6 +284,14 @@ func checkHostnameA(ctx context.Context, env Env, host string, ip net.IP) Check 
 			c.Status, c.Detail = Ready, host+" resolves to "+ip.String()
 			return c
 		}
+	}
+	if onlyLoopback(addrs) {
+		// Debian and Ubuntu map the machine's own name to 127.0.1.1 in /etc/hosts, which hides public DNS from this
+		// host. Telling the operator to add a record that may already exist would be wrong, so say what is unknown.
+		c.Status, c.Code = CannotConfirm, CodeHostnameNoA
+		c.Detail = host + " resolves to " + strings.Join(seen, ", ") + " on this host, most likely from /etc/hosts, so public DNS could not be seen"
+		c.Fix = "From another machine run: dig +short A " + host + " (it must print " + ip.String() + "). Or remove the name from the 127.0.1.1 line of /etc/hosts and run the preflight again."
+		return c
 	}
 	c.Status, c.Code = NeedsAction, CodeHostnameNoA
 	c.Detail = host + " resolves to [" + strings.Join(seen, ", ") + "]"
@@ -301,6 +322,12 @@ func checkPTR(ctx context.Context, env Env, host string, ip net.IP) Check {
 				c.Status, c.Detail = Ready, ip.String()+" → "+host+" → "+ip.String()
 				return c
 			}
+		}
+		if onlyLoopback(addrs) {
+			c.Status, c.Code = CannotConfirm, CodeFCrDNSFailed
+			c.Detail = "the PTR names " + host + ", but this host resolves " + host + " to a loopback address (probably /etc/hosts), so the forward lookup could not be confirmed"
+			c.Fix = "From another machine run: dig +short A " + host + " (it must print " + ip.String() + ")."
+			return c
 		}
 		c.Status, c.Code = NeedsAction, CodeFCrDNSFailed
 		c.Detail = "the PTR names " + host + ", but " + host + " does not resolve back to " + ip.String()
@@ -337,23 +364,45 @@ func checkEgress(ctx context.Context, env Env, probe string) Check {
 	return c
 }
 
+// ManagedMarker is the first line of every Postfix main.cf the installer writes
+// (internal/installer/managed.Marker; a test keeps the two in step).
+const ManagedMarker = "# Managed by the Njiwa-Mail installer."
+
 // checkConflicts looks for a mail server already on this host. The installer
 // never overwrites one blindly.
 func checkConflicts(ctx context.Context, env Env) Check {
 	c := Check{Key: "mta_conflict", Title: "No other mail server on this host", Required: true}
 	var found []string
+	// Postfix is the one MTA the installer itself installs ("apt install postfix", answer "No configuration"),
+	// so its binary alone is not a conflict. A configuration that Njiwa-Mail did not write is; one it wrote is ours.
+	ours := false
 	for _, p := range []string{"/usr/sbin/postfix", "/usr/sbin/exim4", "/usr/sbin/exim", "/usr/sbin/sendmail.sendmail", "/opt/mailcow-dockerized"} {
-		if _, err := env.Stat(p); err == nil {
-			found = append(found, p)
+		if _, err := env.Stat(p); err != nil {
+			continue
 		}
+		if p == "/usr/sbin/postfix" {
+			b, rerr := env.ReadFile("/etc/postfix/main.cf")
+			switch {
+			case rerr != nil: // installed but not configured
+				continue
+			case strings.HasPrefix(string(b), ManagedMarker):
+				ours = true
+				continue
+			}
+			p = "/usr/sbin/postfix with a configuration Njiwa-Mail did not write (/etc/postfix/main.cf)"
+		}
+		found = append(found, p)
 	}
 	dctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if banner, err := env.DialBanner(dctx, "127.0.0.1:25"); err == nil {
+	if banner, err := env.DialBanner(dctx, "127.0.0.1:25"); err == nil && !ours {
 		found = append(found, "something answers on port 25 ("+strings.TrimSpace(banner)+")")
 	}
 	if len(found) == 0 {
-		c.Status, c.Detail = Ready, "no existing mail server was found"
+		c.Status, c.Detail = Ready, "no other mail server was found"
+		if ours {
+			c.Detail = "the only mail server is the Postfix that the Njiwa-Mail installer configured"
+		}
 		return c
 	}
 	c.Status, c.Code = NeedsAction, CodeMTAConflict
