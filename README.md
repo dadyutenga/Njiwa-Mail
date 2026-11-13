@@ -1,9 +1,34 @@
 # Njiwa Mail
 
-Self-hosted transactional email service: one API, one dashboard and one domain experience, with two delivery modes —
-**Send from my VPS** (Njiwa installs and manages Postfix + OpenDKIM on your host) or **Connect an existing mail server**
-(any authenticated SMTP server: Postfix, Exim, Mailcow or a provider). Mailcow is supported, never required.
-It is **independent of any client application**: it has its own repository layout, database, Compose stack,
+**Self-hosted transactional email you can see into: one API, one dashboard, your own server.**
+
+[![CI](https://github.com/dadyutenga/Njiwa-Mail/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/dadyutenga/Njiwa-Mail/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](go.mod)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+*Njiwa* is Kiswahili for "pigeon", the bird that carries the message. Njiwa Mail sends the mail your applications need (one-time
+codes, password resets, account notices, receipts) from infrastructure you own, and tells you honestly what happened to each
+message. It is free and open source under the [GNU AGPL-3.0](LICENSE), built in Tanzania, and in English and Kiswahili.
+
+## Why Njiwa Mail
+
+- **Two ways to send, one API.** **Send from my VPS**: Njiwa installs and manages Postfix and OpenDKIM on your host. **Connect an
+  existing mail server**: any authenticated SMTP server (Postfix, Exim, Mailcow or a provider). Mailcow is supported, never required.
+- **Installs safely next to what you already run.** A read-only scan finds the mail services already on the server and recommends
+  a mode. The installer shows a plan before it changes anything, needs that exact plan approved, keeps a receipt and can roll
+  back. It never replaces a mail server that is in use.
+- **Runs on Debian, Ubuntu, AlmaLinux, Rocky Linux, RHEL and Fedora**, with Docker Compose for the application.
+- **Honest delivery status.** `submitted` means your mail server accepted the message. Later evidence (deferred, accepted by the
+  recipient's server, bounced) is shown with its source. Njiwa never claims "delivered".
+- **Domains done properly.** SPF, DKIM and DMARC are evaluated, not just looked up. DKIM keys rotate in stages. Live mail needs a
+  domain the project has verified.
+- **Built for operators.** A dashboard in English and Kiswahili, with audit log, optional TOTP sign-in, metrics, rate limits and
+  backup/restore.
+
+## What it does
+
+Njiwa Mail is **independent of any client application**: it has its own repository layout, database, Compose stack,
 configuration and release cycle. Every app is an API client with its own key. The contract is [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 - **Outbound:** authenticated `POST /v1/emails` → durable PostgreSQL queue → worker → verified-TLS SMTP submission to the active delivery profile (managed Postfix over mutual TLS, or your SMTP server).
@@ -15,12 +40,12 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, one role (`admin`) with an installation-operator permission, optional TOTP two-step sign-in, audit log, DNS health check, metrics.
 - The operator workspace opens in Live at `/p/{project}/…`. Live/Sandbox is selected locally for sending, template tests, and API keys; Sandbox captures have their own page. Only the last project is remembered.
 - Per-project, per-environment (sandbox/live) API keys, approved senders, approved link origins, recipient allowlist, rate limits.
-- Honest status: `submitted` = your mail server acknowledged acceptance. Later evidence (deferred, accepted by the recipient's server, bounced) is shown with its source. Never "delivered".
-- Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. The HTTP API is Fiber v3. Persistence is GORM on PostgreSQL.
+- Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. The HTTP API is Fiber v3. Persistence is GORM on PostgreSQL. The dashboard is React.
 
-> Release status: see [STATUS.md](STATUS.md) and [docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md). The managed installer has been verified against real
-> Postfix and OpenDKIM (no open relay, mutual-TLS submission, DKIM signing), but real delivery to external providers and an HTTPS
-> deployment have **not** been verified yet.
+> **Project status: pre-1.0.** See [STATUS.md](STATUS.md) and [docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md). The managed
+> installer is checked on every change against real Postfix and OpenDKIM (no open relay, mutual-TLS submission, DKIM signing) on
+> Ubuntu, AlmaLinux, Rocky Linux and Fedora. Real delivery to external providers and an HTTPS deployment have **not** been
+> verified yet. Help with that is very welcome.
 
 ## Installing on a server
 
@@ -118,3 +143,24 @@ One request accepts a `to` address plus `cc` and `bcc` (10 addresses altogether)
 Inbound mail arrives by Mailcow relay, or by IMAP polling of a catch-all mailbox (`IMAP_HOST`). Outbound submission uses `SMTP_HOST` and, when that host fails before acceptance, `SMTP_FAILOVER_HOST`. Extra `api` and `worker` replicas share the same PostgreSQL queue, so a second instance does not double-send.
 
 This remains a transactional service. It does not send marketing campaigns.
+
+## Contributing
+
+Contributions of every size are welcome: bug reports, docs fixes, translations, tests on a distribution you run, features.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). It covers the development setup, the branch flow (pull requests go to `dev`) and
+the checks CI runs. Good places to start:
+
+- **Try the installer on your distribution** and report what you see (`sh scripts/discover.sh`, then `njiwa-mail installer plan`).
+  Real-host runs with SELinux enforcing on AlmaLinux or Rocky Linux are especially wanted.
+- **Kiswahili and English wording** in the dashboard and the email templates.
+- **Client libraries and examples** beyond the [Go client](client/) and [docs/EXAMPLES.md](docs/EXAMPLES.md).
+- **Open items** in [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md) and [task.md](task.md).
+
+Please report security problems privately, not in issues: see [SECURITY.md](SECURITY.md). Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+Njiwa Mail is free software, licensed under the [GNU Affero General Public License v3.0](LICENSE). You can use it, change it and
+run it for any purpose, including commercially. If you run a modified version as a service that other people use over a network,
+you must offer them the source of your version (AGPL section 13). Contributions are accepted under the same license.
