@@ -95,7 +95,7 @@ database:
 njiwa-mail preflight -hostname mailout.example.com -ip 203.0.113.10
 ```
 
-It checks the distribution (Debian 12, Ubuntu 22.04/24.04), systemd, disk and inodes for the queue, memory, clock synchronisation,
+It checks the distribution (Debian 12; Ubuntu 22.04, 24.04 or 26.04; AlmaLinux, Rocky Linux or RHEL 9 or 10; Fedora 41 or later), systemd, disk and inodes for the queue, memory, clock synchronisation,
 whether the sending IP is on this host, the mail hostname's A record, reverse DNS (PTR) forward-confirmed, outbound port 25 (it
 connects to a large provider's MX and reads the greeting; no mail is sent) and existing mail servers that must not be overwritten.
 A check it cannot verify is reported as `CANNOT_CONFIRM`, never as ready. It exits non-zero until every required check passes.

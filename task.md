@@ -185,3 +185,16 @@ Guide: `docs/INSTALL.md`. Code: `internal/installer/discover`, `internal/install
     - the restored volume lacked Compose labels;
     - port owners were unknown before the AppArmor fix. CI now fails if Njiwa's own ports are reported as taken.
 - [ ] **T9.6** still owed on `rida-server` and a clean VM (read-only scan).
+
+## 11. RHEL family for managed mode (PR #15)
+
+- [x] **Managed installer on AlmaLinux, Rocky Linux, RHEL 9/10 and Fedora 41+:** dnf with a dry run that refuses removals or
+  unresolvable dependencies; EPEL and (EL 9) CRB enabled as visible plan steps, undone on failure or rollback; Postfix 3.5
+  compatibility on EL 9; LMDB tables on Fedora/EL 10; SELinux port and file labels; firewalld warning (never changed); discovery
+  treats the RHEL package-default Postfix as adoptable.
+- [x] CI job `managed-mta-rhel` runs discovery, plan/apply and the real Postfix/OpenDKIM e2e checks on AlmaLinux 9 and 10, Rocky
+  Linux 9 and the current Fedora (containers).
+- [ ] **T11.1 (joint, real host)** SELinux enforcing and firewalld cannot run in CI containers. Run `scripts/discover.sh`, `installer
+  plan/apply` and a Test-mode send on one real AlmaLinux or Rocky Linux 9 VM (throwaway, never `rida-server`); check `getenforce`
+  stays Enforcing, `ausearch -m avc -ts recent` is empty, and rollback removes the `smtp_port_t` label.
+- [ ] **T11.2 (owner)** RHEL proper needs a subscription for EPEL/CRB; untested until someone has a RHEL host.
