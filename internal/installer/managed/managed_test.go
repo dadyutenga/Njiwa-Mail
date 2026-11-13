@@ -18,11 +18,15 @@ type fakeRun struct {
 	calls []string
 	fail  string            // command prefix that fails
 	out   map[string]string // command prefix -> output
+	onRun func(cmd string)  // side effects (a package creating files)
 }
 
 func (f *fakeRun) Run(name string, args ...string) (string, error) {
 	c := name + " " + strings.Join(args, " ")
 	f.calls = append(f.calls, c)
+	if f.onRun != nil {
+		f.onRun(c)
+	}
 	if f.fail != "" && strings.HasPrefix(c, f.fail) {
 		return "simulated failure", errors.New("exit status 1")
 	}
@@ -794,5 +798,43 @@ func TestReceiptPermissionErrorIsReported(t *testing.T) {
 	defer os.Chmod(dir, 0o700)
 	if _, err := LoadReceipt(p, ""); !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("%v", err)
+	}
+}
+
+// Review finding (PR #11): a failed apply must also undo the packages it
+// installed, and keep the files those packages created until they are purged.
+func TestFailedApplyRemovesThePackagesItInstalled(t *testing.T) {
+	p := params(t)
+	os.Remove(filepath.Join(p.Root, "/usr/sbin/postfix"))
+	os.Remove(filepath.Join(p.Root, "/usr/sbin/opendkim"))
+	writeFileAtomic(filepath.Join(p.Root, "/etc/os-release"), []byte("ID=debian\nVERSION_ID=\"12\"\n"), 0o644)
+	pl, _ := BuildPlan(p)
+	pkgConf := "# opendkim package default\nSocket local:/run/opendkim/opendkim.sock\n"
+	run := &fakeRun{fail: "postfix check", onRun: func(c string) {
+		if strings.Contains(c, "apt-get install") {
+			writeFileAtomic(filepath.Join(p.Root, "/etc/opendkim.conf"), []byte(pkgConf), 0o644)
+		}
+	}}
+	rc, err := Apply(p, pl.Digest, run, now)
+	if err == nil || rc.Result != "failed_rolled_back" {
+		t.Fatalf("%v %+v", err, rc)
+	}
+	calls := strings.Join(run.calls, "\n")
+	if !strings.HasPrefix(run.calls[0], "env DEBIAN_FRONTEND=noninteractive apt-get update") {
+		t.Fatalf("apt-get update must run first: %v", run.calls[0])
+	}
+	if !strings.Contains(calls, "env DEBIAN_FRONTEND=noninteractive apt-get purge -y opendkim postfix") {
+		t.Fatalf("installed packages not removed after the failure:\n%s", calls)
+	}
+	if got := read(t, p, "/etc/opendkim.conf"); got != pkgConf {
+		t.Fatalf("the package's own file was not restored: %q", got)
+	}
+	if len(rc.InstalledPackages) != 0 {
+		t.Fatalf("receipt still lists packages: %v", rc.InstalledPackages)
+	}
+	// A failing apt-get update stops before anything is installed.
+	run = &fakeRun{fail: "env DEBIAN_FRONTEND=noninteractive apt-get update"}
+	if _, err := Apply(p, pl.Digest, run, now.Add(time.Minute)); err == nil || strings.Contains(strings.Join(run.calls, "\n"), "apt-get install") {
+		t.Fatalf("%v %v", err, run.calls)
 	}
 }

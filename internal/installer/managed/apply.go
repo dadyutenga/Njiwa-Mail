@@ -133,6 +133,31 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	rc := &Receipt{ID: id, CreatedAt: now.UTC(), PlanDigest: pl.Digest, Params: p, RollbackState: "available",
 		BackupDir: filepath.Join(p.StateDir, "backups", id), DKIMRecords: map[string]string{}}
 
+	step := func(name string, err error, detail string) bool {
+		s := Step{Name: name, OK: err == nil, Detail: detail}
+		if err != nil {
+			s.Detail = strings.TrimSpace(detail + " " + err.Error())
+		}
+		rc.Steps = append(rc.Steps, s)
+		return err == nil
+	}
+	// Packages first, so the files they create (for example the package's
+	// /etc/opendkim.conf) are backed up and restored like any other file.
+	if len(pl.MissingPackages) > 0 {
+		out, ran, err := installPackages(run, pl.MissingPackages)
+		if ran {
+			rc.InstalledPackages = pl.MissingPackages
+		}
+		if !step("install packages "+strings.Join(pl.MissingPackages, " "), err, out) {
+			if ran {
+				removePackages(run, rc)
+			}
+			rc.Result, rc.RollbackState = "failed_rolled_back", "rolled_back"
+			_ = saveReceipt(p, rc)
+			return rc, fmt.Errorf("installing %s failed; nothing else was changed: %w", strings.Join(pl.MissingPackages, " "), err)
+		}
+	}
+
 	// Every path that may change, including generated secrets.
 	targets := []string{}
 	for _, f := range pl.Files {
@@ -156,29 +181,17 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 		}
 		rc.Files = append(rc.Files, rf)
 	}
-	step := func(name string, err error, detail string) bool {
-		s := Step{Name: name, OK: err == nil, Detail: detail}
-		if err != nil {
-			s.Detail = strings.TrimSpace(detail + " " + err.Error())
-		}
-		rc.Steps = append(rc.Steps, s)
-		return err == nil
-	}
 	fail := func() (*Receipt, error) {
 		restore(p, rc, run)
+		// The host goes back to how it was, including the packages this
+		// apply installed (a later rollback finds this receipt rolled back).
+		removePackages(run, rc)
 		rc.Result, rc.RollbackState = "failed_rolled_back", "rolled_back"
 		_ = saveReceipt(p, rc)
 		last := rc.Steps[len(rc.Steps)-1]
 		return rc, fmt.Errorf("%s failed (%s); every change was rolled back", last.Name, last.Detail)
 	}
 
-	if len(pl.MissingPackages) > 0 {
-		out, err := installPackages(run, pl.MissingPackages)
-		if !step("install packages "+strings.Join(pl.MissingPackages, " "), err, out) {
-			return fail()
-		}
-		rc.InstalledPackages = pl.MissingPackages
-	}
 	if !step("generate certificates", ensurePKI(p, now), "") {
 		return fail()
 	}
@@ -486,10 +499,8 @@ func Rollback(p Params, id string, run Runner) (*Receipt, error) {
 	rp := rc.Params
 	rp.Root = p.Root
 	restore(rp, rc, run)
-	if p.RemovePackages && len(rc.InstalledPackages) > 0 {
-		args := append([]string{"purge", "-y"}, rc.InstalledPackages...)
-		out, err := run.Run("apt-get", args...)
-		rc.Steps = append(rc.Steps, Step{Name: "remove packages " + strings.Join(rc.InstalledPackages, " "), OK: err == nil, Detail: strings.TrimSpace(out)})
+	if p.RemovePackages {
+		removePackages(run, rc)
 	}
 	rc.RollbackState = "rolled_back"
 	return rc, saveReceipt(rp, rc)
@@ -499,10 +510,14 @@ func Rollback(p Params, id string, run Runner) (*Receipt, error) {
 // would remove any package (for example another mail server), and Postfix is
 // preseeded to "No configuration" so the package changes nothing before the
 // installer writes its own configuration.
-func installPackages(run Runner, pkgs []string) (string, error) {
+func installPackages(run Runner, pkgs []string) (out string, ran bool, err error) {
+	// A fresh cloud image often has empty package lists.
+	if out, err := run.Run("env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "update"); err != nil {
+		return out, false, fmt.Errorf("apt-get update failed")
+	}
 	sim, err := run.Run("apt-get", append([]string{"-s", "install", "-y", "--no-install-recommends"}, pkgs...)...)
 	if err != nil {
-		return sim, fmt.Errorf("apt-get could not plan the installation")
+		return sim, false, fmt.Errorf("apt-get could not plan the installation")
 	}
 	var removes []string
 	for _, l := range strings.Split(sim, "\n") {
@@ -511,12 +526,26 @@ func installPackages(run Runner, pkgs []string) (string, error) {
 		}
 	}
 	if len(removes) > 0 {
-		return sim, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removes, ", "))
+		return sim, false, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removes, ", "))
 	}
 	if out, err := run.Run("sh", "-c", "echo 'postfix postfix/main_mailer_type select No configuration' | debconf-set-selections"); err != nil {
-		return out, err
+		return out, false, err
 	}
-	return run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends"}, pkgs...)...)
+	out, err = run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends"}, pkgs...)...)
+	return out, true, err
+}
+
+// removePackages purges the packages a receipt records as installed by its
+// apply, and records the step. It does nothing when there are none.
+func removePackages(run Runner, rc *Receipt) {
+	if len(rc.InstalledPackages) == 0 {
+		return
+	}
+	out, err := run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "purge", "-y"}, rc.InstalledPackages...)...)
+	rc.Steps = append(rc.Steps, Step{Name: "remove packages " + strings.Join(rc.InstalledPackages, " "), OK: err == nil, Detail: strings.TrimSpace(out)})
+	if err == nil {
+		rc.InstalledPackages = nil
+	}
 }
 
 func parseIPs(vals ...string) []net.IP {
