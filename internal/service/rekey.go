@@ -45,6 +45,9 @@ var sealedColumns = []sealedSpec{
 		"CASE mode WHEN 'managed_mta' THEN '" + managedTLSAAD + "' ELSE '" + smtpPasswordAAD + "' END"},
 	{"transport_profiles.encrypted_provider_secret", "transport_profiles", "encrypted_provider_secret", "id::text", "'" + mailcowAPIKeyAAD + "'"},
 	{"users.totp_secret_enc", "users", "totp_secret_enc", "id::text", "'totp:'||id::text"},
+	{"dns_connections.token_enc", "dns_connections", "token_enc", "id::text", "'dns-connection:'||id::text||':token'"},
+	{"dns_connections.refresh_enc", "dns_connections", "refresh_enc", "id::text", "'dns-connection:'||id::text||':refresh'"},
+	{"dns_oauth_states.verifier_enc", "dns_oauth_states", "verifier_enc", "encode(state_hash,'hex')", "'dns-oauth:'||encode(state_hash,'hex')"},
 }
 
 // SealedColumnNames lists every "table.column" that rekey covers.

@@ -90,6 +90,7 @@ func (s *Server) App() *fiber.App {
 	s.adminRoutes(app)
 	s.productRoutes(app)
 	s.workspaceRoutes(app)
+	s.dnsRoutes(app)
 	return app
 }
 
@@ -313,6 +314,7 @@ func subtleMismatch(got, want string) bool {
 
 // rawResponse is a non-JSON response (attachment download, HTML view, cookie write).
 type rawResponse struct {
+	status int // 0 = 200
 	header map[string]string
 	body   []byte
 	file   string
@@ -334,7 +336,11 @@ func (rr rawResponse) write(c fiber.Ctx) error {
 		c.Status(200)
 		return c.Send(b)
 	}
-	c.Status(200)
+	if rr.status != 0 {
+		c.Status(rr.status)
+	} else {
+		c.Status(200)
+	}
 	return c.Send(rr.body)
 }
 

@@ -58,7 +58,9 @@ type Config struct {
 	TrustProxy      bool
 	InsecureCookies bool
 	PublicURL       string
-	IngressAddr     string
+	// Cloudflare OAuth client (optional; enables "Sign in with Cloudflare" for DNS setup).
+	CloudflareOAuthClientID, CloudflareOAuthClientSecret, CloudflareOAuthAuthURL, CloudflareOAuthTokenURL, CloudflareOAuthRevokeURL, CloudflareOAuthScope string
+	IngressAddr                                                                                                                                           string
 
 	// IMAP is the inbound fallback when Mailcow cannot relay to the SMTP listener.
 	IMAPHost     string
@@ -340,6 +342,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	c.PublicURL = get("PUBLIC_URL", "")
+	c.CloudflareOAuthClientID = get("CLOUDFLARE_OAUTH_CLIENT_ID", "")
+	c.CloudflareOAuthClientSecret = get("CLOUDFLARE_OAUTH_CLIENT_SECRET", "")
+	c.CloudflareOAuthAuthURL = get("CLOUDFLARE_OAUTH_AUTH_URL", "")
+	c.CloudflareOAuthTokenURL = get("CLOUDFLARE_OAUTH_TOKEN_URL", "")
+	c.CloudflareOAuthRevokeURL = get("CLOUDFLARE_OAUTH_REVOKE_URL", "")
+	c.CloudflareOAuthScope = get("CLOUDFLARE_OAUTH_SCOPE", "")
 	c.IngressAddr = get("INGRESS_ADDR", "")
 	if c.MetricsToken, err = secret("METRICS_TOKEN"); err != nil {
 		return nil, err

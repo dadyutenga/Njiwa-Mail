@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/net/idna"
 
+	"github.com/njiwa-tz/mail/internal/dnsprovider"
 	"github.com/njiwa-tz/mail/internal/provider"
 	"github.com/njiwa-tz/mail/internal/secure"
 )
@@ -24,6 +25,18 @@ type Options struct {
 	// NewProvider builds the mail server management client (Mailcow when nil).
 	// Tests replace it; see internal/provider.
 	NewProvider provider.Factory
+
+	// DNS setup (docs/DNS_SETUP.md). NewDNSProvider builds the DNS host client
+	// from a stored credential (Cloudflare when nil); tests replace it.
+	NewDNSProvider dnsprovider.Factory
+	DNSOAuth       DNSOAuth // operator OAuth client; zero value disables the flow
+	// DNSAllowPrivate lets OAuth endpoints be http/private addresses. Tests only.
+	DNSAllowPrivate bool
+	// DNSSleep waits between retries (tests replace it to avoid real waits).
+	DNSSleep func(ctx context.Context, d time.Duration) error
+	// Port25Probe checks outbound TCP 25 from this host (managed delivery).
+	// nil dials a well-known public MX.
+	Port25Probe func(ctx context.Context) error
 
 	MetadataRetention time.Duration
 	CaptureRetention  time.Duration

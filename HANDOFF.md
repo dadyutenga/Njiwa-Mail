@@ -24,7 +24,10 @@ blocking and green on GitHub) and G10 (release report with compatibility table a
 **What is NOT done, and why it cannot be done by an assistant:** everything in section 3 (real server) and G09 (a non-author install).
 `rida-server` turned out to be a live multi-service host: Mailcow owns ports 25/465/587 and the installer correctly refuses such a host, so
 managed mode (G05) and the other real-delivery items need a **clean VPS** plus DNS and Gmail/Outlook mailboxes. Also still open: a manual
-screen-reader/phone pass and a native-speaker review of the Kiswahili; Fiber was migrated from v2 to v3 afterwards (see STATUS.md).
+screen-reader/phone pass and a native-speaker review of the Kiswahili; Fiber was migrated from v2 to v3 afterwards, and one-click Cloudflare DNS
+setup was added after that (STATUS.md, `docs/DNS_SETUP.md`). **DNS setup has only run against an in-memory DNS host and test servers:** before
+trusting it, a person must run it once against a real Cloudflare zone they own (token connect, analyze, approve, apply, verify, rollback), and
+register a Cloudflare OAuth client (and, if wanted, a Domain Connect template) before enabling "Sign in with Cloudflare".
 How the work was verified: Go and frontend suites, Playwright and a Compose smoke stack were run in throwaway Docker containers on
 `rida-server` (nothing installed on the workstation, no production container touched; the throwaway containers, volumes and images were
 removed afterwards), and by GitHub Actions on every push.

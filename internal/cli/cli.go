@@ -163,8 +163,13 @@ func Run(args []string) {
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
 		PublicURL: cfg.PublicURL, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
+			TokenURL: cfg.CloudflareOAuthTokenURL, RevokeURL: cfg.CloudflareOAuthRevokeURL, Scope: cfg.CloudflareOAuthScope},
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
 		LiveDomainPerMinute: cfg.LiveDomainPerMinute, LiveDomainPerHour: cfg.LiveDomainPerHour, LiveQueueMax: cfg.LiveQueueMax})
+	if err := service.ValidateDNSOAuth(svc.Opts.DNSOAuth); err != nil {
+		die(err)
+	}
 	if cfg.AllowUnregisteredLiveDomains {
 		slog.Warn("ALLOW_UNREGISTERED_LIVE_DOMAINS is on: Live mail may use sending domains that no project has registered. Register and verify every sending domain, then turn this off.")
 	}
@@ -466,8 +471,13 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 	every(5*time.Minute, "temporary_inboxes", func() error { return svc.ExpireTempInboxes(ctx) })
 	every(10*time.Minute, "domain_recheck", func() error {
 		_, err := svc.RecheckPendingDomains(ctx, nil)
+		if err != nil {
+			return err
+		}
+		_, err = svc.RecheckDNSSetups(ctx, nil) // bounded: setups applied in the last 48 hours
 		return err
 	})
+	every(time.Hour, "dns_oauth_states", func() error { return svc.PurgeDNSOAuthStates(ctx) })
 	every(5*time.Minute, "bounce_rate_alerts", func() error { return svc.CheckBounceRates(ctx) })
 	every(24*time.Hour, "daily_summary", func() error {
 		body, recipients, err := svc.DailySummary(ctx)
