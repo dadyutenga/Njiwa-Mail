@@ -1,6 +1,7 @@
 package installation
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -107,5 +108,18 @@ func TestBounceStepIsOptionalAndHonest(t *testing.T) {
 	f.Bounces = &BounceFacts{Configured: true, ListenerUp: true}
 	if s := Compute(f).Steps[4]; s.Status != Ready || s.CheckedAt != nil {
 		t.Fatalf("ready without reports: %+v", s)
+	}
+}
+
+// T7.3: a bounce listener that would refuse host Postfix is reported, with
+// the value to set, before the listener state.
+func TestBounceStepReportsWrongInboundSources(t *testing.T) {
+	f := Facts{Now: now, Mode: ModeExisting, ProfileRevision: 1, ConfigComplete: true,
+		Checks:  map[string]Check{"connection": pass(1, time.Hour), "test_send": pass(1, time.Hour)},
+		Bounces: &BounceFacts{Configured: true, ListenerUp: true, SourcesProblem: "Set INBOUND_ALLOWED_SOURCES=172.30.0.1"}}
+	r := Compute(f)
+	last := r.Steps[len(r.Steps)-1]
+	if last.ProblemCode != CodeInboundSources || last.Required || r.Status != Ready || !strings.Contains(last.Message, "172.30.0.1") {
+		t.Fatalf("%+v", last)
 	}
 }

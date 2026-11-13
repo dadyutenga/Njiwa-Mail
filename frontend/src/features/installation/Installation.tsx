@@ -213,6 +213,8 @@ export const problemFixes: Record<string, string> = {
     "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
   BOUNCES_NOT_CONFIGURED:
     "Set BOUNCE_ADDRESS to an address on a domain whose MX reaches Njiwa-Mail (your mail server relays it to the inbound listener), and run the inbound role. Sending works without it, but hard bounces are not suppressed automatically.",
+  INBOUND_SOURCES_WRONG:
+    "Host Postfix relays bounces from the gateway of Njiwa-Mail's network (172.30.0.1 by default). Put that address in INBOUND_ALLOWED_SOURCES in .env and restart the inbound role.",
   BOUNCE_LISTENER_DOWN:
     "Start the inbound role (docker compose --profile inbound up -d) so bounce reports can be received.",
   CLIENT_CERT_EXPIRING:

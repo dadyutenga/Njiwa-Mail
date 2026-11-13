@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/njiwa-tz/mail/internal/installation"
@@ -131,10 +133,28 @@ ORDER BY EXISTS (SELECT 1 FROM domains d WHERE d.project_id=p.id AND d.verified_
 	}
 	step("dns", "Publish the DNS records", "Publish SPF, DKIM and DMARC by hand, or connect your DNS provider to apply them after you review them. Existing MX records are never changed without your approval.",
 		dnsDone, "domains", dnsOK)
+	// Managed mode: a domain verified after the install has no DKIM key on
+	// the host until the installer runs again (task T7.2).
+	if w.SelectedMode == installation.ModeManaged {
+		if missing, err := s.DomainsMissingKey(ctx); err == nil && len(missing) > 0 {
+			x := &j.Steps[len(j.Steps)-1]
+			if x.Status == "ready" {
+				x.Status = "needs_action"
+			}
+			x.Detail = "The mail host has no DKIM key yet for " + strings.Join(missing, ", ") + ". Run the installer again on the host (the Mail host page shows the exact commands), then publish the DKIM record it prints."
+			x.Command, x.Route = "njiwa-mail installer plan", "mail-host"
+		}
+	}
 	step("sender", "Create a sender address", "Add a Live sender on the verified domain (for example noreply@your-domain).",
 		"A Live sender address exists.", "senders", sender)
 	step("api_key", "Create an API key", "Create a Live API key for your application.", "A Live API key exists.", "keys", key)
-	step("test_send", "Send a test email", "Send a test message from the dashboard and check it in the recipient's inbox (headers show SPF, DKIM and DMARC).",
+	testTodo := "Send a test message from the dashboard and check it in the recipient's inbox (headers show SPF, DKIM and DMARC)."
+	var perMin, perHour int
+	if pid != "" && s.Pool.QueryRow(ctx, `SELECT recipient_per_minute, recipient_per_hour FROM projects WHERE id=$1`, pid).Scan(&perMin, &perHour) == nil {
+		// Abuse protection that surprises a first test (task T3.6).
+		testTodo += fmt.Sprintf(" This project accepts at most %d messages per minute and %d per hour to the same recipient; change it on the Projects page.", perMin, perHour)
+	}
+	step("test_send", "Send a test email", testTodo,
 		"A Live message was handed to the mail server. Delivery is proven by the received message, not by this step.", "setup", sent)
 
 	dash := add("dashboard", "Open the dashboard", "not_started", "Finish the steps above.")

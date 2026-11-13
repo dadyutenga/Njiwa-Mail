@@ -109,6 +109,8 @@ any point and continue later from any device, because every step is read from th
      njiwa-mail installer apply -hostname mail.example.com -domains notify.example.com -bounce-domain bounce.example.com -submission 172.30.0.1:10587 -approve <digest> -record
      ```
 
+     In managed mode set `INBOUND_ALLOWED_SOURCES=172.30.0.1` (the gateway of Njiwa's network, from which host Postfix relays
+     bounces); the Installation page warns `INBOUND_SOURCES_WRONG` otherwise.
      Host commands reach the database at `postgres://mail:<POSTGRES_PASSWORD>@172.30.0.10:5432/mail` (`NJIWA_DB_IP`). Put that and
      the two keys from `.env` into `/etc/njiwa-mail/env` for `-record` and the `njiwa-mail-mta-log` unit.
 
@@ -117,7 +119,8 @@ any point and continue later from any device, because every step is read from th
    approve them. Existing MX and SPF records are never changed without your approval (`TestDNSExistingMailAndSPFArePreserved`).
 7. **Create a sender address** on the verified domain (Senders page).
 8. **Create an API key** for your application (API keys page).
-9. **Send a test email** from the dashboard. Check the received message's headers for `spf=pass`, `dkim=pass` and `dmarc=pass`.
+9. **Send a test email** from the dashboard. New projects accept at most 3 messages per minute and 10 per hour to the same recipient
+   (abuse protection); raise them on the Projects page or with `njiwa-mail project quotas` for tests and demos. Check the received message's headers for `spf=pass`, `dkim=pass` and `dmarc=pass`.
    Njiwa-Mail reports that the mail server *accepted* the message; delivery is proven by the received mail.
 10. **Open the dashboard.** Messages, delivery evidence, analytics and alerts are the same in both modes.
 

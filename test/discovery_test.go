@@ -125,3 +125,21 @@ func TestSetupJourneyResumesFromServerState(t *testing.T) {
 		t.Fatalf("after revoking keys: %v", j["api_key"])
 	}
 }
+
+// T7.2: in managed mode, a claimed domain the mail host has no DKIM key for
+// reopens the DNS step with the installer command.
+func TestSetupJourneyAsksForTheInstallerAfterANewDomain(t *testing.T) {
+	e := setup(t)
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"})
+	e.provision("acme")
+	var dns map[string]any
+	for _, s := range e.admOK(owner, "GET", "/admin/v1/installation/setup", nil).JSON["steps"].([]any) {
+		if m := s.(map[string]any); m["id"] == "dns" {
+			dns = m
+		}
+	}
+	if dns["status"] != "needs_action" || dns["command"] != "njiwa-mail installer plan" || !strings.Contains(dns["detail"].(string), "no DKIM key yet") {
+		t.Fatalf("%v", dns)
+	}
+}

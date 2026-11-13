@@ -464,6 +464,12 @@ queue and the database, then ran `scripts/restore.sh`. Result: the database rows
 the worker's client key were byte-identical (same SHA-256), owners and permissions were intact (`opendkim 0750` key directories,
 `0600` keys), `installer plan` showed nothing to change, and all `managed_e2e` checks passed. Repeat the drill on the production host
 before relying on it.
+
+**Queue IDs after a queue restore (task T3.7).** When `postfix-queue.tgz` is restored onto a different filesystem, Postfix renames
+the queue files to match their new inode numbers ("QUEUE FILE NAMES WERE CHANGED TO MATCH INODE NUMBERS") and the messages get new
+queue IDs. Those messages are still delivered, but later `mta-log` lines (sent, deferred, bounced) no longer match the queue ID
+recorded when they were submitted, so their delivery evidence stays at `submitted`. Bounces are unaffected: they are matched by the
+signed return path (VERP) and the message headers, not the queue ID. Check such messages in the Postfix log by Message-ID if needed.
 ## Rollback
 
 1. Pause acceptance for the affected project (`project disable`) **or** switch the application's provider flag for *new* requests.

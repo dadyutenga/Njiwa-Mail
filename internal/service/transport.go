@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -204,7 +205,7 @@ FROM installation_checks WHERE profile_id=$1::uuid ORDER BY check_key, checked_a
 	_ = s.Pool.QueryRow(ctx, `SELECT is_active FROM transport_profiles WHERE id=$1::uuid`, id).Scan(&active)
 	if active {
 		f.Delivery = s.deliveryHealth(ctx)
-		f.Bounces = s.bounceFacts(ctx)
+		f.Bounces = s.bounceFacts(ctx, mode)
 	}
 	return installation.Compute(f), nil
 }
@@ -629,9 +630,46 @@ func isUUID(v string) bool {
 func ProblemCode(kind string, detail any) string { return problemCodeFor(kind, detail) }
 
 // bounceFacts reports whether bounce reports can reach Njiwa (C08).
-func (s *Service) bounceFacts(ctx context.Context) *installation.BounceFacts {
+func (s *Service) bounceFacts(ctx context.Context, mode string) *installation.BounceFacts {
 	b := &installation.BounceFacts{Configured: strings.TrimSpace(s.Opts.BounceAddress) != ""}
+	if b.Configured && mode == installation.ModeManaged {
+		b.SourcesProblem = inboundSourcesProblem(s.Opts.InboundAllowedSources, s.Opts.NjiwaSubnet)
+	}
 	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM worker_heartbeats WHERE role='inbound' AND last_seen > now() - interval '5 minutes')`).Scan(&b.ListenerUp)
 	_ = s.Pool.QueryRow(ctx, `SELECT max(received_at) FROM inbound_spool WHERE kind='bounce'`).Scan(&b.LastReport)
 	return b
+}
+
+// inboundSourcesProblem checks that the inbound listener accepts the host
+// Postfix, which relays bounces from the gateway of Njiwa's Docker network
+// (the first address of NJIWA_SUBNET, 172.30.0.1 by default). It returns ""
+// when it does.
+func inboundSourcesProblem(sources, subnet string) string {
+	if subnet == "" {
+		subnet = "172.30.0.0/24"
+	}
+	_, n, err := net.ParseCIDR(subnet)
+	if err != nil || n.IP.To4() == nil {
+		return ""
+	}
+	gw := make(net.IP, 4)
+	copy(gw, n.IP.To4())
+	gw[3]++
+	fix := "Set INBOUND_ALLOWED_SOURCES=" + gw.String() + " in .env and restart the inbound role (docker compose --profile inbound up -d)."
+	if strings.TrimSpace(sources) == "" {
+		return "INBOUND_ALLOWED_SOURCES is empty, so the inbound listener refuses the bounces Postfix relays from this host. " + fix
+	}
+	for _, f := range strings.Split(sources, ",") {
+		f = strings.TrimSpace(f)
+		if !strings.Contains(f, "/") {
+			if ip := net.ParseIP(f); ip != nil && ip.Equal(gw) {
+				return ""
+			}
+			continue
+		}
+		if _, c, err := net.ParseCIDR(f); err == nil && c.Contains(gw) {
+			return ""
+		}
+	}
+	return "INBOUND_ALLOWED_SOURCES (" + sources + ") does not include " + gw.String() + ", the address host Postfix relays bounces from, so bounces are refused. " + fix
 }
