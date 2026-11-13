@@ -162,14 +162,12 @@ func checkOS(env Env) Check {
 		c.Fix = "Run the preflight on the host itself, not inside a container."
 		return c
 	}
-	for _, v := range Supported[id] {
-		if v == ver {
-			c.Status, c.Detail = Ready, pretty
-			return c
-		}
+	if discover.OSSupported(id, ver) {
+		c.Status, c.Detail = Ready, pretty
+		return c
 	}
 	c.Status, c.Code, c.Detail = NeedsAction, CodeOSUnsupported, pretty+" is not a tested distribution"
-	c.Fix = "Use Debian 12, or Ubuntu 22.04 or 24.04, or connect an existing mail server instead."
+	c.Fix = "Use " + discover.SupportedText + ", or connect an existing mail server instead."
 	return c
 }
 
