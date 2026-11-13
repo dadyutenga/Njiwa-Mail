@@ -68,9 +68,12 @@ Runtime:
   installer plan|apply|rollback|status   (root, on the mail host; managed mode only)
        [-hostname H -domains a.example,b.example -bounce-domain D -selector S
         -submission 127.0.0.1:10587 -inbound 127.0.0.1:2525 -compose-subnet CIDR -no-firewall
-        -adopt -approve DIGEST -record]
+        -adopt -approve DIGEST -record -remove-packages]
                               plan prints the exact changes and a digest; apply needs -approve with that digest,
-                              backs up, validates (postfix check, opendkim -n) and rolls back on failure
+                              backs up, validates (postfix check, opendkim -n) and rolls back on failure.
+                              Missing postfix/opendkim packages are installed with apt (never removing a package).
+                              A mail service in use on the host (Mailcow, Postfix, Exim, a busy port 25) blocks it:
+                              nothing is changed, and -adopt only replaces an unused default configuration
   installer dkim-rotate prepare|activate|cancel|retire|status -selector S [-record]   (staged DKIM key rotation; -record shows its state on the dashboard)
   retention                   run the retention job once
   rekey [-check]              after changing ENCRYPTION_KEY (old key in ENCRYPTION_KEY_PREVIOUS): re-seal every sealed value with the
@@ -823,6 +826,7 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 	inbound := fs.String("inbound", "127.0.0.1:2525", "Njiwa inbound listener that receives DSNs (host:port)")
 	adopt := fs.Bool("adopt", false, "replace an existing Postfix configuration not written by Njiwa-Mail (backed up first)")
 	noFirewall := fs.Bool("no-firewall", false, "do not install the nftables table that drops Njiwa's private ports from outside")
+	removePackages := fs.Bool("remove-packages", false, "rollback only: also remove the packages that apply installed (postfix, opendkim)")
 	renewCerts := fs.Bool("renew-certs", false, "reissue the submission server and worker certificates now (otherwise done automatically within 60 days of expiry)")
 	subnet := fs.String("compose-subnet", firstNonEmpty(os.Getenv("NJIWA_SUBNET"), "172.30.0.0/24"), "Docker network the worker connects from")
 	approve := fs.String("approve", "", "apply only if the plan digest equals this value")
@@ -844,7 +848,7 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		}
 	}
 	p := managed.Params{Hostname: *hostname, BounceDomain: *bounce, Domains: ds, Selector: *selector,
-		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt, NoFirewall: *noFirewall, ComposeSubnet: *subnet, RenewCerts: *renewCerts}
+		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt, NoFirewall: *noFirewall, ComposeSubnet: *subnet, RenewCerts: *renewCerts, RemovePackages: *removePackages}
 	show := func(v any, text string) {
 		if *asJSON {
 			_ = json.NewEncoder(os.Stdout).Encode(v)
@@ -857,6 +861,10 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		pl, err := managed.BuildPlan(p)
 		if err != nil {
 			die(err)
+		}
+		if len(pl.Blockers) > 0 {
+			show(pl, pl.Summary()+"\nUse \"Use my existing mail server\" in the setup wizard instead (njiwa-mail discover lists the servers found).\n")
+			os.Exit(3)
 		}
 		show(pl, pl.Summary()+"\nReview the changes, then run:\n  njiwa-mail installer apply -approve "+pl.Digest+" (same flags)\n")
 	case "apply":

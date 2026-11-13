@@ -2,9 +2,11 @@ package managed
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +16,8 @@ import (
 
 type fakeRun struct {
 	calls []string
-	fail  string // command prefix that fails
+	fail  string            // command prefix that fails
+	out   map[string]string // command prefix -> output
 }
 
 func (f *fakeRun) Run(name string, args ...string) (string, error) {
@@ -26,12 +29,24 @@ func (f *fakeRun) Run(name string, args ...string) (string, error) {
 	if c == "postfix status" {
 		return "", errors.New("not running")
 	}
+	for k, v := range f.out {
+		if strings.HasPrefix(c, k) {
+			return v, nil
+		}
+	}
 	return "", nil
 }
 
 func params(t *testing.T) Params {
+	root := t.TempDir()
+	// The packages are installed (a separate test covers installing them).
+	for _, b := range []string{"/usr/sbin/postfix", "/usr/sbin/opendkim"} {
+		if err := writeFileAtomic(filepath.Join(root, b), nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return Params{Hostname: "MailOut.Example.com.", BounceDomain: "bounce.example.com", Domains: []string{"notify.example.com", "Notify.Example.com", "other.example.org"},
-		Selector: "njiwa", SubmissionBind: "127.0.0.1:10587", InboundRelay: "127.0.0.1:2525", Root: t.TempDir(), StateDir: "/var/lib/njiwa-mail/installer", Now: now}
+		Selector: "njiwa", SubmissionBind: "127.0.0.1:10587", InboundRelay: "127.0.0.1:2525", Root: root, StateDir: "/var/lib/njiwa-mail/installer", Now: now}
 }
 
 var now = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
@@ -602,5 +617,166 @@ func TestPostfixBootOrderingWhenSubmissionIsOnTheDockerBridge(t *testing.T) {
 	}
 	if _, err := os.Stat(p.path(postfixBootDropIn)); !os.IsNotExist(err) {
 		t.Fatal("rollback must remove the drop-in")
+	}
+}
+
+func snapshotTree(t *testing.T, root string) string {
+	var b strings.Builder
+	filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err == nil && info.Mode().IsRegular() {
+			c, _ := os.ReadFile(p)
+			fmt.Fprintf(&b, "%s %o %x\n", strings.TrimPrefix(p, root), info.Mode().Perm(), sha256.Sum256(c))
+		}
+		return nil
+	})
+	return b.String()
+}
+
+// Production protection: a host whose mail service is in use is never
+// changed, whatever the flags. -adopt only replaces an unused configuration.
+func TestProductionMailServerIsNeverReplaced(t *testing.T) {
+	cases := map[string]func(t *testing.T, root string){
+		"mailcow": func(t *testing.T, root string) {
+			writeFileAtomic(filepath.Join(root, "/opt/mailcow-dockerized/mailcow.conf"), []byte("MAILCOW_HOSTNAME=mail.example.com\nDBPASS=x\n"), 0o600)
+		},
+		"postfix in use": func(t *testing.T, root string) {
+			writeFileAtomic(filepath.Join(root, "/etc/postfix/main.cf"), []byte("myhostname = mx.example.org\nvirtual_mailbox_domains = example.org\n"), 0o644)
+		},
+		"exim": func(t *testing.T, root string) {
+			writeFileAtomic(filepath.Join(root, "/usr/sbin/exim4"), nil, 0o755)
+		},
+		"opendkim signing for another server": func(t *testing.T, root string) {
+			writeFileAtomic(filepath.Join(root, "/etc/opendkim.conf"), []byte("KeyTable /etc/opendkim/key.table\nSigningTable refile:/etc/opendkim/signing.table\n"), 0o644)
+		},
+		"unknown program on port 25": func(t *testing.T, root string) {
+			fakeListener(t, root, "smtp-sink", 25)
+		},
+		"submission port taken": func(t *testing.T, root string) {
+			fakeListener(t, root, "python3", 10587)
+		},
+	}
+	for name, prepare := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := params(t)
+			prepare(t, p.Root)
+			before := snapshotTree(t, p.Root)
+			pl, err := BuildPlan(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pl.Blockers) == 0 || !strings.Contains(pl.Summary(), "BLOCKED") {
+				t.Fatalf("not blocked: %+v", pl)
+			}
+			for _, adopt := range []bool{false, true} {
+				p.Adopt = adopt
+				pl, _ := BuildPlan(p)
+				run := &fakeRun{}
+				if _, err := Apply(p, pl.Digest, run, now); !errors.Is(err, ErrBlocked) {
+					t.Fatalf("adopt=%v: %v", adopt, err)
+				}
+				if len(run.calls) != 0 {
+					t.Fatalf("commands ran on a blocked host: %v", run.calls)
+				}
+			}
+			if snapshotTree(t, p.Root) != before {
+				t.Fatal("a blocked host was changed")
+			}
+		})
+	}
+}
+
+// fakeListener makes a process own a listening socket in the host's /proc.
+func fakeListener(t *testing.T, root, comm string, port int) {
+	t.Helper()
+	pid := filepath.Join(root, "proc", "4242")
+	writeFileAtomic(filepath.Join(pid, "comm"), []byte(comm+"\n"), 0o644)
+	writeFileAtomic(filepath.Join(pid, "cmdline"), []byte(comm+"\x00"), 0o644)
+	os.MkdirAll(filepath.Join(pid, "fd"), 0o755)
+	if err := os.Symlink("socket:[777]", filepath.Join(pid, "fd", "3")); err != nil {
+		t.Fatal(err)
+	}
+	line := fmt.Sprintf("   0: 0100007F:%04X 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 777 1 0 100 0 0 10 0", port)
+	writeFileAtomic(filepath.Join(root, "proc/net/tcp"), []byte("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"+line+"\n"), 0o644)
+}
+
+// The installer installs missing packages on Debian/Ubuntu as an approved
+// step, never removes a package to do so, and rollback can remove exactly
+// what it installed.
+func TestPackagesAreInstalledSafely(t *testing.T) {
+	p := params(t)
+	os.Remove(filepath.Join(p.Root, "/usr/sbin/postfix"))
+	os.Remove(filepath.Join(p.Root, "/usr/sbin/opendkim"))
+	writeFileAtomic(filepath.Join(p.Root, "/etc/os-release"), []byte("ID=ubuntu\nVERSION_ID=\"24.04\"\n"), 0o644)
+	pl, _ := BuildPlan(p)
+	if strings.Join(pl.MissingPackages, " ") != "opendkim postfix" || pl.PackageManager != "apt" || !strings.Contains(pl.Summary(), "install   packages opendkim postfix") {
+		t.Fatalf("%+v\n%s", pl, pl.Summary())
+	}
+	// apt would remove another package: refused, rolled back, nothing installed.
+	run := &fakeRun{out: map[string]string{"apt-get -s install": "Inst postfix (3.8.6)\nRemv exim4-daemon-light [4.97]\n"}}
+	rc, err := Apply(p, pl.Digest, run, now)
+	if err == nil || rc.Result != "failed_rolled_back" || !strings.Contains(err.Error(), "exim4-daemon-light") {
+		t.Fatalf("%v %+v", err, rc)
+	}
+	for _, c := range run.calls {
+		if strings.Contains(c, "DEBIAN_FRONTEND=noninteractive apt-get install") {
+			t.Fatal("packages installed although apt would remove one")
+		}
+	}
+	// Clean install.
+	run = &fakeRun{}
+	rc, err = Apply(p, pl.Digest, run, now)
+	if err != nil || strings.Join(rc.InstalledPackages, " ") != "opendkim postfix" {
+		t.Fatalf("%v %+v", err, rc)
+	}
+	joined := strings.Join(run.calls, "\n")
+	if !strings.Contains(joined, "debconf-set-selections") || !strings.Contains(joined, "env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends opendkim postfix") {
+		t.Fatalf("%s", joined)
+	}
+	// Rollback without -remove-packages keeps them; with it, purges exactly them.
+	p.RemovePackages = true
+	run = &fakeRun{}
+	if _, err := Rollback(p, "", run); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(run.calls, "\n"), "apt-get purge -y opendkim postfix") {
+		t.Fatalf("%v", run.calls)
+	}
+}
+
+// Scenario 6: a failed setup is resumed by running the same plan again; the
+// retry neither duplicates files, keys, certificates nor firewall rules, and
+// a further plan has nothing left to do.
+func TestFailedSetupResumesWithoutDuplicates(t *testing.T) {
+	p := params(t)
+	pl, _ := BuildPlan(p)
+	if rc, err := Apply(p, pl.Digest, &fakeRun{fail: "opendkim -n"}, now); err == nil || rc.Result != "failed_rolled_back" {
+		t.Fatalf("%v", err)
+	}
+	pl, _ = BuildPlan(p)
+	rc, err := Apply(p, pl.Digest, &fakeRun{}, now.Add(time.Minute))
+	if err != nil || rc.Result != "ok" {
+		t.Fatal(err)
+	}
+	after := snapshotTree(t, filepath.Join(p.Root, "etc"))
+	pl, _ = BuildPlan(p)
+	for _, f := range pl.Files {
+		if f.Change != "unchanged" {
+			t.Fatalf("%s would change again", f.Path)
+		}
+	}
+	for _, a := range pl.Actions {
+		if a.Needed {
+			t.Fatalf("%s would be generated again", a.Target)
+		}
+	}
+	if _, err := Apply(p, pl.Digest, &fakeRun{}, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if snapshotTree(t, filepath.Join(p.Root, "etc")) != after {
+		t.Fatal("a repeated apply changed the configuration")
+	}
+	fw := read(t, p, FirewallFile)
+	if strings.Count(fw, "table inet njiwa_mail {") != 1 {
+		t.Fatalf("firewall table duplicated:\n%s", fw)
 	}
 }

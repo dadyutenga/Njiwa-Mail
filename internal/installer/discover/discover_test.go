@@ -282,3 +282,32 @@ func TestRealHostScanRuns(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 }
+
+// A Postfix installed with the package's default configuration and no
+// traffic is not a production server: managed mode stays possible (the
+// installer replaces the configuration only with -adopt, after a backup).
+func TestDefaultPostfixIsAdoptableNotBlocking(t *testing.T) {
+	h := newHost(t, "ubuntu", "24.04")
+	h.file("/usr/sbin/postfix", "")
+	h.file("/etc/postfix/main.cf", "myhostname = vps.example.net\nmydestination = $myhostname, localhost\nrelayhost =\n")
+	h.file("/var/log/mail.log", "Nov 13 01:00:01 vps postfix/local[11]: ABC: to=<root@vps>, relay=local, status=sent (delivered to mailbox)\n")
+	h.listen("master", []string{"/usr/lib/postfix/sbin/master", "-w"}, "00000000", 25)
+	r := h.scan()
+	if !r.Recommendation.ManagedAllowed() {
+		t.Fatalf("default Postfix blocked managed mode: %+v", r.Recommendation.ManagedBlockers)
+	}
+	var pf Service
+	for _, s := range r.MailServices {
+		if s.Name == "postfix" {
+			pf = s
+		}
+	}
+	if !pf.Running || pf.InUse || pf.Ours {
+		t.Fatalf("%+v", pf)
+	}
+	// The same Postfix after it relayed real mail is in use.
+	h.file("/var/log/mail.log", "Nov 13 01:00:01 vps postfix/smtp[11]: ABC: to=<a@gmail.com>, relay=gmail-smtp-in.l.google.com[1.2.3.4]:25, status=sent (250 OK)\n")
+	if codes(h.scan().Recommendation.ManagedBlockers)[CodePostfixInUse] != true {
+		t.Fatal("a Postfix that relays mail must block")
+	}
+}

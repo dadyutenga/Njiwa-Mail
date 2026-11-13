@@ -132,7 +132,9 @@ func Recommend(r *Report, n Needs) Recommendation {
 		if s.Name == "postfix" && s.Ours {
 			ourPostfix = true
 		}
-		if s.InUse {
+		// An unused Postfix (package default, adoptable) owns its ports
+		// legitimately: the installer replaces its configuration with -adopt.
+		if s.InUse || (s.Name == "postfix" && !s.Ours) {
 			for _, d := range mtaDefs {
 				if d.name == s.Name {
 					for _, c := range d.comms {
@@ -156,7 +158,7 @@ func Recommend(r *Report, n Needs) Recommendation {
 	}
 	for _, port := range []int{n.SubmissionPort, n.MilterPort} {
 		for _, p := range r.PortsIn(port) {
-			if ourPostfix && (p.Process == "master" || p.Process == "opendkim") {
+			if (ourPostfix || explained["master"]) && (p.Process == "master" || p.Process == "opendkim") {
 				continue
 			}
 			block(CodeInstallerPort, fmt.Sprintf("Port %d, which the managed installer needs, is used by %s.", port, owner(p)),

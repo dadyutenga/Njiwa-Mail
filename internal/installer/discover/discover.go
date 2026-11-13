@@ -620,15 +620,37 @@ func postfixUse(e Env, s *Service, r *Report) {
 	} else if !ok {
 		r.Limits = append(r.Limits, "the Postfix queue could not be read (run as root)")
 	}
-	if s.Running {
-		s.Evidence = append(s.Evidence, "Postfix is running with a configuration Njiwa-Mail did not write")
-	}
-	if b, err := e.read("/var/log/mail.log"); err == nil && strings.Contains(string(b), "status=sent") {
-		s.Evidence = append(s.Evidence, "/var/log/mail.log shows delivered mail")
+	if sentRemote(e) {
+		s.Evidence = append(s.Evidence, "/var/log/mail.log shows mail sent to other servers")
 	}
 	// A configuration Njiwa did not write is in use as soon as there is any
 	// sign of real traffic or configuration beyond the package default.
+	// Running alone is not: "apt install postfix" (Internet Site) starts it
+	// with the default configuration, which the installer may replace with
+	// -adopt after backing it up.
 	s.InUse = len(s.Evidence) > 0
+}
+
+// sentRemote reads the end of the mail log for mail relayed to another
+// server (local deliveries, such as cron mail, do not count).
+func sentRemote(e Env) bool {
+	f, err := os.Open(e.path("/var/log/mail.log"))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err == nil && st.Size() > 1<<20 {
+		_, _ = f.Seek(st.Size()-1<<20, 0)
+	}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		l := sc.Text()
+		if strings.Contains(l, "status=sent") && strings.Contains(l, "relay=") && !strings.Contains(l, "relay=local") {
+			return true
+		}
+	}
+	return false
 }
 
 func countQueue(e Env) (int, bool) {

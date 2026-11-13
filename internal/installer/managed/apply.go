@@ -49,7 +49,13 @@ type Receipt struct {
 	DKIMRecords       map[string]string `json:"dkim_records"` // domain -> TXT value at <selector>._domainkey.<domain>
 	ClientFingerprint string            `json:"client_fingerprint"`
 	PostfixVersion    string            `json:"postfix_version,omitempty"`
+	// InstalledPackages are the packages this apply installed (rollback can
+	// remove exactly these with -remove-packages).
+	InstalledPackages []string `json:"installed_packages,omitempty"`
 }
+
+// ErrBlocked means the host runs a mail service the installer must not touch.
+var ErrBlocked = errors.New("the managed mail service cannot be installed on this host")
 
 // ErrDigestMismatch means the host or the parameters changed after review.
 var ErrDigestMismatch = errors.New("the plan changed since it was reviewed; run plan again and approve the new digest")
@@ -109,8 +115,19 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	if approved == "" || approved != pl.Digest {
 		return nil, ErrDigestMismatch
 	}
+	if len(pl.Blockers) > 0 {
+		var why []string
+		for _, b := range pl.Blockers {
+			why = append(why, b.Detail)
+		}
+		return nil, fmt.Errorf("%w: %s Nothing was changed. Use this host's mail service, or another one, as an existing mail server (njiwa-mail discover shows how)",
+			ErrBlocked, strings.Join(why, " "))
+	}
 	if pl.Conflict != "" && !p.Adopt {
 		return nil, fmt.Errorf("refusing to continue: %s. Pass -adopt to replace it (the current files are backed up first)", pl.Conflict)
+	}
+	if len(pl.MissingPackages) > 0 && pl.PackageManager != "apt" {
+		return nil, fmt.Errorf("install %s with your package manager first, then run plan again", strings.Join(pl.MissingPackages, " "))
 	}
 	id := now.UTC().Format("20060102T150405Z")
 	rc := &Receipt{ID: id, CreatedAt: now.UTC(), PlanDigest: pl.Digest, Params: p, RollbackState: "available",
@@ -155,6 +172,13 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 		return rc, fmt.Errorf("%s failed (%s); every change was rolled back", last.Name, last.Detail)
 	}
 
+	if len(pl.MissingPackages) > 0 {
+		out, err := installPackages(run, pl.MissingPackages)
+		if !step("install packages "+strings.Join(pl.MissingPackages, " "), err, out) {
+			return fail()
+		}
+		rc.InstalledPackages = pl.MissingPackages
+	}
 	if !step("generate certificates", ensurePKI(p, now), "") {
 		return fail()
 	}
@@ -459,8 +483,37 @@ func Rollback(p Params, id string, run Runner) (*Receipt, error) {
 	rp := rc.Params
 	rp.Root = p.Root
 	restore(rp, rc, run)
+	if p.RemovePackages && len(rc.InstalledPackages) > 0 {
+		args := append([]string{"purge", "-y"}, rc.InstalledPackages...)
+		out, err := run.Run("apt-get", args...)
+		rc.Steps = append(rc.Steps, Step{Name: "remove packages " + strings.Join(rc.InstalledPackages, " "), OK: err == nil, Detail: strings.TrimSpace(out)})
+	}
 	rc.RollbackState = "rolled_back"
 	return rc, saveReceipt(rp, rc)
+}
+
+// installPackages installs the mail packages with apt. It refuses when apt
+// would remove any package (for example another mail server), and Postfix is
+// preseeded to "No configuration" so the package changes nothing before the
+// installer writes its own configuration.
+func installPackages(run Runner, pkgs []string) (string, error) {
+	sim, err := run.Run("apt-get", append([]string{"-s", "install", "-y", "--no-install-recommends"}, pkgs...)...)
+	if err != nil {
+		return sim, fmt.Errorf("apt-get could not plan the installation")
+	}
+	var removes []string
+	for _, l := range strings.Split(sim, "\n") {
+		if strings.HasPrefix(l, "Remv ") {
+			removes = append(removes, strings.Fields(l)[1])
+		}
+	}
+	if len(removes) > 0 {
+		return sim, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removes, ", "))
+	}
+	if out, err := run.Run("sh", "-c", "echo 'postfix postfix/main_mailer_type select No configuration' | debconf-set-selections"); err != nil {
+		return out, err
+	}
+	return run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends"}, pkgs...)...)
 }
 
 func parseIPs(vals ...string) []net.IP {
