@@ -311,3 +311,42 @@ func TestDefaultPostfixIsAdoptableNotBlocking(t *testing.T) {
 		t.Fatal("a Postfix that relays mail must block")
 	}
 }
+
+// Regression (found on a real host): Postfix's workers are named "smtpd" and
+// share the listening sockets with master. A running Njiwa-managed Postfix
+// must not look like OpenSMTPD or like a foreign program on its ports.
+func TestRunningPostfixWorkersAreNotOpenSMTPD(t *testing.T) {
+	h := newHost(t, "debian", "12")
+	h.file("/usr/sbin/postfix", "")
+	h.file("/etc/postfix/main.cf", Marker+" Manual changes are replaced on the next apply.\n")
+	h.listen("master", []string{"/usr/lib/postfix/sbin/master", "-w"}, "00000000", 25)
+	h.listen("master", []string{"/usr/lib/postfix/sbin/master", "-w"}, "0100007F", 10587)
+	// The smtpd workers hold the same sockets (same inodes), with higher pids.
+	for _, inode := range []int{h.inode - 1, h.inode} {
+		h.pid++
+		base := fmt.Sprintf("/proc/%d", h.pid)
+		h.file(base+"/comm", "smtpd\n")
+		h.file(base+"/cmdline", "smtpd\x00-n\x00smtp\x00-t\x00inet\x00")
+		os.MkdirAll(filepath.Join(h.root, base, "fd"), 0o755)
+		os.Symlink(fmt.Sprintf("socket:[%d]", inode), filepath.Join(h.root, base, "fd", "6"))
+	}
+	r := h.scan()
+	if !r.Recommendation.ManagedAllowed() {
+		t.Fatalf("own running Postfix blocked managed mode: %+v", r.Recommendation.ManagedBlockers)
+	}
+	for _, s := range r.MailServices {
+		if s.Name == "opensmtpd" {
+			t.Fatalf("Postfix workers reported as OpenSMTPD: %+v", s)
+		}
+	}
+	for _, p := range r.Ports {
+		if p.Process != "master" {
+			t.Fatalf("port %d attributed to %q, not Postfix's master", p.Port, p.Process)
+		}
+	}
+	// OpenSMTPD itself (its binary installed) is still detected.
+	h.file("/usr/sbin/smtpd", "")
+	if !codes(h.scan().Recommendation.ManagedBlockers)[CodeOtherMTA] {
+		t.Fatal("an installed OpenSMTPD was not detected")
+	}
+}

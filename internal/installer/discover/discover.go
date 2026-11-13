@@ -331,10 +331,15 @@ func hasProc(ps []process, comm string) bool {
 // ---------------------------------------------------------------- ports
 
 func scanPorts(e Env, procs []process, r *Report) []Port {
+	// A listening socket is shared by a daemon and its workers (Postfix's
+	// master and its smtpd processes): attribute it to the parent, the
+	// lowest pid. Postfix's workers are named "smtpd", like OpenSMTPD.
 	byInode := map[string]process{}
 	for _, p := range procs {
 		for s := range p.sockets {
-			byInode[s] = p
+			if cur, ok := byInode[s]; !ok || p.pid < cur.pid {
+				byInode[s] = p
+			}
 		}
 	}
 	// docker-proxy publishes a container port: -host-port 25 -container-ip 172.22.1.253 -container-port 25
@@ -539,8 +544,14 @@ func scanMailServices(e Env, procs []process, r *Report) []Service {
 		}
 		for _, p := range procs {
 			for _, c := range d.comms {
-				// Postfix's master process: make sure it is Postfix's.
-				if p.comm == c && (d.name != "postfix" || strings.Contains(strings.Join(p.cmdline, " "), "postfix")) {
+				switch {
+				case p.comm != c:
+				case d.name == "postfix" && !strings.Contains(strings.Join(p.cmdline, " "), "postfix"):
+					// "master" is a common name: only Postfix's counts.
+				case d.name == "opensmtpd" && !s.Installed:
+					// Postfix's workers are also called "smtpd": OpenSMTPD
+					// counts only when its own binary is installed.
+				default:
 					s.Running = true
 				}
 			}

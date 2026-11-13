@@ -277,7 +277,7 @@ func owner(p Port) string {
 	case p.Process == "docker-proxy":
 		return "a Docker container"
 	case p.Process == "master":
-		return "Postfix (not configured by Njiwa-Mail)"
+		return "Postfix"
 	case p.Process != "":
 		return p.Process
 	}
