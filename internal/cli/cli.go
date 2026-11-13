@@ -1196,8 +1196,11 @@ func runDiscover(ctx context.Context, svc *service.Service, args []string) {
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	record := fs.Bool("record", false, "store the report for the setup wizard")
 	useDocker := fs.Bool("docker", true, "list running containers with a read-only 'docker ps' when the Docker socket is readable")
+	root := fs.String("root", "/", "where the host's filesystem is mounted (scripts/discover.sh mounts it read-only at /host)")
 	fs.Parse(args)
-	r := discover.Scan(discover.HostEnv(*useDocker))
+	env := discover.HostEnv(*useDocker)
+	env.Root = *root
+	r := discover.Scan(env)
 	rec := discover.Recommend(r, discoverNeeds())
 	r.Recommendation = &rec
 	if *asJSON {

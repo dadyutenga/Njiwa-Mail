@@ -158,8 +158,9 @@ without it. Your provider's firewall and SSH rules remain yours to manage.
 
 ## Managed delivery: installing the mail service
 
-The installer is a root-only command on the mail host; the Njiwa web process never changes host configuration. Install the packages
-first (`apt-get install postfix opendkim`, choosing "No configuration" for Postfix), then:
+The installer is a root-only command on the mail host; the Njiwa web process never changes host configuration. Run the read-only
+scan first (`sh scripts/discover.sh`, see [INSTALL.md](INSTALL.md)). On Debian/Ubuntu the plan installs missing `postfix` and `opendkim`
+packages itself (Postfix preseeded to "No configuration"; refused if apt would remove any package). Then:
 
 ```
 njiwa-mail installer plan  -hostname mailout.example.com -domains notify.example.com -bounce-domain bounce.example.com
@@ -178,7 +179,8 @@ njiwa-mail installer apply -hostname mailout.example.com -domains notify.example
   `apply` prints.
 - Safety: existing files are backed up to `/var/lib/njiwa-mail/installer/backups/<receipt>`; `postfix check` and `opendkim -n`
   validate the result, and any failure restores every file automatically. A Postfix configuration the installer did not write, Exim
-  or Mailcow on the host is refused unless `-adopt` is given (Mailcow and Exim: never).
+  or Mailcow on the host is refused. A mail service in use (Mailcow, a busy Postfix, Exim, a program on port 25) blocks the installer
+  whatever the flags; `-adopt` only replaces an unused default configuration after backing it up. See [INSTALL.md](INSTALL.md) section 4.
 - `-record` stores the receipt, the worker's credentials (sealed) and the DKIM records in the database. Then run the connection test
   on the Delivery infrastructure page; managed mode can be activated only after it passes.
 - `njiwa-mail installer status` shows the latest receipt; `njiwa-mail installer rollback [-receipt ID] -record` restores the files

@@ -10,6 +10,10 @@
 #   ExecStart=/usr/local/bin/njiwa-mail mta-log -follow -file /var/log/mail.log
 # (and SupplementaryGroups=adm).
 #
+# /etc/njiwa-mail/env holds DATABASE_URL (PostgreSQL's fixed address on Njiwa's
+# network: postgres://mail:<password>@172.30.0.10:5432/mail?sslmode=disable,
+# see NJIWA_DB_IP in .env.example), ENCRYPTION_KEY and HMAC_KEY.
+#
 # On (re)start it re-reads the last 6 hours: events are de-duplicated, so
 # nothing is counted twice and nothing is lost across a restart.
 [Unit]

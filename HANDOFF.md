@@ -202,19 +202,15 @@ Do these in order. Record the evidence for each (commands, outputs, headers, scr
 
    Check `curl -s 127.0.0.1:8080/health/ready`. Create the first admin: `docker compose exec api njiwa-mail user create -email you@example.com -role owner` (password on stdin).
 
-6. **Let the host CLI reach the database for `-record`.** PostgreSQL is not published to the host. Find its address on the
-   Compose network and export the same secrets as `.env`:
+6. **Let the host CLI reach the database for `-record`.** PostgreSQL is not published, but it has a fixed address on Njiwa's
+   network (`NJIWA_DB_IP`, default `172.30.0.10`, task T3.1), so this URL survives restarts and reboots:
 
    ```bash
-   PGIP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' njiwa-mail-postgres-1)
+   set -a; . /opt/njiwa-mail/.env; set +a; export DATABASE_URL="postgres://mail:${POSTGRES_PASSWORD}@${NJIWA_DB_IP:-172.30.0.10}:5432/mail?sslmode=disable"
    ```
 
-   ```bash
-   set -a; . /opt/njiwa-mail/.env; set +a; export DATABASE_URL="postgres://mail:${POSTGRES_PASSWORD}@${PGIP}:5432/mail?sslmode=disable"
-   ```
-
-   (Container name may differ: `docker compose ps`.) **Note for the code:** this step is friction; consider a documented
-   `docker compose run` path or publishing PostgreSQL on `172.30.0.1` only. Record what worked.
+   Put the same `DATABASE_URL`, `ENCRYPTION_KEY` and `HMAC_KEY` in `/etc/njiwa-mail/env` for the `njiwa-mail-mta-log` unit.
+   Before step 7 run the read-only scan (`sh scripts/discover.sh -record`, see `docs/INSTALL.md`); it must recommend managed mode.
 
 7. **Choose managed mode** in the dashboard (Installation page → "Send from my VPS"), then add the project, the sending domain
    `notify.example.com`, publish its ownership TXT and let the check verify it (domain claim). Then:

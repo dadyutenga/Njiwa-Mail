@@ -3,6 +3,12 @@
 Status: **plan only. Nothing here has been run, provisioned or approved.** Source of every test ID and acceptance criterion: `HANDOFF.md`
 sections 3 and 4 (commit `f18cf11`). Where this file adds something (sizing advice, safety steps) it says so.
 
+**Installation vs validation.** This file is what the *project* runs to validate a release. It is not what a user needs to
+install Njiwa-Mail: that is [`INSTALL.md`](INSTALL.md) section 1, and no fresh or dedicated server is required for it. Clean-system tests
+use disposable QEMU/KVM machines (`lab/qemu/`); existing-SMTP mode is validated on hosts that already run other services (an isolated
+Mailcow or Postfix, never a production one); only tests that need an independent public IP, PTR, outbound port 25 or delivery to real
+providers use a public VPS.
+
 ## 0. Ground rules (apply to every step)
 
 1. **`rida-server` and its Mailcow are never touched.** No managed installer, no Postfix/firewall/DNS/mailbox change, no Mailcow API key or
