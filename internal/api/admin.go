@@ -622,13 +622,13 @@ func (s *Server) adminRoutes(app *fiber.App) {
 			Email    string `json:"email"`
 			Password string `json:"password"`
 			Role     string `json:"role"`
-			// Defaults to true so nobody loses access; false creates a restricted admin.
+			// Operator access must be requested explicitly.
 			InstallationOperator *bool `json:"installation_operator"`
 		}
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		operator := in.InstallationOperator == nil || *in.InstallationOperator
+		operator := in.InstallationOperator != nil && *in.InstallationOperator
 		id, err := svc.CreateUserWith(reqCtx(c), in.Email, in.Password, in.Role, operator)
 		if err != nil {
 			return nil, err

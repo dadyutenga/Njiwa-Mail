@@ -10,10 +10,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/njiwa-tz/mail/internal/db"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/njiwa-tz/mail/internal/db"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -29,8 +30,24 @@ const (
 	argonThreads = 2
 	argonKeyLen  = 32
 
-	MinPasswordLen = 12
+	MinPasswordLen   = 12
+	maxPasswordBytes = 256
 )
+
+// Four hashes use at most about 256 MiB of Argon2 working memory.
+var passwordHashSlots = make(chan struct{}, 4)
+
+func withPasswordHashSlot(ctx context.Context, fn func() bool) (bool, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	select {
+	case passwordHashSlots <- struct{}{}:
+		defer func() { <-passwordHashSlots }()
+		return fn(), nil
+	case <-waitCtx.Done():
+		return false, waitCtx.Err()
+	}
+}
 
 func canonicalRole(role string) (string, error) {
 	if role != "" && role != RoleAdmin && role != "owner" {
@@ -40,35 +57,52 @@ func canonicalRole(role string) (string, error) {
 }
 
 func hashPassword(pw string) string {
+	hash, err := hashPasswordContext(context.Background(), pw)
+	if err != nil {
+		panic(err)
+	}
+	return hash
+}
+
+func hashPasswordContext(ctx context.Context, pw string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		panic(err)
 	}
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	select {
+	case passwordHashSlots <- struct{}{}:
+	case <-waitCtx.Done():
+		return "", waitCtx.Err()
+	}
+	defer func() { <-passwordHashSlots }()
 	key := argon2.IDKey([]byte(pw), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, argonMemory, argonTime, argonThreads,
-		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key))
+		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
 
 func verifyPassword(encoded, pw string) bool {
+	if len(encoded) > 160 {
+		return false
+	}
 	parts := strings.Split(encoded, "$")
-	if len(parts) != 6 || parts[1] != "argon2id" {
+	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" || parts[2] != fmt.Sprintf("v=%d", argon2.Version) {
 		return false
 	}
-	var ver int
-	var mem, t uint32
-	var p uint8
-	if _, err := fmt.Sscanf(parts[2], "v=%d", &ver); err != nil || ver != argon2.Version {
-		return false
-	}
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &mem, &t, &p); err != nil || mem > 1<<20 || t > 10 {
+	// This service has one supported cost profile. Reject database corruption
+	// before Argon2 can allocate memory or panic on invalid parameters.
+	if parts[3] != fmt.Sprintf("m=%d,t=%d,p=%d", argonMemory, argonTime, argonThreads) ||
+		len(parts[4]) != base64.RawStdEncoding.EncodedLen(16) ||
+		len(parts[5]) != base64.RawStdEncoding.EncodedLen(argonKeyLen) {
 		return false
 	}
 	salt, err1 := base64.RawStdEncoding.DecodeString(parts[4])
 	want, err2 := base64.RawStdEncoding.DecodeString(parts[5])
-	if err1 != nil || err2 != nil || len(want) == 0 {
+	if err1 != nil || err2 != nil || len(salt) != 16 || len(want) != argonKeyLen {
 		return false
 	}
-	got := argon2.IDKey([]byte(pw), salt, t, mem, p, uint32(len(want)))
+	got := argon2.IDKey([]byte(pw), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
@@ -76,16 +110,16 @@ func verifyPassword(encoded, pw string) bool {
 var dummyHash = hashPassword("njiwa-mail-timing-equaliser")
 
 func checkPassword(pw string) error {
-	if len(pw) < MinPasswordLen || len(pw) > 256 {
-		return badRequest(fmt.Sprintf("password must be between %d and 256 characters", MinPasswordLen))
+	if utf8.RuneCountInString(pw) < MinPasswordLen || len(pw) > maxPasswordBytes {
+		return badRequest(fmt.Sprintf("password must be at least %d characters and at most %d bytes", MinPasswordLen, maxPasswordBytes))
 	}
 	return nil
 }
 
-// CreateUser adds an admin user. An omitted role defaults to admin; the old
-// owner input is accepted for compatibility. All users can manage accounts.
+// CreateUser adds an ordinary admin user. An omitted role defaults to admin;
+// the old owner input is accepted for compatibility.
 func (s *Service) CreateUser(ctx context.Context, email, password, role string) (string, error) {
-	return s.CreateUserWith(ctx, email, password, role, true)
+	return s.CreateUserWith(ctx, email, password, role, false)
 }
 
 // CreateUserWith is CreateUser with an explicit installation-operator flag. The
@@ -102,15 +136,30 @@ func (s *Service) CreateUserWith(ctx context.Context, email, password, role stri
 	if err := checkPassword(password); err != nil {
 		return "", err
 	}
+	hash, err := hashPasswordContext(ctx, password)
+	if err != nil {
+		return "", unavailable("password_hash_busy", err)
+	}
 	var id string
-	err = s.Pool.QueryRow(ctx, `INSERT INTO users(email, password_hash, role, installation_operator)
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return "", unavailable("begin", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(727002)`); err != nil {
+		return "", unavailable("bootstrap_lock", err)
+	}
+	err = tx.QueryRow(ctx, `INSERT INTO users(email, password_hash, role, installation_operator)
 VALUES ($1,$2,$3, $4 OR NOT EXISTS (SELECT 1 FROM users)) ON CONFLICT (email) DO NOTHING RETURNING id::text`,
-		e, hashPassword(password), role, operator).Scan(&id)
+		e, hash, role, operator).Scan(&id)
 	if errors.Is(err, db.ErrNoRows) {
 		return "", newErr(409, "user_exists")
 	}
 	if err != nil {
 		return "", unavailable("user_create", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", unavailable("commit", err)
 	}
 	return id, nil
 }
@@ -134,7 +183,10 @@ func (s *Service) UpdateUser(ctx context.Context, id string, role *string, disab
 		if err := checkPassword(*password); err != nil {
 			return err
 		}
-		h := hashPassword(*password)
+		h, err := hashPasswordContext(ctx, *password)
+		if err != nil {
+			return unavailable("password_hash_busy", err)
+		}
 		hash = &h
 	}
 	tx, err := s.Pool.Begin(ctx)
@@ -142,10 +194,18 @@ func (s *Service) UpdateUser(ctx context.Context, id string, role *string, disab
 		return unavailable("begin", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(727003)`); err != nil {
 		return unavailable("lock", err)
 	}
-	tag, err := tx.Exec(ctx, `UPDATE users SET role=COALESCE($2,role), disabled=COALESCE($3,disabled), password_hash=COALESCE($4,password_hash) WHERE id=$1`,
+	var oldRole string
+	var oldDisabled bool
+	if err := tx.QueryRow(ctx, `SELECT role, disabled FROM users WHERE id=$1 FOR UPDATE`, id).Scan(&oldRole, &oldDisabled); errors.Is(err, db.ErrNoRows) {
+		return newErr(404, "not_found")
+	} else if err != nil {
+		return unavailable("user_read", err)
+	}
+	tag, err := tx.Exec(ctx, `UPDATE users SET role=COALESCE($2,role), disabled=COALESCE($3,disabled), password_hash=COALESCE($4,password_hash),
+auth_version=auth_version + CASE WHEN $4::text IS NOT NULL OR ($3::boolean IS NOT NULL AND $3::boolean IS DISTINCT FROM disabled) OR ($2::text IS NOT NULL AND $2::text IS DISTINCT FROM role) THEN 1 ELSE 0 END WHERE id=$1`,
 		id, role, disabled, hash)
 	if err != nil {
 		return unavailable("user_update", err)
@@ -153,17 +213,17 @@ func (s *Service) UpdateUser(ctx context.Context, id string, role *string, disab
 	if tag.RowsAffected() == 0 {
 		return newErr(404, "not_found")
 	}
-	var enabled int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE NOT disabled`).Scan(&enabled); err != nil {
+	var enabled bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE NOT disabled)`).Scan(&enabled); err != nil {
 		return unavailable("user_count", err)
 	}
-	if enabled == 0 {
+	if !enabled {
 		return newErr(409, "last_user")
 	}
 	if err := requireOperatorLeft(ctx, tx); err != nil {
 		return err
 	}
-	if (disabled != nil && *disabled) || hash != nil || role != nil {
+	if (disabled != nil && *disabled != oldDisabled) || hash != nil || (role != nil && *role != oldRole) {
 		if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id); err != nil {
 			return unavailable("session_revoke", err)
 		}
@@ -185,10 +245,16 @@ func (s *Service) SetOperator(ctx context.Context, id string, operator bool) err
 		return unavailable("begin", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(727003)`); err != nil {
 		return unavailable("lock", err)
 	}
-	tag, err := tx.Exec(ctx, `UPDATE users SET installation_operator=$2 WHERE id=$1`, id, operator)
+	var oldOperator bool
+	if err := tx.QueryRow(ctx, `SELECT installation_operator FROM users WHERE id=$1 FOR UPDATE`, id).Scan(&oldOperator); errors.Is(err, db.ErrNoRows) {
+		return newErr(404, "not_found")
+	} else if err != nil {
+		return unavailable("user_read", err)
+	}
+	tag, err := tx.Exec(ctx, `UPDATE users SET installation_operator=$2, auth_version=auth_version + CASE WHEN installation_operator IS DISTINCT FROM $2 THEN 1 ELSE 0 END WHERE id=$1`, id, operator)
 	if err != nil {
 		return unavailable("user_update", err)
 	}
@@ -198,18 +264,20 @@ func (s *Service) SetOperator(ctx context.Context, id string, operator bool) err
 	if err := requireOperatorLeft(ctx, tx); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id); err != nil {
-		return unavailable("session_revoke", err)
+	if operator != oldOperator {
+		if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id); err != nil {
+			return unavailable("session_revoke", err)
+		}
 	}
 	return tx.Commit(ctx)
 }
 
 func requireOperatorLeft(ctx context.Context, tx *db.Tx) error {
-	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE NOT disabled AND installation_operator`).Scan(&n); err != nil {
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE NOT disabled AND installation_operator)`).Scan(&exists); err != nil {
 		return unavailable("operator_count", err)
 	}
-	if n == 0 {
+	if !exists {
 		return newErr(409, "last_operator")
 	}
 	return nil
@@ -253,8 +321,11 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent stri
 // LoginMFA is Login with the second factor: a TOTP or recovery code, required
 // only for accounts that enabled MFA (`mfa_required` is returned without one).
 func (s *Service) LoginMFA(ctx context.Context, email, password, code, ip, userAgent string) (token string, u *AdminUser, err error) {
-	e, _ := NormalizeEmail(strings.TrimSpace(email))
-	acct := hex.EncodeToString(s.Box.MAC("login-account", []byte(strings.ToLower(strings.TrimSpace(email)))))
+	e, ok := NormalizeEmail(email)
+	if !ok {
+		e = strings.ToLower(strings.TrimSpace(email))
+	}
+	acct := hex.EncodeToString(s.Box.MAC("login-account", []byte(e)))
 	for _, b := range []struct {
 		key   string
 		limit int
@@ -267,17 +338,27 @@ func (s *Service) LoginMFA(ctx context.Context, email, password, code, ip, userA
 			return "", nil, &Error{Status: 429, Code: "too_many_attempts", RetryAfter: wait}
 		}
 	}
+	if len(password) > maxPasswordBytes {
+		return "", nil, errBadLogin
+	}
 	var id, hash, role string
+	var authVersion int64
 	var disabled, operator, mfa bool
-	err = s.Pool.QueryRow(ctx, `SELECT id::text, password_hash, role, disabled, installation_operator, totp_enabled FROM users WHERE email=$1`, e).Scan(&id, &hash, &role, &disabled, &operator, &mfa)
+	err = s.Pool.QueryRow(ctx, `SELECT id::text, password_hash, role, disabled, installation_operator, totp_enabled, auth_version FROM users WHERE email=$1`, e).Scan(&id, &hash, &role, &disabled, &operator, &mfa, &authVersion)
 	if errors.Is(err, db.ErrNoRows) {
-		verifyPassword(dummyHash, password)
+		if _, err := withPasswordHashSlot(ctx, func() bool { return verifyPassword(dummyHash, password) }); err != nil {
+			return "", nil, unavailable("password_hash_busy", err)
+		}
 		return "", nil, errBadLogin
 	}
 	if err != nil {
 		return "", nil, unavailable("login", err)
 	}
-	if !verifyPassword(hash, password) || disabled || role != RoleAdmin {
+	valid, err := withPasswordHashSlot(ctx, func() bool { return verifyPassword(hash, password) })
+	if err != nil {
+		return "", nil, unavailable("password_hash_busy", err)
+	}
+	if !valid || disabled || role != RoleAdmin {
 		return "", nil, errBadLogin
 	}
 	recoveryUsed := false
@@ -298,20 +379,33 @@ func (s *Service) LoginMFA(ctx context.Context, email, password, code, ip, userA
 	exp := time.Now().Add(s.Opts.SessionTTL)
 	if len(userAgent) > 200 {
 		userAgent = userAgent[:200]
+		for !utf8.ValidString(userAgent) {
+			userAgent = userAgent[:len(userAgent)-1]
+		}
 	}
+	requireMFA := s.settingInt(ctx, "require_mfa") == 1
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return "", nil, unavailable("begin", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO sessions(token_hash, user_id, expires_at, ip, user_agent) VALUES ($1,$2,$3,$4,$5)`, th[:], id, exp, ip, userAgent); err != nil {
+	var currentVersion int64
+	var currentDisabled, currentMFA, currentOperator bool
+	var currentRole string
+	if err := tx.QueryRow(ctx, `SELECT auth_version, disabled, role, totp_enabled, installation_operator FROM users WHERE id=$1 FOR UPDATE`, id).Scan(&currentVersion, &currentDisabled, &currentRole, &currentMFA, &currentOperator); err != nil {
+		return "", nil, unavailable("login_state", err)
+	}
+	if currentVersion != authVersion || currentDisabled || currentRole != RoleAdmin || currentMFA != mfa || currentOperator != operator {
+		return "", nil, errBadLogin
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO sessions(token_hash, user_id, auth_version, expires_at, ip, user_agent) VALUES ($1,$2,$3,$4,$5,$6)`, th[:], id, authVersion, exp, ip, userAgent); err != nil {
 		return "", nil, unavailable("session_create", err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE users SET last_login_at=now() WHERE id=$1`, id); err != nil {
 		return "", nil, unavailable("last_login", err)
 	}
 	u = &AdminUser{ID: id, Email: e, Role: role, Operator: operator, MFAEnabled: mfa, CSRF: s.csrfFor(th[:]), ExpiresAt: exp, tokenHash: th[:]}
-	u.MFAEnrollmentRequired = !mfa && s.settingInt(ctx, "require_mfa") == 1
+	u.MFAEnrollmentRequired = !mfa && requireMFA
 	if err = audit(ctx, tx, Actor{UserID: id, Name: e}, "auth.login", "user", id, map[string]any{"ip": ip, "mfa": mfa, "recovery_code": recoveryUsed}); err != nil {
 		return "", nil, unavailable("audit", err)
 	}
@@ -329,7 +423,7 @@ func (s *Service) Session(ctx context.Context, token string) (*AdminUser, error)
 	th := sha256.Sum256([]byte(token))
 	var u AdminUser
 	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, u.installation_operator, u.totp_enabled, s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
-WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled AND u.role='admin'`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.Operator, &u.MFAEnabled, &u.ExpiresAt)
+WHERE s.token_hash=$1 AND s.expires_at > now() AND s.auth_version=u.auth_version AND NOT u.disabled AND u.role='admin'`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.Operator, &u.MFAEnabled, &u.ExpiresAt)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(401, "unauthenticated")
 	}
@@ -379,8 +473,11 @@ func audit(ctx context.Context, tx *db.Tx, a Actor, action, targetType, targetID
 	if details == nil {
 		details = map[string]any{}
 	}
-	dj, _ := json.Marshal(details)
-	_, err := tx.Exec(ctx, `INSERT INTO audit_log(user_id, api_key_id, actor, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+	dj, err := json.Marshal(details)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(user_id, api_key_id, actor, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 		nullable(a.UserID), nullable(a.KeyID), a.Name, action, targetType, targetID, dj)
 	return err
 }
@@ -391,8 +488,11 @@ func (s *Service) Audit(ctx context.Context, a Actor, action, targetType, target
 	if details == nil {
 		details = map[string]any{}
 	}
-	dj, _ := json.Marshal(details)
-	_, err := s.Pool.Exec(ctx, `INSERT INTO audit_log(user_id, api_key_id, actor, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+	dj, err := json.Marshal(details)
+	if err != nil {
+		return unavailable("audit", err)
+	}
+	_, err = s.Pool.Exec(ctx, `INSERT INTO audit_log(user_id, api_key_id, actor, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 		nullable(a.UserID), nullable(a.KeyID), a.Name, action, targetType, targetID, dj)
 	if err != nil {
 		return unavailable("audit", err)
@@ -402,13 +502,17 @@ func (s *Service) Audit(ctx context.Context, a Actor, action, targetType, target
 
 func (s *Service) ListAudit(ctx context.Context, actor, action string, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT id, at, user_id::text AS user_id, api_key_id::text AS api_key_id, actor, action, target_type, target_id, details FROM audit_log
-WHERE ($1='' OR actor=$1) AND ($2='' OR action LIKE $2 || '%') ORDER BY id DESC`, actor, action)
+WHERE ($1='' OR actor=$1) AND ($2='' OR action LIKE replace(replace(replace($2, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\') ORDER BY id DESC`, actor, action)
 }
 
 // UserIDByEmail finds a user for the operator CLI.
 func (s *Service) UserIDByEmail(ctx context.Context, email string) (string, error) {
 	var id string
-	err := s.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(email))).Scan(&id)
+	e, ok := NormalizeEmail(email)
+	if !ok {
+		return "", &Error{Status: 404, Code: "not_found", Message: "user not found"}
+	}
+	err := s.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email=$1`, e).Scan(&id)
 	if errors.Is(err, db.ErrNoRows) {
 		return "", &Error{Status: 404, Code: "not_found", Message: "user not found"}
 	}

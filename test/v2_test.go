@@ -34,7 +34,7 @@ type session struct {
 
 func (e *env) user(email, role string) session {
 	e.t.Helper()
-	if _, err := e.svc.CreateUser(context.Background(), email, adminPass, role); err != nil {
+	if _, err := e.svc.CreateUserWith(context.Background(), email, adminPass, role, true); err != nil {
 		e.t.Fatal(err)
 	}
 	return e.login(email)

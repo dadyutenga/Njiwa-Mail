@@ -1,14 +1,18 @@
 package test
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/service"
 )
 
 // totpCode computes the authenticator code for a base32 secret at now+offset steps.
@@ -220,6 +224,48 @@ func TestMFALockoutAndDisable(t *testing.T) {
 	e.admOK(s, "POST", "/admin/v1/auth/mfa/disable", map[string]any{"password": adminPass, "code": recovery[1]})
 	if res := e.loginWith("lock@njiwa.co.tz", ""); res.Code != 200 || res.JSON["mfa_enabled"] != false {
 		t.Fatalf("after disable: %d %s", res.Code, res.Raw)
+	}
+}
+
+func TestMFAMissingSecretRejectsEmptyKeyCode(t *testing.T) {
+	e := setup(t)
+	s := e.user("missing-secret@njiwa.co.tz", "admin")
+	e.enrol(s)
+	_, err := e.pool.Exec(t.Context(), `UPDATE users SET totp_secret_enc=NULL WHERE email='missing-secret@njiwa.co.tz'`)
+	e.must(err)
+	// An empty HMAC key is public knowledge, even though its TOTP looks valid.
+	res := e.loginWith("missing-secret@njiwa.co.tz", totpCode(t, "", 1))
+	if res.Code != 401 || errCode(res) != "invalid_mfa_code" {
+		t.Fatalf("empty-key TOTP accepted: %d %s", res.Code, res.Raw)
+	}
+}
+
+func TestMFAConcurrentFailuresLockAccount(t *testing.T) {
+	e := setup(t)
+	s := e.user("concurrent-mfa@njiwa.co.tz", "admin")
+	secret, _ := e.enrol(s)
+	e.must(e.svc.UpdateSettings(t.Context(), map[string]int{"login_attempts_per_account": 200, "login_attempts_per_ip": 500}))
+	const attempts = 5
+	var wg sync.WaitGroup
+	errs := make(chan error, attempts)
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, err := e.svc.LoginMFA(context.Background(), "concurrent-mfa@njiwa.co.tz", adminPass, "invalid", "127.0.0.1", "test")
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if e, ok := service.IsError(err); !ok || e.Code != "invalid_mfa_code" {
+			t.Fatalf("concurrent failure: %v", err)
+		}
+	}
+	_, _, err := e.svc.LoginMFA(t.Context(), "concurrent-mfa@njiwa.co.tz", adminPass, totpCode(t, secret, 1), "127.0.0.1", "test")
+	if e, ok := service.IsError(err); !ok || e.Code != "mfa_locked" {
+		t.Fatalf("account not locked after five failures: %v", err)
 	}
 }
 

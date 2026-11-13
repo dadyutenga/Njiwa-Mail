@@ -258,8 +258,15 @@ func TestProfileActivationPlanAndGates(t *testing.T) {
 	e.must(err)
 
 	// Acknowledged switch succeeds, is audited and records the rollback target.
+	_, err = e.pool.Exec(ctx, `UPDATE messages SET next_attempt_at=now() WHERE id=$1`, id)
+	e.must(err)
 	if _, err := e.svc.ActivateTransport(ctx, actor, b, true); err != nil {
 		t.Fatal(err)
+	}
+	// Waiting mail is held back until the worker has certainly reloaded the new profile (30 s cache), so it neither goes
+	// through the old profile nor burns its last attempts there.
+	if e.count(`SELECT count(*) FROM messages WHERE id=$1 AND next_attempt_at > now() + interval '30 seconds'`, id) != 1 {
+		t.Fatal("pending mail was not held back after an acknowledged switch")
 	}
 	if str(e.activeProfile(), "id") != b || e.count(`SELECT count(*) FROM transport_profiles WHERE is_active`) != 1 {
 		t.Fatal("activation did not move the single active profile")

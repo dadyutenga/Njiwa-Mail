@@ -99,42 +99,36 @@ func newRecoveryCode() string {
 	return t[:5] + "-" + t[5:]
 }
 
-func (s *Service) totpSecretFor(ctx context.Context, userID string) (secret []byte, enabled bool, err error) {
-	var enc []byte
-	err = s.Pool.QueryRow(ctx, `SELECT totp_secret_enc, totp_enabled FROM users WHERE id=$1`, userID).Scan(&enc, &enabled)
-	if err != nil {
-		return nil, false, notFound(err)
-	}
-	if len(enc) == 0 {
-		return nil, enabled, nil
-	}
-	secret, err = s.Box.Open(enc, []byte("totp:"+userID))
-	if err != nil {
-		return nil, enabled, unavailable("totp_open", err)
-	}
-	return secret, enabled, nil
-}
-
 // checkSecondFactor verifies a TOTP or recovery code for an enabled account
 // during sign-in, enforcing lockout and replay protection.
 func (s *Service) checkSecondFactor(ctx context.Context, userID, code string) (recoveryUsed bool, err error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return false, unavailable("begin", err)
+	}
+	defer tx.Rollback(ctx)
+	var enc []byte
+	var enabled bool
 	var locked *time.Time
-	if err := s.Pool.QueryRow(ctx, `SELECT totp_locked_until FROM users WHERE id=$1`, userID).Scan(&locked); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT totp_secret_enc, totp_enabled, totp_locked_until FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&enc, &enabled, &locked); err != nil {
 		return false, unavailable("mfa_lock", err)
+	}
+	if !enabled || len(enc) == 0 {
+		return false, errBadCode
 	}
 	if locked != nil && locked.After(time.Now()) {
 		return false, &Error{Status: 429, Code: "mfa_locked", RetryAfter: time.Until(*locked)}
 	}
+	secret, err := s.Box.Open(enc, []byte("totp:"+userID))
+	if err != nil || len(secret) != 20 {
+		return false, errBadCode
+	}
 	code = normalizeCode(code)
 	ok := false
 	if isTOTPShape(code) {
-		secret, _, err := s.totpSecretFor(ctx, userID)
-		if err != nil {
-			return false, err
-		}
 		if step, match := totpMatch(secret, code, time.Now()); match {
 			// Single use: only the first sign-in with this step wins.
-			tag, err := s.Pool.Exec(ctx, `UPDATE users SET totp_last_step=$2 WHERE id=$1 AND totp_last_step < $2`, userID, step)
+			tag, err := tx.Exec(ctx, `UPDATE users SET totp_last_step=$2 WHERE id=$1 AND totp_last_step < $2`, userID, step)
 			if err != nil {
 				return false, unavailable("mfa_step", err)
 			}
@@ -142,23 +136,29 @@ func (s *Service) checkSecondFactor(ctx context.Context, userID, code string) (r
 		}
 	} else if len(code) >= 8 {
 		h := s.recoveryHash(code)
-		tag, err := s.Pool.Exec(ctx, `UPDATE users SET recovery_hashes=array_remove(recovery_hashes,$2) WHERE id=$1 AND $2 = ANY(recovery_hashes)`, userID, h)
+		tag, err := tx.Exec(ctx, `UPDATE users SET recovery_hashes=array_remove(recovery_hashes,$2) WHERE id=$1 AND $2 = ANY(recovery_hashes)`, userID, h)
 		if err != nil {
 			return false, unavailable("mfa_recovery", err)
 		}
 		ok, recoveryUsed = tag.RowsAffected() == 1, tag.RowsAffected() == 1
 	}
 	if !ok {
-		if _, err := s.Pool.Exec(ctx, `UPDATE users SET
+		if _, err := tx.Exec(ctx, `UPDATE users SET
 totp_locked_until=CASE WHEN totp_failed+1 >= $2 THEN now() + ($3 * interval '1 second') ELSE totp_locked_until END,
 totp_failed=CASE WHEN totp_failed+1 >= $2 THEN 0 ELSE totp_failed+1 END WHERE id=$1`,
 			userID, mfaMaxFailures, int(mfaLockDuration.Seconds())); err != nil {
 			return false, unavailable("mfa_fail", err)
 		}
+		if err := tx.Commit(ctx); err != nil {
+			return false, unavailable("commit", err)
+		}
 		return false, errBadCode
 	}
-	if _, err := s.Pool.Exec(ctx, `UPDATE users SET totp_failed=0, totp_locked_until=NULL WHERE id=$1`, userID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE users SET totp_failed=0, totp_locked_until=NULL WHERE id=$1`, userID); err != nil {
 		return false, unavailable("mfa_reset", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, unavailable("commit", err)
 	}
 	return recoveryUsed, nil
 }
@@ -166,13 +166,6 @@ totp_failed=CASE WHEN totp_failed+1 >= $2 THEN 0 ELSE totp_failed+1 END WHERE id
 // MFAStart creates a pending secret for the signed-in user. It is not active
 // until MFAConfirm proves the authenticator app produces valid codes.
 func (s *Service) MFAStart(ctx context.Context, u *AdminUser) (map[string]any, error) {
-	_, enabled, err := s.totpSecretFor(ctx, u.ID)
-	if err != nil {
-		return nil, err
-	}
-	if enabled {
-		return nil, newErr(409, "mfa_already_enabled")
-	}
 	secret := make([]byte, 20)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, unavailable("mfa_secret", err)
@@ -181,8 +174,22 @@ func (s *Service) MFAStart(ctx context.Context, u *AdminUser) (map[string]any, e
 	if err != nil {
 		return nil, unavailable("mfa_seal", err)
 	}
-	if _, err := s.Pool.Exec(ctx, `UPDATE users SET totp_secret_enc=$2, totp_enabled=false, totp_last_step=0, totp_failed=0, totp_locked_until=NULL, recovery_hashes='{}' WHERE id=$1`, u.ID, enc); err != nil {
+	tag, err := s.Pool.Exec(ctx, `UPDATE users SET totp_secret_enc=$2, totp_last_step=0, totp_failed=0, totp_locked_until=NULL, recovery_hashes='{}'
+WHERE id=$1 AND NOT totp_enabled AND EXISTS (
+  SELECT 1 FROM sessions WHERE user_id=$1 AND token_hash=$3 AND auth_version=users.auth_version AND expires_at>now()
+)`, u.ID, enc, u.tokenHash)
+	if err != nil {
 		return nil, unavailable("mfa_start", err)
+	}
+	if tag.RowsAffected() != 1 {
+		var enabled bool
+		if err := s.Pool.QueryRow(ctx, `SELECT totp_enabled FROM users WHERE id=$1`, u.ID).Scan(&enabled); err != nil {
+			return nil, notFound(err)
+		}
+		if enabled {
+			return nil, newErr(409, "mfa_already_enabled")
+		}
+		return nil, newErr(401, "unauthenticated")
 	}
 	b := b32.EncodeToString(secret)
 	q := url.Values{"secret": {b}, "issuer": {mfaIssuer}, "algorithm": {"SHA1"}, "digits": {"6"}, "period": {"30"}}
@@ -192,14 +199,32 @@ func (s *Service) MFAStart(ctx context.Context, u *AdminUser) (map[string]any, e
 
 // MFAConfirm activates the pending secret and returns the recovery codes once.
 func (s *Service) MFAConfirm(ctx context.Context, u *AdminUser, code string) ([]string, error) {
-	secret, enabled, err := s.totpSecretFor(ctx, u.ID)
+	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, unavailable("begin", err)
+	}
+	defer tx.Rollback(ctx)
+	var enc []byte
+	var enabled bool
+	var authVersion int64
+	if err := tx.QueryRow(ctx, `SELECT totp_secret_enc, totp_enabled, auth_version FROM users WHERE id=$1 FOR UPDATE`, u.ID).Scan(&enc, &enabled, &authVersion); err != nil {
+		return nil, notFound(err)
 	}
 	if enabled {
 		return nil, newErr(409, "mfa_already_enabled")
 	}
-	if len(secret) == 0 {
+	var sessionCurrent bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND token_hash=$2 AND auth_version=$3 AND expires_at>now())`, u.ID, u.tokenHash, authVersion).Scan(&sessionCurrent); err != nil {
+		return nil, unavailable("session_check", err)
+	}
+	if !sessionCurrent {
+		return nil, newErr(401, "unauthenticated")
+	}
+	if len(enc) == 0 {
+		return nil, newErr(409, "mfa_not_started")
+	}
+	secret, err := s.Box.Open(enc, []byte("totp:"+u.ID))
+	if err != nil || len(secret) != 20 {
 		return nil, newErr(409, "mfa_not_started")
 	}
 	step, ok := totpMatch(secret, normalizeCode(code), time.Now())
@@ -212,12 +237,7 @@ func (s *Service) MFAConfirm(ctx context.Context, u *AdminUser, code string) ([]
 		codes[i] = newRecoveryCode()
 		hashes[i] = s.recoveryHash(codes[i])
 	}
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return nil, unavailable("begin", err)
-	}
-	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE users SET totp_enabled=true, totp_last_step=$2, recovery_hashes=$3 WHERE id=$1 AND NOT totp_enabled AND totp_secret_enc IS NOT NULL`, u.ID, step, hashes)
+	tag, err := tx.Exec(ctx, `UPDATE users SET totp_enabled=true, totp_last_step=$2, recovery_hashes=$3, auth_version=auth_version+1 WHERE id=$1 AND NOT totp_enabled AND totp_secret_enc=$4`, u.ID, step, hashes, enc)
 	if err != nil {
 		return nil, unavailable("mfa_confirm", err)
 	}
@@ -227,6 +247,9 @@ func (s *Service) MFAConfirm(ctx context.Context, u *AdminUser, code string) ([]
 	// Other sessions signed in without the second factor end now.
 	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1 AND token_hash <> $2`, u.ID, u.tokenHash); err != nil {
 		return nil, unavailable("session_revoke", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sessions SET auth_version=(SELECT auth_version FROM users WHERE id=$1) WHERE user_id=$1 AND token_hash=$2`, u.ID, u.tokenHash); err != nil {
+		return nil, unavailable("session_refresh", err)
 	}
 	if err := audit(ctx, tx, u.Actor(), "mfa.enable", "user", u.ID, nil); err != nil {
 		return nil, unavailable("audit", err)
@@ -251,14 +274,25 @@ func (s *Service) MFADisable(ctx context.Context, u *AdminUser, password, code s
 	if !enabled {
 		return newErr(409, "mfa_not_enabled")
 	}
-	if !verifyPassword(hash, password) {
+	if len(password) > maxPasswordBytes {
+		return errBadLogin
+	}
+	valid, err := withPasswordHashSlot(ctx, func() bool { return verifyPassword(hash, password) })
+	if err != nil {
+		return unavailable("password_hash_busy", err)
+	}
+	if !valid {
 		return errBadLogin
 	}
 	if _, err := s.checkSecondFactor(ctx, u.ID, code); err != nil {
 		return err
 	}
-	if _, err := s.Pool.Exec(ctx, `UPDATE users SET totp_enabled=false, totp_secret_enc=NULL, totp_last_step=0, recovery_hashes='{}' WHERE id=$1`, u.ID); err != nil {
+	tag, err := s.Pool.Exec(ctx, `UPDATE users SET totp_enabled=false, totp_secret_enc=NULL, totp_last_step=0, recovery_hashes='{}', auth_version=auth_version+1 WHERE id=$1 AND password_hash=$2 AND totp_enabled`, u.ID, hash)
+	if err != nil {
 		return unavailable("mfa_disable", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return errBadLogin
 	}
 	return s.Audit(ctx, u.Actor(), "mfa.disable", "user", u.ID, nil)
 }
@@ -274,7 +308,7 @@ func (s *Service) ResetMFA(ctx context.Context, actor Actor, userID string) erro
 		return unavailable("begin", err)
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE users SET totp_enabled=false, totp_secret_enc=NULL, totp_last_step=0, totp_failed=0, totp_locked_until=NULL, recovery_hashes='{}' WHERE id=$1`, userID)
+	tag, err := tx.Exec(ctx, `UPDATE users SET totp_enabled=false, totp_secret_enc=NULL, totp_last_step=0, totp_failed=0, totp_locked_until=NULL, recovery_hashes='{}', auth_version=auth_version+1 WHERE id=$1`, userID)
 	if err != nil {
 		return unavailable("mfa_reset", err)
 	}

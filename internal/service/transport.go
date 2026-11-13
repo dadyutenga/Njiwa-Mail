@@ -434,6 +434,10 @@ func (s *Service) PlanTransportSwitch(ctx context.Context, targetID string) (Swi
 // an audit record. It refuses when the plan has blockers, and when pending
 // jobs exist unless the operator explicitly acknowledged migrating them.
 // Rolling back is the same call aimed at the previous profile, which is kept.
+// profileSwitchSettle is how long waiting mail is held back after an acknowledged switch: the worker's profile cache
+// (worker.StoredTransport, 30 s) plus a margin.
+const profileSwitchSettle = 35 * time.Second
+
 func (s *Service) ActivateTransport(ctx context.Context, a Actor, targetID string, migratePending bool) (SwitchPlan, error) {
 	if !isUUID(targetID) {
 		return SwitchPlan{}, newErr(404, "not_found")
@@ -474,6 +478,15 @@ func (s *Service) ActivateTransport(ctx context.Context, a Actor, targetID strin
 	}
 	if err := mirrorProfileToLegacy(ctx, tx, targetID); err != nil {
 		return plan, unavailable("transport_activate", err)
+	}
+	if migratePending && plan.NeedsDecision {
+		// The worker re-reads the active profile at most every 30 s. Mail it picks up inside that window would still go
+		// through the old profile, and a message that is already near MAX_ATTEMPTS would fail instead of moving (seen in
+		// the QEMU lab: two of three waiting messages ended "failed" right after an acknowledged switch).
+		if _, err := tx.Exec(ctx, `UPDATE messages SET next_attempt_at=GREATEST(COALESCE(next_attempt_at, now()), now() + make_interval(secs => $1))
+WHERE state IN ('queued','retry_wait') AND environment_id IN (SELECT id FROM environments WHERE mode='live')`, profileSwitchSettle.Seconds()); err != nil {
+			return plan, unavailable("transport_activate", err)
+		}
 	}
 	if err := audit(ctx, tx, a, "transport.activate", "transport_profile", targetID, map[string]any{
 		"from": plan.CurrentID, "to": targetID, "mode": plan.TargetMode, "queued": plan.Queued, "scheduled": plan.Scheduled, "submitting": plan.Submitting,
