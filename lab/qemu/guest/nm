@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# nm METHOD PATH [JSON] : call the admin API on this host as the lab operator (session cookie in /tmp/nm.jar)
+set -euo pipefail
+B=http://127.0.0.1:8080; J=/tmp/nm.jar; PW='lab-password-12345'; EM=operator@lab.test
+if [ ! -s $J ]; then curl -fs -c $J -H 'Content-Type: application/json' -d "{\"email\":\"$EM\",\"password\":\"$PW\"}" $B/admin/v1/auth/login >/dev/null; fi
+CS=$(curl -fs -b $J $B/admin/v1/auth/me | python3 -c 'import sys,json;print(json.load(sys.stdin)["csrf_token"])')
+if [ $# -ge 3 ]; then curl -s -b $J -X "$1" -H "X-CSRF-Token: $CS" -H 'Content-Type: application/json' -d "$3" -w '\nHTTP %{http_code}\n' "$B$2"
+else curl -s -b $J -X "$1" -H "X-CSRF-Token: $CS" -w '\nHTTP %{http_code}\n' "$B$2"; fi

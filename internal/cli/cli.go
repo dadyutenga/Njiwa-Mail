@@ -998,6 +998,16 @@ func applyInstaller(ctx context.Context, deps *installerDeps, p managed.Params, 
 			for d, txt := range rc.DKIMRecords {
 				fmt.Fprintf(&b, "  %s._domainkey.%s TXT \"%s\"\n", rc.Params.Selector, d, txt)
 			}
+			// Mail leaves with the signed return path bounces+<id>.<tag>@<bounce domain>, so receivers evaluate SPF against the
+			// bounce domain. Without a record there, DMARC still passes through DKIM but the SPF result is "none".
+			ip := firstNonEmpty(os.Getenv("OUTBOUND_IP"), "<this server's public IP>")
+			for _, bd := range strings.Split(rc.Params.BounceDomain, ",") {
+				if bd = strings.TrimSpace(bd); bd == "" {
+					continue
+				}
+				fmt.Fprintf(&b, "\nAlso publish for the bounce domain %s (bounces return here, and SPF is checked against it):\n  %s MX 10 %s\n  %s TXT \"v=spf1 mx ip4:%s -all\"\n",
+					bd, bd, rc.Params.Hostname, bd, ip)
+			}
 		}
 		show(rc, b.String())
 	}

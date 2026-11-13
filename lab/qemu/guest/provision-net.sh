@@ -57,22 +57,24 @@ sudo -u alice mkdir -p /home/alice/Maildir/{new,cur,tmp}
 echo "alice alice" | sudo tee /etc/postfix/lab-users >/dev/null; sudo postmap /etc/postfix/lab-users
 sudo postconf -e "myhostname=mx.rcv.test" "mydestination=rcv-a.test, rcv-b.test, rcv-c.test, mx.rcv.test, localhost" \
   "local_recipient_maps=hash:/etc/postfix/lab-users" "home_mailbox=Maildir/" "inet_interfaces=all" \
-  "smtpd_milters=inet:127.0.0.1:8891,inet:127.0.0.1:8893" "milter_default_action=accept" "milter_protocol=6" \
+  "smtpd_milters=" "milter_default_action=accept" \
   "smtpd_tls_security_level=may" "smtpd_tls_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem" "smtpd_tls_key_file=/etc/ssl/private/ssl-cert-snakeoil.key" \
   "smtpd_recipient_restrictions=reject_unauth_destination,check_policy_service unix:private/policyd-spf" \
   "policyd-spf_time_limit=3600" "smtp_host_lookup=dns" "disable_vrfy_command=yes"
 grep -q policyd-spf /etc/postfix/master.cf || echo 'policyd-spf unix - n n - 0 spawn user=policyd-spf argv=/usr/bin/policyd-spf' | sudo tee -a /etc/postfix/master.cf >/dev/null
 sudo adduser postfix opendkim >/dev/null 2>&1 || true
 
-# opendkim: verify only
+# opendkim: verify only (its unbound resolver needs an unbound forward-zone file; the lab DNS is 10.77.0.20)
+# dnsmasq does not synthesise empty non-terminals (_domainkey.<domain>), so unbound must not minimise names or harden below NXDOMAIN
+printf 'server:\n  qname-minimisation: no\n  harden-below-nxdomain: no\nforward-zone:\n  name: "."\n  forward-addr: 10.77.0.20\n' | sudo tee /etc/opendkim-resolv.conf >/dev/null
 sudo tee /etc/opendkim.conf >/dev/null <<'C'
 Syslog yes
 Mode v
 Socket inet:8891@127.0.0.1
 PidFile /run/opendkim/opendkim.pid
+ResolverConfiguration /etc/opendkim-resolv.conf
 UserID opendkim
 AuthservID mx.rcv.test
-TrustAnchorFile /usr/share/dns/root.key
 C
 # opendmarc: evaluates, never rejects (we want to read the verdict)
 sudo tee /etc/opendmarc.conf >/dev/null <<'C'
@@ -103,3 +105,9 @@ sudo rm -f /usr/sbin/policy-rc.d
 sudo systemctl enable --now dnsmasq opendkim opendmarc
 sudo systemctl restart dnsmasq opendkim opendmarc postfix
 echo provisioned-net
+
+# The packaged opendkim/opendmarc milters could not resolve the lab zone (libunbound never queried the lab DNS), so their
+# Authentication-Results were misleading; verdicts come from lab-verify, an independent verifier (see guest/lab-verify.py).
+sudo postconf -e "smtpd_milters="
+sudo systemctl disable --now opendkim opendmarc 2>/dev/null || true
+sudo systemctl restart postfix

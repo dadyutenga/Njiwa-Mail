@@ -1,0 +1,5 @@
+# source me on mx: exports the secrets and DATABASE_URL for host CLI commands (HANDOFF 3.1 step 6)
+cd /opt/njiwa-mail; set -a; . ./.env; set +a
+PGIP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' njiwa-mail-postgres-1)
+export DATABASE_URL="postgres://mail:${POSTGRES_PASSWORD}@${PGIP}:5432/mail?sslmode=disable"
+nmroot() { sudo -E env DATABASE_URL="$DATABASE_URL" ENCRYPTION_KEY="$ENCRYPTION_KEY" HMAC_KEY="$HMAC_KEY" "$@"; }

@@ -241,9 +241,12 @@ Do these in order. Record the evidence for each (commands, outputs, headers, scr
 
 9. **Publish DNS** (values printed by apply and shown on the Domains page):
    - `njiwa._domainkey.notify.example.com TXT "v=DKIM1; k=rsa; p=…"`
-   - SPF on `notify.example.com`: `v=spf1 ip4:<server IP> -all` (the Domains page shows the exact record).
+   - SPF on `notify.example.com`: `v=spf1 mx ip4:<server IP> -all` (the Domains page shows the exact record).
    - DMARC: `_dmarc.notify.example.com TXT "v=DMARC1; p=none; rua=mailto:…"` (start with `p=none`).
    - Bounce domain MX: `bounce.example.com MX 10 mailout.example.com`.
+   - **SPF on the bounce domain**: `bounce.example.com TXT "v=spf1 mx ip4:<server IP> -all"`. Mail leaves with the signed return path
+     `bounces+<id>.<tag>@bounce.example.com`, so receivers check SPF against the bounce domain; without this record they report
+     `spf=none` (found in the QEMU lab; DMARC still passes through DKIM). `installer apply` now prints it.
    - `mailout.example.com A <server IP>`; PTR at the provider.
    Then "Check now" on the Domains page until everything passes.
 
