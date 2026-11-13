@@ -14,6 +14,7 @@ import (
 
 	"github.com/njiwa-tz/mail/internal/installation"
 	"github.com/njiwa-tz/mail/internal/service"
+	"github.com/njiwa-tz/mail/internal/worker"
 )
 
 func pemPair(t *testing.T, cn string) (certPEM, keyPEM []byte) {
@@ -174,5 +175,43 @@ func TestManagedClientCertificateExpiry(t *testing.T) {
 	}
 	if s := record(-time.Minute); s.Status != installation.Error || s.ProblemCode != installation.CodeCertExpired {
 		t.Fatalf("expired certificate: %+v", s)
+	}
+}
+
+// Found in the QEMU lab on a clean Ubuntu 24.04 host: the managed profile carries the installer's private CA, and the
+// worker replaced it with the (nil) system roots, so every managed message failed with smtp_tls_verification_failed
+// although the dashboard's connection test, which uses the profile directly, passed. The worker must keep the CA from
+// the profile; only a test-injected pool may override it.
+func TestWorkerSendsThroughManagedProfileWithItsPrivateCA(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	cert, _ := genCert(t) // the fake server's certificate: self-signed, for 127.0.0.1, trusted only through the profile
+	srv, _, port := startSMTP(t, scenario{cert: &cert})
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"})
+	clientCert, clientKey := pemPair(t, "njiwa-worker")
+	e.must(e.svc.RecordManagedInstall(ctx, service.CLIActor, service.ManagedInstall{ReceiptID: "r2", PlanDigest: "def456", ApprovedBy: "cli",
+		PostfixVersion: "3.8.6", SubmissionHost: "127.0.0.1", SubmissionPort: port, ServerName: "127.0.0.1", Selector: "dkim",
+		DKIMRecords: map[string]string{"notify.example.com": dkimRecord(t)}, ClientCertPEM: clientCert, ClientKeyPEM: clientKey, CAPEM: ca}))
+	var id string
+	e.must(e.pool.QueryRow(ctx, `SELECT id::text FROM transport_profiles WHERE mode='managed_mta'`).Scan(&id))
+	_, _, rev, err := e.svc.ProfileSMTP(ctx, id)
+	e.must(err)
+	e.must(e.svc.RecordInstallationCheck(ctx, id, rev, "connection", true, "", nil, false))
+	if _, err := e.svc.ActivateTransport(ctx, service.CLIActor, id, false); err != nil {
+		t.Fatal(err)
+	}
+	// Exactly what cmd/njiwa-mail builds in production: no injected pool.
+	e.w.SMTP = &worker.StoredTransport{Svc: e.svc, Timeout: 3 * time.Second}
+	k := e.provision("proj")
+	r := e.post(k.live, idem("managed-ca"), otpBody(testRcpt))
+	if r.Code != 202 {
+		t.Fatalf("%d %s", r.Code, r.Raw)
+	}
+	e.runWorker()
+	mid := str(r.JSON, "id")
+	if e.state(mid) != "submitted" || !srv.saw("DATA") {
+		t.Fatalf("state %s data=%v (a failed TLS verification here means the profile's CA was dropped)", e.state(mid), srv.saw("DATA"))
 	}
 }

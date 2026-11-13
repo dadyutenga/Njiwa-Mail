@@ -46,7 +46,12 @@ func (t *StoredTransport) load(ctx context.Context) (*mailer.SMTP, service.Trans
 		return nil, t.pin
 	}
 	if t.smtp == nil || !a.Updated.Equal(t.updated) || a.Pin() != t.pin {
-		a.Cfg.Timeout, a.Cfg.RootCAs = t.Timeout, t.RootCAs
+		a.Cfg.Timeout = t.Timeout
+		// A managed profile carries the installer's private CA. Only a test that injects its own pool may replace it;
+		// overwriting it with nil sent every managed message to the system roots, where that CA is not trusted.
+		if t.RootCAs != nil {
+			a.Cfg.RootCAs = t.RootCAs
+		}
 		t.smtp, t.updated, t.pin = mailer.NewSMTP(a.Cfg), a.Updated, a.Pin()
 	}
 	t.mode = transport.Mode(a.Mode)
