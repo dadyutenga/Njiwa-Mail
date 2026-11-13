@@ -13,7 +13,12 @@ set -eu
 src=${1:?usage: restore.sh BACKUP_DIR}
 ( cd "$src" && sha256sum -c --quiet MANIFEST.sha256 ) || { echo "backup files do not match MANIFEST.sha256; not restoring" >&2; exit 1; }
 
-pg_restore --clean --if-exists --dbname="$DATABASE_URL" "$src/mail.dump"
+if command -v pg_restore >/dev/null 2>&1; then
+  pg_restore --clean --if-exists --dbname="$DATABASE_URL" "$src/mail.dump"
+else
+  docker run --rm -i --network "${PG_NETWORK:-njiwa-mail_internal}" "${PG_IMAGE:-postgres:16.4-alpine}" \
+    pg_restore --clean --if-exists --dbname="$DATABASE_URL" < "$src/mail.dump"
+fi
 if [ -n "${DATA_DIR:-}" ] && [ -f "$src/data.tgz" ]; then
   mkdir -p "$DATA_DIR"
   tar -C "$DATA_DIR" -xzf "$src/data.tgz"
@@ -37,6 +42,11 @@ if [ -f "$src/managed.tgz" ]; then
   postfix check
   opendkim -n -x /etc/opendkim.conf
   if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload # the restored firewall unit, Postfix boot-ordering drop-in and agent/collector units
+    if [ -f /etc/njiwa-mail/firewall.nft ]; then
+      nft -f /etc/njiwa-mail/firewall.nft
+      systemctl enable njiwa-mail-firewall >/dev/null 2>&1 || true
+    fi
     systemctl restart opendkim
     systemctl restart postfix
   else

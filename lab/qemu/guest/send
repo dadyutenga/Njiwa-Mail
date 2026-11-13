@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # send TO SUBJECT [TEXT] : one Live message through the local API with the lab key; prints the id/state
-K=$(cat /tmp/livekey); TO=$1; SUB=$2; TXT=${3:-"Hello from the QEMU lab (simulated network)."}
+K=$(cat $HOME/.livekey); TO=$1; SUB=$2; TXT=${3:-"Hello from the QEMU lab (simulated network)."}
 R=$(curl -s -H "Authorization: Bearer $K" -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)" -H "Content-Type: application/json" \
  -d "{\"from\":\"hello@notify.njiwa.test\",\"to\":\"$TO\",\"subject\":\"$SUB\",\"text\":\"$TXT\"}" http://127.0.0.1:8080/v1/emails)
 echo "$R"; ID=$(echo "$R" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)

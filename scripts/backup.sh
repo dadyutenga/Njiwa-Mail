@@ -19,7 +19,14 @@ umask 077
 out=${1:-"./backup-$(date -u +%Y%m%dT%H%M%SZ)"}
 mkdir -p "$out"
 
-pg_dump --format=custom --file="$out/mail.dump" "$DATABASE_URL"
+# PostgreSQL normally runs in a container and the host has no client tools. Without pg_dump, run the one from the same
+# image as the server (PG_IMAGE, on the Compose network PG_NETWORK) so the dump format always matches the server.
+if command -v pg_dump >/dev/null 2>&1; then
+  pg_dump --format=custom --file="$out/mail.dump" "$DATABASE_URL"
+else
+  docker run --rm --network "${PG_NETWORK:-njiwa-mail_internal}" "${PG_IMAGE:-postgres:16.4-alpine}" \
+    pg_dump --format=custom "$DATABASE_URL" > "$out/mail.dump"
+fi
 if [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR" ]; then
   tar -C "$DATA_DIR" -czf "$out/data.tgz" .
 fi
@@ -27,7 +34,9 @@ fi
 # Managed-mode host files, only those that exist.
 managed=""
 for p in /etc/postfix/main.cf /etc/postfix/master.cf /etc/postfix/njiwa /etc/opendkim.conf /etc/opendkim \
-         /etc/njiwa-mail /var/lib/njiwa-mail/installer; do
+         /etc/njiwa-mail /var/lib/njiwa-mail/installer /etc/systemd/system/njiwa-mail-firewall.service \
+         /etc/systemd/system/postfix@.service.d /etc/systemd/system/njiwa-mail-mta-agent.service \
+         /etc/systemd/system/njiwa-mail-mta-log.service; do
   [ -e "$p" ] && managed="$managed ${p#/}"
 done
 if [ -n "$managed" ]; then

@@ -14,9 +14,9 @@ LAB=${NJIWA_LAB:-$HOME/.cache/njiwa-vmlab}
 IMG=${NJIWA_BASE_IMG:-$LAB/dl-ubuntu2404/noble-server-cloudimg-amd64.img}
 VMS=$LAB/vms; KEY=$LAB/lab_ed25519
 HERE=$(cd "$(dirname "$0")" && pwd)
-declare -A SSHPORT=([mx]=2201 [net]=2202) LANIP=([mx]=10.77.0.10 [net]=10.77.0.20)
-declare -A LPORT=([mx]=5701 [net]=5702) RPORT=([mx]=5702 [net]=5701) MEM=([mx]=${MX_MEM:-4096} [net]=1536)
-declare -A HOST=([mx]=mailout.njiwa.test [net]=lab-net.njiwa.test)
+declare -A SSHPORT=([mx]=2201 [net]=2202 [mxf]=2203) LANIP=([mx]=10.77.0.10 [net]=10.77.0.20 [mxf]=10.77.0.10)
+declare -A LPORT=([mx]=5701 [net]=5702 [mxf]=5701) RPORT=([mx]=5702 [net]=5701 [mxf]=5702) MEM=([mx]=${MX_MEM:-4096} [net]=1536 [mxf]=${MX_MEM:-4096})
+declare -A HOST=([mx]=mailout.njiwa.test [net]=lab-net.njiwa.test [mxf]=mailout.njiwa.test)
 mac() { printf '52:54:00:%s:%s:%s' "$1" "$2" "$3"; }
 ssh_opts=(-i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
 
@@ -84,12 +84,12 @@ up() {
   local n=$1 mode=${2:-isolated} restrict=on
   alive "$n" && { echo "$n already running"; return; }
   [ "$mode" = online ] && restrict=off
-  local idx; idx=$([ "$n" = mx ] && echo 01 || echo 02); local lidx; lidx=$([ "$n" = mx ] && echo 10 || echo 20)
+  local idx lidx seed=$n; case $n in net) idx=02; lidx=20 ;; *) idx=01; lidx=10 ;; esac; [ "$n" = mxf ] && seed=mx
   qemu-system-x86_64 -name "njiwa-lab-$n" -machine q35,accel=kvm -cpu host -smp 2 -m "${MEM[$n]}" \
     -display none -daemonize -pidfile "$(pidf "$n")" -serial "file:$VMS/$n.serial.log" \
     -monitor "unix:$VMS/$n.mon,server,nowait" \
     -drive "file=$VMS/$n.qcow2,if=virtio,cache=writeback,format=qcow2" \
-    -drive "file=$VMS/seed-$n.iso,if=virtio,format=raw,readonly=on" \
+    -drive "file=$VMS/seed-$seed.iso,if=virtio,format=raw,readonly=on" \
     -netdev "user,id=wan,restrict=$restrict,hostfwd=tcp:127.0.0.1:${SSHPORT[$n]}-:22" \
     -device "virtio-net-pci,netdev=wan,mac=$(mac 12 34 "$idx")" \
     -netdev "dgram,id=lan,local.type=inet,local.host=127.0.0.1,local.port=${LPORT[$n]},remote.type=inet,remote.host=127.0.0.1,remote.port=${RPORT[$n]}" \
@@ -108,7 +108,7 @@ down() { ssh "${ssh_opts[@]}" -p "${SSHPORT[$1]}" lab@127.0.0.1 'sudo systemctl 
 killvm() { alive "$1" && kill -9 "$(cat "$(pidf "$1")")"; sleep 1; echo "$1 killed (power loss)"; }
 snap() { alive "$1" && { echo "stop $1 first" >&2; exit 1; }; qemu-img snapshot -c "$2" "$VMS/$1.qcow2"; }
 restore() { alive "$1" && { echo "stop $1 first" >&2; exit 1; }; qemu-img snapshot -a "$2" "$VMS/$1.qcow2"; }
-status() { for n in mx net; do if alive $n; then echo "$n running ($(cat "$VMS/$n.mode" 2>/dev/null))"; else echo "$n stopped"; fi; done; }
+status() { for n in mx net mxf; do if alive $n; then echo "$n running ($(cat "$VMS/$n.mode" 2>/dev/null))"; else echo "$n stopped"; fi; done; }
 
 cmd=${1:-}; shift || true
 case $cmd in
@@ -119,6 +119,9 @@ case $cmd in
   snap) snap "$@" ;;
   restore) restore "$@" ;;
   status) status ;;
+  # fresh: a standalone copy of mx at snapshot TAG (default pkgs) that takes mx's identity; run it only while mx is stopped
+  fresh) alive mx && { echo "stop mx first (same IP)" >&2; exit 1; }; alive mxf && { echo "stop mxf first" >&2; exit 1; }
+         rm -f "$VMS/mxf.qcow2"; qemu-img convert -O qcow2 -l "snapshot.name=${1:-pkgs}" "$VMS/mx.qcow2" "$VMS/mxf.qcow2"; echo "mxf created from mx snapshot ${1:-pkgs}" ;;
   ssh) n=$1; shift; exec ssh "${ssh_opts[@]}" -p "${SSHPORT[$n]}" lab@127.0.0.1 "$@" ;;
   scp) dst=${*: -1}; n=${dst%%:*}; p=${dst#*:}; set -- "${@:1:$#-1}"
        exec scp -r "${ssh_opts[@]}" -P "${SSHPORT[$n]}" "$@" "lab@127.0.0.1:$p" ;;
