@@ -1,97 +1,490 @@
 openapi: 3.0.3
 info:
-  title: Njiwa Mail API
+  title: Njiwa Mail public API
   version: 1.0.0
   description: |
-    Implemented contract only. `submitted` means the active mail server (managed
-    Postfix or your existing SMTP server) positively acknowledged the message.
-    It does NOT mean delivered, inboxed or read.
+    The application API of a self-hosted Njiwa-Mail instance. It is the same whether the instance sends through
+    its managed Postfix or through an existing SMTP server (Mailcow is optional).
+
+    **Delivery honesty.** `submitted` means the active mail server positively acknowledged the message. It does
+    NOT mean delivered, inboxed or read, and there is no `delivered` state.
+
+    The operator API (`/admin/v1`) is not part of this contract; see `openapi-admin.yaml`.
+
+    This file is the canonical source: the documentation site, `llms.txt` and the agent skill are generated from it,
+    and `go test ./test -run TestPublicOpenAPI` fails when it drifts from the handlers.
 servers:
   - url: https://mail-api.example.com
+    description: Placeholder. Use the URL of your own instance (NJIWA_MAIL_URL); there is no central hosted endpoint.
 security:
   - bearer: []
+tags:
+  - { name: Emails, description: Queue, read and cancel outbound email }
+  - { name: Inbound, description: Read mail received at your inbound addresses }
+  - { name: Suppressions, description: Addresses that must not receive mail }
+  - { name: Unsubscribe, description: Public one-click unsubscribe for bulk mail }
+  - { name: Health, description: Liveness and readiness }
 paths:
   /v1/emails:
     post:
-      summary: Queue one transactional email
+      tags: [Emails]
+      operationId: sendEmail
+      summary: Queue one email
+      description: |
+        Send from your server only. Use one `Idempotency-Key` per logical event and reuse it on every retry of that event.
+        Template sends need scope `emails:send`; raw sends (no `template`, a `subject` and `html` and/or `text`) need `emails:send_raw`.
+        The request body may be up to 6 MiB as shipped (attachments).
+      x-required-scopes: ['emails:send or emails:send_raw']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, rate_limited, queue_full, service_unavailable]
       parameters:
-        - name: Idempotency-Key
-          in: header
-          required: true
-          schema: { type: string, pattern: '^[A-Za-z0-9._:-]{8,128}$' }
-          description: One per logical application event. Reuse it on every retry of that event.
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/SendRequest' }
+            examples:
+              otp:
+                summary: OTP from a built-in template
+                value:
+                  from: noreply@notify.example.com
+                  to: user@example.org
+                  template: otp
+                  locale: en
+                  variables: { name: Ada, code: '482913', expires_in_minutes: 5 }
+                  metadata: { request_id: login-7f3a }
       responses:
-        '202': { description: Durably queued, or identical replay (original id), content: { application/json: { schema: { $ref: '#/components/schemas/Accepted' } } } }
-        '401': { $ref: '#/components/responses/Error' }
-        '403':
-          description: |
-            missing_scope | sender_not_approved | project_disabled |
-            domain_not_registered (Live: the sender's domain is not a verified sending domain of this project) |
-            domain_claimed_elsewhere (Live: another project in this installation holds the domain, or it awaits operator review) |
-            domain_not_ready (Live: ownership, SPF, DKIM or DMARC does not pass yet)
-          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
-        '409': { description: idempotency_conflict (same key, different payload), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '413': { description: body_too_large (32 KiB max), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '422': { description: 'Validation: invalid_request, invalid_recipient, invalid_sender, unknown_template, template_version_required, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, invalid_ttl, invalid_metadata, idempotency_key_invalid, recipient_suppressed, recipient_not_allowed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '429': { description: "rate_limited: a project quota, or the installation-wide or per-sending-domain Live limit; see Retry-After", headers: { Retry-After: { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '503': { description: Durable persistence unavailable. Nothing was accepted; retry with the same key., headers: { Retry-After: { schema: { type: integer } } } }
+        '202':
+          description: Durably queued (`queued`, or `scheduled` when `send_at` is in the future), or an identical replay (the original id).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Accepted' }
+              example: { id: 6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11, status: queued }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { description: 'idempotency_conflict: the same key was used with a different body', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '413': { description: body_too_large, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/emails/batch:
+    post:
+      tags: [Emails]
+      operationId: sendBatch
+      summary: Queue up to 100 emails
+      description: Each item carries its own `idempotency_key` and gets its own result. One rejection does not undo the others. The HTTP status is 200 whenever the batch itself was readable.
+      x-required-scopes: ['emails:send or emails:send_raw (per item)']
+      x-error-codes: [invalid_api_key, ip_not_allowed, invalid_batch, invalid_request]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BatchRequest' }
+            example:
+              messages:
+                - { idempotency_key: 'welcome-1001', from: noreply@notify.example.com, to: a@example.org, template: account-notice, variables: { title: Welcome, message: Your account is ready. } }
+      responses:
+        '200':
+          description: One result per message, in order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchResponse' }
+              example: { results: [ { index: 0, id: 6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11, status: 202, state: queued } ] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Error' }
   /v1/emails/{id}:
     get:
-      summary: Metadata-only status (never variables, tokens or recipient)
+      tags: [Emails]
+      operationId: getEmail
+      summary: Read a message's status
+      description: Metadata only. Never returns variables, tokens or the recipient. Another project's or environment's message is a 404.
+      x-required-scopes: ['emails:read']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, not_found]
       parameters:
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/Id'
       responses:
-        '200': { description: Status, content: { application/json: { schema: { $ref: '#/components/schemas/Status' } } } }
-        '404': { description: Unknown or foreign message id }
-  /health/live: { get: { security: [], summary: Process liveness, responses: { '200': { description: ok } } } }
-  /health/ready: { get: { security: [], summary: Database reachable and schema present, responses: { '200': { description: ready }, '503': { description: unavailable } } } }
+        '200':
+          description: Status
+          content: { application/json: { schema: { $ref: '#/components/schemas/Status' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/emails/{id}/cancel:
+    post:
+      tags: [Emails]
+      operationId: cancelEmail
+      summary: Cancel a queued or scheduled email
+      description: Only a message that has not started submission can be cancelled. A `submitted` message cannot.
+      x-required-scopes: ['emails:send or emails:send_raw']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, not_found, not_cancellable]
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Cancelled
+          content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [cancelled] } } }, example: { status: cancelled } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: 'not_cancellable: submission already started or finished', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /v1/inbound:
+    get:
+      tags: [Inbound]
+      operationId: listInbound
+      summary: List inbound messages
+      x-required-scopes: ['inbound:read']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope]
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string }, description: Search text }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { description: A page of inbound messages, content: { application/json: { schema: { $ref: '#/components/schemas/InboundPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+  /v1/inbound/{id}:
+    get:
+      tags: [Inbound]
+      operationId: getInbound
+      summary: Read one inbound message
+      description: Includes the text and HTML bodies (decrypted for you) and the attachment list.
+      x-required-scopes: ['inbound:read']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, not_found]
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { description: Message, content: { application/json: { schema: { $ref: '#/components/schemas/InboundMessage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/inbound/{id}/attachments/{aid}:
+    get:
+      tags: [Inbound]
+      operationId: getInboundAttachment
+      summary: Download an inbound attachment
+      description: "Always served as `application/octet-stream` with `Content-Disposition: attachment`; the sender's content type is data, never an instruction."
+      x-required-scopes: ['inbound:read']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, not_found]
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - { name: aid, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The file
+          content: { application/octet-stream: { schema: { type: string, format: binary } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/suppressions:
+    get:
+      tags: [Suppressions]
+      operationId: listSuppressions
+      summary: List suppressed addresses
+      description: Addresses are masked in the response.
+      x-required-scopes: ['suppressions:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { description: A page, content: { application/json: { schema: { $ref: '#/components/schemas/SuppressionPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Suppressions]
+      operationId: addSuppression
+      summary: Suppress an address
+      x-required-scopes: ['suppressions:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, invalid_request, invalid_recipient, reason_required]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, reason]
+              properties:
+                email: { type: string }
+                reason: { type: string, maxLength: 200 }
+      responses:
+        '200': { description: Suppressed, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /v1/suppressions/{id}:
+    delete:
+      tags: [Suppressions]
+      operationId: removeSuppression
+      summary: Remove a suppression
+      description: "`id` is the suppression id or the email address itself."
+      x-required-scopes: ['suppressions:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, not_found]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Removed, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/unsubscribe/{token}:
+    get:
+      tags: [Unsubscribe]
+      operationId: unsubscribePage
+      summary: Unsubscribe confirmation page (HTML)
+      description: Opened by the recipient from the `List-Unsubscribe` link of bulk mail. Never changes anything by itself.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: HTML page with a confirm button, content: { text/html: { schema: { type: string } } } }
+    post:
+      tags: [Unsubscribe]
+      operationId: unsubscribe
+      summary: One-click unsubscribe (RFC 8058)
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Unsubscribed (HTML), content: { text/html: { schema: { type: string } } } }
+        '404': { description: Unknown token (HTML), content: { text/html: { schema: { type: string } } } }
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: healthLive
+      summary: Process liveness
+      security: []
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Health' }, example: { status: ok } } } }
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: healthReady
+      summary: Database reachable and schema present
+      security: []
+      responses:
+        '200': { description: ready, content: { application/json: { schema: { $ref: '#/components/schemas/Health' }, example: { status: ready } } } }
+        '503': { description: unavailable, content: { application/json: { schema: { $ref: '#/components/schemas/Health' }, example: { status: unavailable } } } }
 components:
   securitySchemes:
-    bearer: { type: http, scheme: bearer, description: 'dmk_<sbx|liv>_<prefix>_<secret>; scopes emails:send, emails:read' }
+    bearer:
+      type: http
+      scheme: bearer
+      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage. Keep it on your server.'
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9._:-]{8,128}$' }
+      description: One per logical application event (one OTP, one reset). Reuse it on every retry of that event; use a new one for a new event.
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema: { type: integer, minimum: 0, default: 0 }
   responses:
-    Error: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Error:
+      description: Error. See `error.code`.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: invalid_api_key. The response carries `WWW-Authenticate`.
+      headers: { WWW-Authenticate: { schema: { type: string } } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: not_found. An unknown id, or one that belongs to another project or environment.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: rate_limited (a project quota, or the installation-wide or per-sending-domain Live limit). Wait `Retry-After` seconds and retry with the same key.
+      headers: { Retry-After: { schema: { type: integer } } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unavailable:
+      description: service_unavailable or queue_full. Nothing was accepted. Retry with the same key after `Retry-After`.
+      headers: { Retry-After: { schema: { type: integer } } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
   schemas:
     Error:
       type: object
-      properties: { error: { type: object, properties: { code: { type: string } } } }
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code]
+          properties:
+            code: { type: string, description: Stable machine-readable code. }
+            message: { type: string, description: Optional human-readable detail. Never contains secrets. }
+    Health:
+      type: object
+      properties: { status: { type: string, enum: [ok, ready, unavailable] } }
+    Attachment:
+      type: object
+      additionalProperties: false
+      required: [filename, content_type, content]
+      properties:
+        filename: { type: string }
+        content_type: { type: string, enum: [application/pdf, image/png, image/jpeg, text/plain] }
+        content: { type: string, format: byte, description: Standard base64. At most 5 files and 5 MiB in total. }
     SendRequest:
       type: object
       additionalProperties: false
-      required: [from, to, template, template_version, variables]
+      required: [from, to]
+      description: Unknown fields are rejected with 422 invalid_request.
       properties:
-        from: { type: string, description: Must be an approved sender identity for the key's project/environment }
-        to: { type: string, description: Exactly one recipient (bare ASCII address) }
-        template: { type: string, enum: [otp, password-reset, account-notice] }
-        template_version: { type: integer, enum: [1] }
+        from: { type: string, description: An approved sender identity for the key's project and environment. }
+        to: { type: string, description: One recipient (bare address). Together with cc and bcc at most 10 addresses. }
+        template: { type: string, description: 'A built-in template (otp, password-reset, account-notice) or one published for the project. Omit it for a raw send.' }
+        template_version: { type: integer, minimum: 1, description: Omit it to use the newest published version. }
+        locale: { type: string, enum: [en, sw], default: en, description: Missing Kiswahili content falls back to English. }
         variables:
           type: object
           description: |
-            otp.v1: name?, code (4-12 alnum), expires_in_minutes (1-60).
-            password-reset.v1: name?, reset_url (https, origin approved for the environment), expires_in_minutes (1-1440).
-            account-notice.v1: name?, title (<=100, single line), message (<=1000). No HTML.
-        ttl_seconds: { type: integer, description: 'auth templates default 300, max 900; notice default 3600, max 86400; min 30' }
-        metadata: { type: object, additionalProperties: false, properties: { request_id: { type: string, pattern: '^[A-Za-z0-9._:-]{1,128}$' } } }
+            otp: name?, code (4-12 letters or digits), expires_in_minutes (1-60).
+            password-reset: name?, reset_url (https, origin approved for the environment), expires_in_minutes (1-1440).
+            account-notice: name?, title (<=100, single line), message (<=1000). HTML is escaped.
+        ttl_seconds: { type: integer, minimum: 30, description: 'Submission will not start after this. Auth templates default 300 (max 900); notices default 3600 (max 86400).' }
+        metadata:
+          type: object
+          additionalProperties: false
+          properties: { request_id: { type: string, pattern: '^[A-Za-z0-9._:-]{1,128}$' } }
+        subject: { type: string, description: Raw send only (scope emails:send_raw). }
+        html: { type: string, description: Raw send only. }
+        text: { type: string, description: Raw send only. }
+        reply_to: { type: string }
+        cc: { type: array, items: { type: string } }
+        bcc: { type: array, items: { type: string } }
+        priority: { type: string, enum: [high, normal], description: otp and password-reset default to high. }
+        send_at: { type: string, format: date-time, description: RFC 3339, at most 7 days ahead. }
+        attachments: { type: array, maxItems: 5, items: { $ref: '#/components/schemas/Attachment' } }
+        headers: { type: object, additionalProperties: { type: string } }
     Accepted:
       type: object
-      properties: { id: { type: string, format: uuid }, status: { type: string } }
+      required: [id, status]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, scheduled, submitting, submitted, retry_wait, failed, unknown, expired, captured, cancelled], description: 'queued or scheduled for a new message; the current state for an identical replay.' }
+    BatchRequest:
+      type: object
+      additionalProperties: false
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            allOf:
+              - { $ref: '#/components/schemas/SendRequest' }
+              - type: object
+                required: [idempotency_key]
+                properties:
+                  idempotency_key: { type: string, pattern: '^[A-Za-z0-9._:-]{8,128}$' }
+    BatchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            required: [index, status]
+            properties:
+              index: { type: integer }
+              id: { type: string, format: uuid }
+              status: { type: integer, description: The HTTP status this item would have had on its own (202 accepted). }
+              state: { type: string }
+              code: { type: string, description: Error code when status is not 202. }
     Status:
       type: object
       properties:
-        id: { type: string }
-        status: { type: string, enum: [queued, submitting, submitted, retry_wait, failed, unknown, expired, captured] }
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, scheduled, submitting, submitted, retry_wait, failed, unknown, expired, captured, cancelled] }
         template: { type: string }
         template_version: { type: integer }
         attempts: { type: integer }
-        smtp_reply: { type: string, description: Server acknowledgement text (queue id) once submitted }
+        smtp_reply: { type: string, description: The mail server's acknowledgement text (queue id) once submitted. }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
         submitted_at: { type: string, format: date-time }
         completed_at: { type: string, format: date-time }
-        metadata: { type: object }
-        events: { type: array, items: { type: object, properties: { type: { type: string }, reason: { type: string }, at: { type: string, format: date-time } } } }
+        metadata: { type: object, additionalProperties: { type: string } }
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              reason: { type: string }
+              at: { type: string, format: date-time }
+    Page:
+      type: object
+      properties:
+        has_more: { type: boolean }
+        limit: { type: integer }
+        offset: { type: integer }
+    InboundPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties: { items: { type: array, items: { $ref: '#/components/schemas/InboundSummary' } } }
+    InboundSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        address_id: { type: string, format: uuid }
+        envelope_from: { type: string }
+        envelope_to: { type: string }
+        header_from: { type: string }
+        subject: { type: string }
+        spam_score: { type: number }
+        raw_size: { type: integer }
+        received_at: { type: string, format: date-time }
+        retention_expires_at: { type: string, format: date-time }
+        bodies_purged_at: { type: string, format: date-time }
+        attachment_count: { type: integer }
+        project: { type: string }
+        mode: { type: string, enum: [sandbox, live] }
+        in_reply_to: { type: string, format: uuid, description: The id of the outbound message this answers, when known. }
+    InboundMessage:
+      allOf:
+        - $ref: '#/components/schemas/InboundSummary'
+        - type: object
+          properties:
+            headers: { type: object, additionalProperties: { type: array, items: { type: string } } }
+            text: { type: string }
+            html: { type: string, description: Sender-controlled content. Never render it unsanitized. }
+            attachments:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  filename: { type: string }
+                  content_type: { type: string }
+                  size: { type: integer }
+                  sha256: { type: string }
+    SuppressionPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  recipient: { type: string, description: Masked address. }
+                  reason: { type: string }
+                  source: { type: string }
+                  bounce_id: { type: string, format: uuid }
+                  created_at: { type: string, format: date-time }
