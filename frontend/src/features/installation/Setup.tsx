@@ -96,10 +96,13 @@ const statusText: Record<SetupStep["status"], string> = {
 /** The ten setup steps, resumable: everything comes from server state. */
 export function SetupJourneyPanel() {
   const phrase = usePhrase();
-  const { to } = useWorkspace();
+  const { to, project } = useWorkspace();
+  // Steps 5-9 describe the project being viewed, so the links below open
+  // the same project the steps talk about.
   const q = useQuery({
-    queryKey: ["installation", "setup"],
-    queryFn: () => admin.get<SetupJourney>("/installation/setup"),
+    queryKey: ["installation", "setup", project],
+    queryFn: () =>
+      admin.get<SetupJourney>(`/installation/setup?project=${encodeURIComponent(project)}`),
     refetchInterval: 30_000,
   });
   const j = q.data;
@@ -111,6 +114,11 @@ export function SetupJourneyPanel() {
           ? phrase("Setup is complete.")
           : `${phrase("Step")} ${j.next} ${phrase("of")} ${j.total} · ${j.done} ${phrase("done")}. ${phrase("You can stop at any point and continue later, from any device.")}`}
       </p>
+      {j.project && (
+        <p className="mb-2 text-xs text-muted-foreground">
+          {phrase("Steps 5 to 9 are for project")} <span className="font-medium">{j.project}</span>
+        </p>
+      )}
       <ol className="space-y-2">
         {j.steps.map((st) => {
           const current = st.n === j.next;

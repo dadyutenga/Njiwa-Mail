@@ -42,7 +42,7 @@ const steps = [
 ];
 
 it("shows the ten-step journey with the current step and its command", async () => {
-  vi.spyOn(admin, "get").mockResolvedValue({
+  const get = vi.spyOn(admin, "get").mockResolvedValue({
     project: "demo",
     mode: "",
     next: 2,
@@ -51,6 +51,8 @@ it("shows the ten-step journey with the current step and its command", async () 
     steps,
   } as never);
   wrap(<SetupJourneyPanel />);
+  expect(await screen.findByText(/Steps 5 to 9 are for project/)).toHaveTextContent("demo");
+  expect(get).toHaveBeenCalledWith("/installation/setup?project=demo");
   expect(await screen.findByText(/Step 2 of 10/)).toBeInTheDocument();
   const current = screen.getByText(/2\. Detect what is already on the server/).closest("li")!;
   expect(current).toHaveAttribute("aria-current", "step");
