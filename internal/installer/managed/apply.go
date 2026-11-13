@@ -453,6 +453,9 @@ func LoadReceipt(p Params, id string) (*Receipt, error) {
 	}
 	if id == "" {
 		es, err := os.ReadDir(p.receiptDir())
+		if errors.Is(err, os.ErrPermission) {
+			return nil, fmt.Errorf("reading the installer receipts: %w", err)
+		}
 		if err != nil || len(es) == 0 {
 			return nil, errors.New("no installer receipt found")
 		}

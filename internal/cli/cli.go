@@ -887,6 +887,9 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		show(rc, "Rolled back receipt "+rc.ID+".\n")
 	case "status":
 		rc, err := managed.LoadReceipt(p, *receipt)
+		if errors.Is(err, os.ErrPermission) {
+			die(errors.New("the installer's receipts are readable by root only: run \"sudo njiwa-mail installer status\""))
+		}
 		if err != nil {
 			die(err)
 		}

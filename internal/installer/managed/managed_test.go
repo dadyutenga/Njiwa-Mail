@@ -780,3 +780,19 @@ func TestFailedSetupResumesWithoutDuplicates(t *testing.T) {
 		t.Fatalf("firewall table duplicated:\n%s", fw)
 	}
 }
+
+// T3.4: a user who cannot read the receipts is told to run as root, not
+// that there is no receipt.
+func TestReceiptPermissionErrorIsReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every file; run as a normal user to exercise this")
+	}
+	p := params(t)
+	dir := filepath.Join(p.Root, p.StateDir, "receipts")
+	os.MkdirAll(dir, 0o700)
+	os.Chmod(dir, 0)
+	defer os.Chmod(dir, 0o700)
+	if _, err := LoadReceipt(p, ""); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("%v", err)
+	}
+}
