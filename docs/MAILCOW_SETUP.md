@@ -127,3 +127,23 @@ These match Mailcow's published `data/web/api/openapi.yaml`; confirm them at `ht
 ## If relay routing cannot be configured
 
 Set `IMAP_HOST`, `IMAP_USERNAME`, `IMAP_PASSWORD` (port 993, mailbox `INBOX`) and run the `inbound` role: it polls unseen mail once a minute. Do not expose the SMTP listener publicly as a workaround.
+
+## Servers with a certificate from a private CA (task T3.9)
+
+Njiwa-Mail always verifies the mail server's TLS certificate against the system's trusted roots; there is no "skip verification"
+switch. If your mail server (Mailcow or any other) uses a certificate from your own CA, give the containers that CA:
+
+1. Save the CA certificate (PEM) on the host, for example `/etc/njiwa-mail/private-ca.pem`.
+2. Add a `compose.override.yaml` next to `compose.yaml`:
+
+   ```yaml
+   services:
+     api:    { volumes: ["/etc/njiwa-mail/private-ca.pem:/etc/njiwa-mail/ca.pem:ro"], environment: { SSL_CERT_FILE: /etc/njiwa-mail/ca.pem } }
+     worker: { volumes: ["/etc/njiwa-mail/private-ca.pem:/etc/njiwa-mail/ca.pem:ro"], environment: { SSL_CERT_FILE: /etc/njiwa-mail/ca.pem } }
+   ```
+
+   `SSL_CERT_FILE` replaces the default bundle, so include the public roots too if Njiwa-Mail also connects to public HTTPS services
+   (webhooks, a DNS provider): `cat /etc/ssl/certs/ca-certificates.crt your-ca.pem > /etc/njiwa-mail/private-ca.pem`.
+3. `docker compose up -d`, then run "Test connection" again.
+
+The QEMU lab uses exactly this for its private-CA mail server. A per-profile CA field is not built yet.

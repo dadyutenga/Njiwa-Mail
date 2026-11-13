@@ -82,6 +82,19 @@ for DSNs correlated to our own message (`TestDeliveryEvidenceTimeline`).
   and nobody can switch MFA off. An operator resets another user's lost device (`mfa.reset`, audited, ends their sessions); the CLI
   has `user mfa-reset`. Evidence: `TestRequireMFAPolicyAndOperatorReset`.
 
+### Session invalidation (T1)
+
+| Event | Other sessions | Test |
+|---|---|---|
+| Password change or reset | ended | `TestAccountChangesEndSessions`, `TestAuthorizationBoundaries` (reset) |
+| Account disabled, operator access granted or removed (an unchanged value is not a change) | ended | `TestAccountChangesEndSessions` |
+| Two-step sign-in enabled, disabled, or reset by an operator | ended (the enabling session is kept) | `TestMFAEnrolLoginReplayAndRecovery`, `TestRequireMFAPolicyAndOperatorReset` |
+| Sign-in with a recovery code | ended; only the new session is valid | `TestRecoveryCodeSignInEndsOtherSessions` |
+| Normal sign-in (password, TOTP) | kept | `TestRecoveryCodeSignInEndsOtherSessions` |
+
+Every session row stores the account's `auth_version` when it was issued, and a request is accepted only while it equals the user's.
+TOTP checks, replay protection and lockout run in one transaction with the user row locked (`TestMFAConcurrentFailuresLockAccount`).
+
 ## 7. Data lifecycle (F10)
 
 - Inbound attachments are sealed with `ENCRYPTION_KEY` (AAD = attachment id, so a file cannot be swapped between attachments); legacy

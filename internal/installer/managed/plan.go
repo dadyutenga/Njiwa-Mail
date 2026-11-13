@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 )
 
 // Marker is the first line of every file the installer owns.
@@ -50,6 +52,9 @@ type Params struct {
 	// they are not yet due (they are reissued automatically within
 	// RenewBefore of expiry).
 	RenewCerts bool
+	// RemovePackages (rollback only) also removes the packages that apply
+	// installed.
+	RemovePackages bool `json:"-"`
 	// Now is the planning time (tests); zero means the current time.
 	Now time.Time
 }
@@ -192,6 +197,13 @@ type Plan struct {
 	// Conflict is set when the host has a mail server the installer did not
 	// install; Apply refuses unless Params.Adopt.
 	Conflict string `json:"conflict,omitempty"`
+	// Blockers are mail services in use or ports owned by another program.
+	// Apply always refuses while there are any; -adopt does not override them.
+	Blockers []discover.Issue `json:"blockers,omitempty"`
+	// MissingPackages are installed by apply (Debian/Ubuntu) as an approved
+	// step; PackageManager is "apt" when that is possible.
+	MissingPackages []string `json:"missing_packages,omitempty"`
+	PackageManager  string   `json:"package_manager,omitempty"`
 	// Warnings need the operator's attention but do not block apply.
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -224,15 +236,19 @@ func BuildPlan(p Params) (*Plan, error) {
 		return nil, err
 	}
 	pl := &Plan{Params: p}
-	if b, err := os.ReadFile(p.path(pfDir + "/main.cf")); err == nil && !strings.HasPrefix(string(b), Marker) {
-		pl.Conflict = "an existing Postfix configuration (/etc/postfix/main.cf) was not written by Njiwa-Mail"
+	// Production protection: the same read-only discovery as "njiwa-mail
+	// discover". A mail service in use, or a port another program owns, is a
+	// blocker that nothing overrides. An unused configuration that Njiwa did
+	// not write (the package default) is replaced only with -adopt, after a
+	// backup.
+	pl.Blockers = installBlockers(p)
+	for _, f := range []string{pfDir + "/main.cf", dkimConf} {
+		if b, err := os.ReadFile(p.path(f)); err == nil && !strings.HasPrefix(string(b), Marker) && !isPackageDefault(f, b) {
+			pl.Conflict = "an existing configuration (" + f + ") was not written by Njiwa-Mail; it shows no sign of use"
+			break
+		}
 	}
-	if _, err := os.Stat(p.path("/opt/mailcow-dockerized")); err == nil {
-		pl.Conflict = "Mailcow is installed on this host; connect it as an existing mail server instead"
-	}
-	if _, err := os.Stat(p.path("/usr/sbin/exim4")); err == nil {
-		pl.Conflict = "Exim is installed on this host; remove it or connect it as an existing mail server"
-	}
+	pl.MissingPackages, pl.PackageManager = missingPackages(p)
 
 	host, port, _ := net.SplitHostPort(p.SubmissionBind)
 	want := []File{
@@ -288,7 +304,10 @@ func BuildPlan(p Params) (*Plan, error) {
 	}
 
 	h := sha256.New()
-	fmt.Fprintf(h, "conflict=%s\nadopt=%v\n", pl.Conflict, p.Adopt)
+	fmt.Fprintf(h, "conflict=%s\nadopt=%v\npackages=%v %s\n", pl.Conflict, p.Adopt, pl.MissingPackages, pl.PackageManager)
+	for _, b := range pl.Blockers {
+		fmt.Fprintf(h, "blocker=%s %s\n", b.Code, b.Detail)
+	}
 	for _, f := range pl.Files {
 		fmt.Fprintf(h, "%s %o %d\n", f.Path, f.Mode, len(f.Content))
 		h.Write(f.Content)
@@ -317,8 +336,21 @@ func (pl *Plan) Summary() string {
 			fmt.Fprintf(&b, "  %-9s %s\n", verb, a.Target)
 		}
 	}
+	if len(pl.MissingPackages) > 0 {
+		if pl.PackageManager == "apt" {
+			fmt.Fprintf(&b, "  %-9s packages %s (apt-get, Postfix with \"No configuration\"; nothing is removed)\n", "install", strings.Join(pl.MissingPackages, " "))
+		} else {
+			fmt.Fprintf(&b, "\nMISSING PACKAGES: install %s with your package manager first.\n", strings.Join(pl.MissingPackages, " "))
+		}
+	}
 	if pl.Conflict != "" {
-		fmt.Fprintf(&b, "\nCONFLICT: %s.\n", pl.Conflict)
+		fmt.Fprintf(&b, "\nCONFLICT: %s. Apply replaces it only with -adopt (backed up first).\n", pl.Conflict)
+	}
+	if len(pl.Blockers) > 0 {
+		b.WriteString("\nBLOCKED: Njiwa-Mail will not install its mail service on this host, and nothing will be changed:\n")
+		for _, x := range pl.Blockers {
+			fmt.Fprintf(&b, "  [%s] %s\n      %s\n", x.Code, x.Detail, x.Fix)
+		}
 	}
 	for _, w := range pl.Warnings {
 		fmt.Fprintf(&b, "\nWARNING: %s.\n", w)
@@ -581,4 +613,68 @@ ExecStop=/usr/sbin/nft delete table inet njiwa_mail
 [Install]
 WantedBy=multi-user.target
 `)
+}
+
+// installBlockers runs the read-only discovery against the host the plan is
+// for and keeps the findings that make a managed install unsafe. Host
+// suitability (OS, systemd, memory) is the preflight's job.
+func installBlockers(p Params) []discover.Issue {
+	r := discover.Scan(discover.Env{Root: p.Root})
+	n := discover.DefaultNeeds()
+	if _, port, err := net.SplitHostPort(p.SubmissionBind); err == nil {
+		n.SubmissionPort, _ = strconv.Atoi(port)
+	}
+	rec := discover.Recommend(r, n)
+	var out []discover.Issue
+	for _, b := range rec.ManagedBlockers {
+		switch b.Code {
+		case discover.CodeMailcowPresent, discover.CodeOtherMTA, discover.CodePostfixInUse, discover.CodeOpenDKIMInUse,
+			discover.CodeMailPortInUse, discover.CodeInstallerPort, discover.CodeIMAPPresent:
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// isPackageDefault reports a configuration file as shipped by the
+// distribution package, which carries no site configuration to protect.
+func isPackageDefault(path string, b []byte) bool {
+	if path != dkimConf {
+		return false
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) > 0 && !strings.HasPrefix(f[0], "#") {
+			switch strings.ToLower(f[0]) {
+			case "keytable", "signingtable", "keyfile", "domain", "selector":
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// missingPackages lists the programs the installer needs that are not
+// installed, and whether apt can install them.
+func missingPackages(p Params) ([]string, string) {
+	var miss []string
+	for pkg, bin := range map[string]string{"postfix": "/usr/sbin/postfix", "opendkim": "/usr/sbin/opendkim"} {
+		if _, err := os.Stat(p.path(bin)); err != nil {
+			miss = append(miss, pkg)
+		}
+	}
+	sort.Strings(miss)
+	if len(miss) == 0 {
+		return nil, ""
+	}
+	if b, err := os.ReadFile(p.path("/etc/os-release")); err == nil {
+		for _, l := range strings.Split(string(b), "\n") {
+			if v, ok := strings.CutPrefix(l, "ID="); ok {
+				if id := strings.Trim(v, `"`); id == "debian" || id == "ubuntu" {
+					return miss, "apt"
+				}
+			}
+		}
+	}
+	return miss, ""
 }

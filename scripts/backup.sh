@@ -1,5 +1,5 @@
 #!/bin/sh
-# Back up Njiwa Mail. Reads DATABASE_URL and DATA_DIR.
+# Back up Njiwa Mail. Reads DATABASE_URL and DATA_DIR (or DATA_VOLUME, the Compose volume name).
 #
 #   scripts/backup.sh [OUT_DIR]
 #
@@ -21,13 +21,17 @@ mkdir -p "$out"
 
 # PostgreSQL normally runs in a container and the host has no client tools. Without pg_dump, run the one from the same
 # image as the server (PG_IMAGE, on the Compose network PG_NETWORK) so the dump format always matches the server.
-if command -v pg_dump >/dev/null 2>&1; then
+if [ "${PG_CLIENT:-}" != docker ] && command -v pg_dump >/dev/null 2>&1; then
   pg_dump --format=custom --file="$out/mail.dump" "$DATABASE_URL"
 else
   docker run --rm --network "${PG_NETWORK:-njiwa-mail_internal}" "${PG_IMAGE:-postgres:16.4-alpine}" \
     pg_dump --format=custom "$DATABASE_URL" > "$out/mail.dump"
 fi
-if [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR" ]; then
+if [ -n "${DATA_VOLUME:-}" ]; then
+  # Compose installs keep DATA_DIR in a named volume (njiwa-mail_maildata):
+  # read it through a throwaway container instead of Docker's internal path.
+  docker run --rm -v "$DATA_VOLUME:/data:ro" "${PG_IMAGE:-postgres:16.4-alpine}" tar -C /data -czf - . > "$out/data.tgz"
+elif [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR" ]; then
   tar -C "$DATA_DIR" -czf "$out/data.tgz" .
 fi
 

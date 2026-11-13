@@ -398,6 +398,13 @@ func (s *Service) LoginMFA(ctx context.Context, email, password, code, ip, userA
 	if currentVersion != authVersion || currentDisabled || currentRole != RoleAdmin || currentMFA != mfa || currentOperator != operator {
 		return "", nil, errBadLogin
 	}
+	// A recovery code is used when the authenticator is lost: every other
+	// session of the account ends, and only this new one is valid.
+	if recoveryUsed {
+		if err := tx.QueryRow(ctx, `UPDATE users SET auth_version=auth_version+1 WHERE id=$1 RETURNING auth_version`, id).Scan(&authVersion); err != nil {
+			return "", nil, unavailable("session_revoke", err)
+		}
+	}
 	if _, err = tx.Exec(ctx, `INSERT INTO sessions(token_hash, user_id, auth_version, expires_at, ip, user_agent) VALUES ($1,$2,$3,$4,$5,$6)`, th[:], id, authVersion, exp, ip, userAgent); err != nil {
 		return "", nil, unavailable("session_create", err)
 	}

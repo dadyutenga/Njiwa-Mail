@@ -1,11 +1,23 @@
 # Njiwa-Mail — handoff: everything still to do
 
 **Date:** 2026-11-12 · **Written for:** continuing the work from the office PC (which can reach the server).
-**Current branch:** `main`.
+**Branches:** `dev` (integration; all work lands here first) and `main` (only what was tested together).
 
 The `main` and `claude/happy-brahmagupta-pbfu6r` branches were rewritten on 2026-11-12 to assign the 33 former
 Claude-authored commits to `Dadi Nasser Utenga <dadyutenga@yahoo.com>`. Existing clones must fetch and reconcile their local
 branches with the new history before pushing; old commit links and PR commit references may still show the previous hashes.
+
+**Update on 2026-11-13 (one PR into `dev`, "Intelligent installation & existing infrastructure reuse"):** a fresh VPS is no longer
+an installation requirement. New: read-only host discovery (`njiwa-mail discover`, `scripts/discover.sh` from the image) with a mode
+recommendation. The managed installer now refuses any host whose mail service is in use, whatever the flags (the old `-adopt` could
+replace Mailcow or Exim); it installs missing packages safely and can purge them on rollback. Also new: a ten-step resumable setup
+journey in the dashboard, configurable host ports, a fixed PostgreSQL address for host commands, the install guide `docs/INSTALL.md`
+(user requirements vs release validation), and backup/restore with the Compose volume checked in CI. task.md items done: T1 (reviewed;
+a recovery-code sign-in now ends other sessions), T3.1, T3.3, T3.4, T3.5, T3.6, T3.7, T3.9, T7.2, T7.3, T8.1, T8.3, T8.4. Still for
+the owner: T3.2 (a decision), T3.8 (optional), and everything that needs real infrastructure (sections 2 and 4 of task.md).
+Managed mode needs a host **without a mail service in use**, not a fresh one; on a host like `rida-server` the installer refuses and
+changes nothing, and Njiwa-Mail is meant to connect to the existing server instead (but the task rules forbid creating a Mailcow
+mailbox on `rida-server`).
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of
@@ -202,19 +214,15 @@ Do these in order. Record the evidence for each (commands, outputs, headers, scr
 
    Check `curl -s 127.0.0.1:8080/health/ready`. Create the first admin: `docker compose exec api njiwa-mail user create -email you@example.com -role owner` (password on stdin).
 
-6. **Let the host CLI reach the database for `-record`.** PostgreSQL is not published to the host. Find its address on the
-   Compose network and export the same secrets as `.env`:
+6. **Let the host CLI reach the database for `-record`.** PostgreSQL is not published, but it has a fixed address on Njiwa's
+   network (`NJIWA_DB_IP`, default `172.30.0.10`, task T3.1), so this URL survives restarts and reboots:
 
    ```bash
-   PGIP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' njiwa-mail-postgres-1)
+   set -a; . /opt/njiwa-mail/.env; set +a; export DATABASE_URL="postgres://mail:${POSTGRES_PASSWORD}@${NJIWA_DB_IP:-172.30.0.10}:5432/mail?sslmode=disable"
    ```
 
-   ```bash
-   set -a; . /opt/njiwa-mail/.env; set +a; export DATABASE_URL="postgres://mail:${POSTGRES_PASSWORD}@${PGIP}:5432/mail?sslmode=disable"
-   ```
-
-   (Container name may differ: `docker compose ps`.) **Note for the code:** this step is friction; consider a documented
-   `docker compose run` path or publishing PostgreSQL on `172.30.0.1` only. Record what worked.
+   Put the same `DATABASE_URL`, `ENCRYPTION_KEY` and `HMAC_KEY` in `/etc/njiwa-mail/env` for the `njiwa-mail-mta-log` unit.
+   Before step 7 run the read-only scan (`sh scripts/discover.sh -record`, see `docs/INSTALL.md`); it must recommend managed mode.
 
 7. **Choose managed mode** in the dashboard (Installation page → "Send from my VPS"), then add the project, the sending domain
    `notify.example.com`, publish its ownership TXT and let the check verify it (domain claim). Then:
@@ -441,7 +449,7 @@ Original list:
   by the transport profile until re-saved.
 - `SMTP_HOST` in the environment overrides saved settings at runtime; its mail is not pinned to a profile.
 - Mode switch: jobs queued before a switch go out via the new profile only after `migrate_pending` is acknowledged; a worker may
-  finish sends through the previous profile for up to 30 s (pinned to the profile that really sent them).
+  finish only a send already in progress through the previous profile (pinned to it); the next send uses the new profile (T3.3).
 - Accepted messages are not re-checked against domain claims at dispatch.
 - Strict domain gate: Live mail from unregistered domains is refused; `ALLOW_UNREGISTERED_LIVE_DOMAINS=true` is a temporary bridge.
 - Fixed Compose subnet `172.30.0.0/24` (`NJIWA_SUBNET`); Live rate limits default 600/min, 20 000/h (installation), 300/min,

@@ -22,6 +22,12 @@ configuration and release cycle. Every app is an API client with its own key. Th
 > Postfix and OpenDKIM (no open relay, mutual-TLS submission, DKIM signing), but real delivery to external providers and an HTTPS
 > deployment have **not** been verified yet.
 
+## Installing on a server
+
+Njiwa-Mail installs on a new **or an existing** server; a fresh VPS is not required. Start with a read-only scan
+(`sh scripts/discover.sh`): it finds any mail service already there (Mailcow, Postfix, Exim), recommends a delivery mode, and never
+changes anything. Existing mail servers are reused over SMTP, never replaced. Full guide: [docs/INSTALL.md](docs/INSTALL.md).
+
 ## Quick start (local, sandbox)
 
 ```bash

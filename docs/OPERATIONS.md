@@ -39,9 +39,14 @@ njiwa-mail user create -email you@example.com -role admin     # password is read
 njiwa-mail user password -email you@example.com               # reset a password; ends that user's sessions
 njiwa-mail user disable -email someone@example.com
 ```
-There is one user role, `admin`, plus an **installation-operator** permission. Operators manage delivery infrastructure (transport profiles, mail server, domain ownership), users and settings; other admins keep the project work (messages, templates, keys, domains of a project) and read inbound bodies and sandbox captures. Every existing user and every new user is an operator unless created otherwise (`user create -operator=false`, or `installation_operator: false` in the API); `user operator -email E -on=false` changes it. The first user is always an operator and the last enabled operator cannot be demoted or disabled. Old `owner` inputs are accepted as an alias for admin.
+There is one user role, `admin`, plus an **installation-operator** permission. Operators manage delivery infrastructure (transport profiles, mail server, domain ownership), users and settings; other admins keep the project work (messages, templates, keys, domains of a project) and read inbound bodies and sandbox captures. `njiwa-mail user create` makes an operator unless `-operator=false` is passed; the admin API and the Users page create a non-operator unless `installation_operator: true` is sent (the Users page asks). `user operator -email E -on=false` changes it. The first user is always an operator and the last enabled operator cannot be demoted or disabled. Old `owner` inputs are accepted as an alias for admin.
 
 **Two-step sign-in (TOTP).** Each user can turn it on under Profile (authenticator app; ten one-time recovery codes are shown once). To require it for everyone, tick *Require two-step sign-in for every admin* in Settings (`require_mfa`): admins without it can then only enrol or sign out. Lost device and codes: an operator uses *Reset two-step* on the Users page, or `njiwa-mail user mfa-reset -email E` on the server.
+**What ends a user's sessions.** Every session records the account's credential state (`auth_version`, migration 0023). These end
+all of the user's other sessions at once: a password change or reset, a role change, disabling the account, granting or removing
+operator access, enabling or disabling two-step sign-in, an operator's *Reset two-step*, and a sign-in with a **recovery code** (the
+authenticator is lost). Sessions also end when they expire (`ADMIN_SESSION_TTL`). A normal sign-in, with or without a code, does not end
+other sessions. The dashboard then shows the sign-in page with a note saying why.
 The last enabled user cannot be disabled. Logins are limited per account and per IP (15-minute windows; see Settings).
 Every write from the UI, the CLI or an API key is recorded in `audit_log` (UI: Audit log). The admin API uses password sessions with optional TOTP; keep `/admin/v1` behind HTTPS and an IP allowlist (`deploy/nginx.conf`).
 
@@ -158,8 +163,9 @@ without it. Your provider's firewall and SSH rules remain yours to manage.
 
 ## Managed delivery: installing the mail service
 
-The installer is a root-only command on the mail host; the Njiwa web process never changes host configuration. Install the packages
-first (`apt-get install postfix opendkim`, choosing "No configuration" for Postfix), then:
+The installer is a root-only command on the mail host; the Njiwa web process never changes host configuration. Run the read-only
+scan first (`sh scripts/discover.sh`, see [INSTALL.md](INSTALL.md)). On Debian/Ubuntu the plan installs missing `postfix` and `opendkim`
+packages itself (Postfix preseeded to "No configuration"; refused if apt would remove any package). Then:
 
 ```
 njiwa-mail installer plan  -hostname mailout.example.com -domains notify.example.com -bounce-domain bounce.example.com
@@ -178,7 +184,8 @@ njiwa-mail installer apply -hostname mailout.example.com -domains notify.example
   `apply` prints.
 - Safety: existing files are backed up to `/var/lib/njiwa-mail/installer/backups/<receipt>`; `postfix check` and `opendkim -n`
   validate the result, and any failure restores every file automatically. A Postfix configuration the installer did not write, Exim
-  or Mailcow on the host is refused unless `-adopt` is given (Mailcow and Exim: never).
+  or Mailcow on the host is refused. A mail service in use (Mailcow, a busy Postfix, Exim, a program on port 25) blocks the installer
+  whatever the flags; `-adopt` only replaces an unused default configuration after backing it up. See [INSTALL.md](INSTALL.md) section 4.
 - `-record` stores the receipt, the worker's credentials (sealed) and the DKIM records in the database. Then run the connection test
   on the Delivery infrastructure page; managed mode can be activated only after it passes.
 - `njiwa-mail installer status` shows the latest receipt; `njiwa-mail installer rollback [-receipt ID] -record` restores the files
@@ -441,6 +448,12 @@ One-off: `njiwa-mail retention`. **Backups can retain older encrypted data until
 `ENCRYPTION_KEY` and `HMAC_KEY` are **not** in the backup: store them separately and protected. Without them, encrypted payloads in a
 restored database cannot be read. The backup itself contains private keys: keep it encrypted and off the host.
 
+**Compose installs and fresh hosts.** `DATA_DIR` lives in the Compose volume `njiwa-mail_maildata`: pass `DATA_VOLUME=njiwa-mail_maildata`
+to both scripts (and `PG_CLIENT=docker` to use the `pg_dump`/`pg_restore` from the PostgreSQL image, with
+`DATABASE_URL=postgres://mail:<password>@postgres:5432/mail?sslmode=disable`). On a fresh host: `docker compose up -d postgres`, then
+`restore.sh` (it creates the data volume when it is missing), then `docker compose up -d`. CI runs exactly this on every pull request:
+backup, `docker compose down -v`, restore, and the restored user signs in.
+
 `scripts/restore.sh BACKUP_DIR` verifies the manifest first, restores the database and `DATA_DIR`, and on a managed host (as root)
 restores the files with their owners and permissions, rebuilds the Postfix lookup tables, runs `postfix check` and `opendkim -n`,
 and restarts the services (restores the queue when `postfix-queue.tgz` is present).
@@ -451,6 +464,12 @@ queue and the database, then ran `scripts/restore.sh`. Result: the database rows
 the worker's client key were byte-identical (same SHA-256), owners and permissions were intact (`opendkim 0750` key directories,
 `0600` keys), `installer plan` showed nothing to change, and all `managed_e2e` checks passed. Repeat the drill on the production host
 before relying on it.
+
+**Queue IDs after a queue restore (task T3.7).** When `postfix-queue.tgz` is restored onto a different filesystem, Postfix renames
+the queue files to match their new inode numbers ("QUEUE FILE NAMES WERE CHANGED TO MATCH INODE NUMBERS") and the messages get new
+queue IDs. Those messages are still delivered, but later `mta-log` lines (sent, deferred, bounced) no longer match the queue ID
+recorded when they were submitted, so their delivery evidence stays at `submitted`. Bounces are unaffected: they are matched by the
+signed return path (VERP) and the message headers, not the queue ID. Check such messages in the Postfix log by Message-ID if needed.
 ## Rollback
 
 1. Pause acceptance for the affected project (`project disable`) **or** switch the application's provider flag for *new* requests.

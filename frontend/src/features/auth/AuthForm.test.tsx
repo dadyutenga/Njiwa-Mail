@@ -50,3 +50,18 @@ describe("AuthForm", () => {
     expect(screen.getByRole("button", { name: "Send Instructions" })).toBeInTheDocument();
   });
 });
+
+it("explains why the sign-in page is shown after a session ended", () => {
+  sessionStorage.setItem("njiwa.signedOut", "1");
+  render(
+    <MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <AuthForm mode="login" />
+        </AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole("status")).toHaveTextContent("You were signed out.");
+  expect(sessionStorage.getItem("njiwa.signedOut")).toBeNull();
+});

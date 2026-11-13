@@ -1,5 +1,6 @@
 #!/bin/sh
-# Restore a backup made by scripts/backup.sh. Reads DATABASE_URL and DATA_DIR.
+# Restore a backup made by scripts/backup.sh. Reads DATABASE_URL and DATA_DIR, or DATA_VOLUME
+# (the Compose volume, njiwa-mail_maildata), which is created when missing.
 #
 #   scripts/restore.sh BACKUP_DIR
 #
@@ -13,15 +14,24 @@ set -eu
 src=${1:?usage: restore.sh BACKUP_DIR}
 ( cd "$src" && sha256sum -c --quiet MANIFEST.sha256 ) || { echo "backup files do not match MANIFEST.sha256; not restoring" >&2; exit 1; }
 
-if command -v pg_restore >/dev/null 2>&1; then
+if [ "${PG_CLIENT:-}" != docker ] && command -v pg_restore >/dev/null 2>&1; then
   pg_restore --clean --if-exists --dbname="$DATABASE_URL" "$src/mail.dump"
 else
   docker run --rm -i --network "${PG_NETWORK:-njiwa-mail_internal}" "${PG_IMAGE:-postgres:16.4-alpine}" \
     pg_restore --clean --if-exists --dbname="$DATABASE_URL" < "$src/mail.dump"
 fi
-if [ -n "${DATA_DIR:-}" ] && [ -f "$src/data.tgz" ]; then
+if [ -n "${DATA_VOLUME:-}" ] && [ -f "$src/data.tgz" ]; then
+  # Compose installs: the named volume may not exist yet on a fresh host; it
+  # is created (empty) and filled through a throwaway container. Owner 10001
+  # is the user the Njiwa-Mail image runs as.
+  docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1 || docker volume create "$DATA_VOLUME" >/dev/null
+  docker run --rm -i -v "$DATA_VOLUME:/data" "${PG_IMAGE:-postgres:16.4-alpine}" \
+    sh -c 'tar -C /data -xzf - && chown -R 10001:10001 /data' < "$src/data.tgz"
+elif [ -n "${DATA_DIR:-}" ] && [ -f "$src/data.tgz" ]; then
   mkdir -p "$DATA_DIR"
   tar -C "$DATA_DIR" -xzf "$src/data.tgz"
+elif [ -f "$src/data.tgz" ]; then
+  echo "data.tgz present but neither DATA_VOLUME nor DATA_DIR is set: attachments and spool were NOT restored" >&2
 fi
 
 if [ -f "$src/managed.tgz" ]; then

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -204,7 +205,7 @@ FROM installation_checks WHERE profile_id=$1::uuid ORDER BY check_key, checked_a
 	_ = s.Pool.QueryRow(ctx, `SELECT is_active FROM transport_profiles WHERE id=$1::uuid`, id).Scan(&active)
 	if active {
 		f.Delivery = s.deliveryHealth(ctx)
-		f.Bounces = s.bounceFacts(ctx)
+		f.Bounces = s.bounceFacts(ctx, mode)
 	}
 	return installation.Compute(f), nil
 }
@@ -434,10 +435,6 @@ func (s *Service) PlanTransportSwitch(ctx context.Context, targetID string) (Swi
 // an audit record. It refuses when the plan has blockers, and when pending
 // jobs exist unless the operator explicitly acknowledged migrating them.
 // Rolling back is the same call aimed at the previous profile, which is kept.
-// profileSwitchSettle is how long waiting mail is held back after an acknowledged switch: the worker's profile cache
-// (worker.StoredTransport, 30 s) plus a margin.
-const profileSwitchSettle = 35 * time.Second
-
 func (s *Service) ActivateTransport(ctx context.Context, a Actor, targetID string, migratePending bool) (SwitchPlan, error) {
 	if !isUUID(targetID) {
 		return SwitchPlan{}, newErr(404, "not_found")
@@ -478,15 +475,6 @@ func (s *Service) ActivateTransport(ctx context.Context, a Actor, targetID strin
 	}
 	if err := mirrorProfileToLegacy(ctx, tx, targetID); err != nil {
 		return plan, unavailable("transport_activate", err)
-	}
-	if migratePending && plan.NeedsDecision {
-		// The worker re-reads the active profile at most every 30 s. Mail it picks up inside that window would still go
-		// through the old profile, and a message that is already near MAX_ATTEMPTS would fail instead of moving (seen in
-		// the QEMU lab: two of three waiting messages ended "failed" right after an acknowledged switch).
-		if _, err := tx.Exec(ctx, `UPDATE messages SET next_attempt_at=GREATEST(COALESCE(next_attempt_at, now()), now() + make_interval(secs => $1))
-WHERE state IN ('queued','retry_wait') AND environment_id IN (SELECT id FROM environments WHERE mode='live')`, profileSwitchSettle.Seconds()); err != nil {
-			return plan, unavailable("transport_activate", err)
-		}
 	}
 	if err := audit(ctx, tx, a, "transport.activate", "transport_profile", targetID, map[string]any{
 		"from": plan.CurrentID, "to": targetID, "mode": plan.TargetMode, "queued": plan.Queued, "scheduled": plan.Scheduled, "submitting": plan.Submitting,
@@ -642,9 +630,46 @@ func isUUID(v string) bool {
 func ProblemCode(kind string, detail any) string { return problemCodeFor(kind, detail) }
 
 // bounceFacts reports whether bounce reports can reach Njiwa (C08).
-func (s *Service) bounceFacts(ctx context.Context) *installation.BounceFacts {
+func (s *Service) bounceFacts(ctx context.Context, mode string) *installation.BounceFacts {
 	b := &installation.BounceFacts{Configured: strings.TrimSpace(s.Opts.BounceAddress) != ""}
+	if b.Configured && mode == installation.ModeManaged {
+		b.SourcesProblem = inboundSourcesProblem(s.Opts.InboundAllowedSources, s.Opts.NjiwaSubnet)
+	}
 	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM worker_heartbeats WHERE role='inbound' AND last_seen > now() - interval '5 minutes')`).Scan(&b.ListenerUp)
 	_ = s.Pool.QueryRow(ctx, `SELECT max(received_at) FROM inbound_spool WHERE kind='bounce'`).Scan(&b.LastReport)
 	return b
+}
+
+// inboundSourcesProblem checks that the inbound listener accepts the host
+// Postfix, which relays bounces from the gateway of Njiwa's Docker network
+// (the first address of NJIWA_SUBNET, 172.30.0.1 by default). It returns ""
+// when it does.
+func inboundSourcesProblem(sources, subnet string) string {
+	if subnet == "" {
+		subnet = "172.30.0.0/24"
+	}
+	_, n, err := net.ParseCIDR(subnet)
+	if err != nil || n.IP.To4() == nil {
+		return ""
+	}
+	gw := make(net.IP, 4)
+	copy(gw, n.IP.To4())
+	gw[3]++
+	fix := "Set INBOUND_ALLOWED_SOURCES=" + gw.String() + " in .env and restart the inbound role (docker compose --profile inbound up -d)."
+	if strings.TrimSpace(sources) == "" {
+		return "INBOUND_ALLOWED_SOURCES is empty, so the inbound listener refuses the bounces Postfix relays from this host. " + fix
+	}
+	for _, f := range strings.Split(sources, ",") {
+		f = strings.TrimSpace(f)
+		if !strings.Contains(f, "/") {
+			if ip := net.ParseIP(f); ip != nil && ip.Equal(gw) {
+				return ""
+			}
+			continue
+		}
+		if _, c, err := net.ParseCIDR(f); err == nil && c.Contains(gw) {
+			return ""
+		}
+	}
+	return "INBOUND_ALLOWED_SOURCES (" + sources + ") does not include " + gw.String() + ", the address host Postfix relays bounces from, so bounces are refused. " + fix
 }
