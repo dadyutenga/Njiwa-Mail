@@ -33,6 +33,7 @@ const (
 	CodeTransportFailing = "TRANSPORT_FAILING"
 	CodeBouncesNotSetUp  = "BOUNCES_NOT_CONFIGURED"
 	CodeBounceListener   = "BOUNCE_LISTENER_DOWN"
+	CodeInboundSources   = "INBOUND_SOURCES_WRONG"
 	CodeCertExpiring     = "CLIENT_CERT_EXPIRING"
 	CodeCertExpired      = "CLIENT_CERT_EXPIRED"
 )
@@ -80,6 +81,10 @@ type BounceFacts struct {
 	Configured bool       // BOUNCE_ADDRESS is set
 	ListenerUp bool       // the inbound listener reported in recently
 	LastReport *time.Time // the last bounce report received
+	// SourcesProblem is set when the inbound listener would refuse the host
+	// that relays bounces to it (managed mode): what is wrong and the value
+	// INBOUND_ALLOWED_SOURCES needs.
+	SourcesProblem string
 }
 
 // DeliveryHealth summarises recent Live send attempts.
@@ -197,6 +202,9 @@ func Compute(f Facts) Readiness {
 		case !b.Configured:
 			st.Status, st.ProblemCode = NeedsAction, CodeBouncesNotSetUp
 			st.Message = "No bounce address is set, so bounce reports do not come back to Njiwa-Mail. Mail is still sent, but hard bounces are not suppressed automatically and you see less delivery evidence."
+		case b.SourcesProblem != "":
+			st.Status, st.ProblemCode = NeedsAction, CodeInboundSources
+			st.Message = b.SourcesProblem
 		case !b.ListenerUp:
 			st.Status, st.ProblemCode = NeedsAction, CodeBounceListener
 			st.Message = "A bounce address is set, but the inbound listener has not reported in. Bounce reports cannot be received until it runs."

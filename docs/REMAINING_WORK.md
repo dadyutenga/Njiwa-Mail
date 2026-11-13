@@ -1,6 +1,6 @@
 # Remaining work — checkpoint
 
-**Checkpoint date:** 2026-11-12 (updated) · **Branch:** `claude/happy-brahmagupta-pbfu6r` (after PRs #1–#9)
+**Checkpoint date:** 2026-11-12 (updated) · **Branches:** `dev` (integration) and `main` (tested). The live to-do list is [`task.md`](../task.md); this file is kept for history
 **Reference:** `15_IMPLEMENTATION_BACKLOG` and the master specification. What *is* done, with test evidence, is in
 [`STATUS.md`](../STATUS.md). Step-by-step handoff with every open item and the server runbook: [`HANDOFF.md`](HANDOFF.md). This file lists only what is **not done**, **partly done**, or **not yet verified**.
 
@@ -83,7 +83,7 @@ cannot be done from the development container.
   seen by the transport profile until re-saved.
 - **Environment SMTP** (`SMTP_HOST`) still overrides saved settings at runtime; its mail is not pinned to a profile.
 - **Mode switch:** jobs queued before a switch are sent by the new profile only after the operator acknowledges `migrate_pending`;
-  there is no per-message hold at dispatch. A worker may finish sends through the previous profile for up to 30 s (they are pinned to
+  there is no per-message hold at dispatch. A send already in progress may finish through the previous profile; the next one uses the new profile (they are pinned to
   the profile that really sent them).
 - **Accepted messages** are not re-checked against domain claims at dispatch; a revoked or transferred domain stops *new* Live mail.
 - **Strict domain gate:** Live mail from unregistered domains is refused; `ALLOW_UNREGISTERED_LIVE_DOMAINS=true` is a temporary

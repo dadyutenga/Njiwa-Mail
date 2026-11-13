@@ -10,7 +10,7 @@ package inbound
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/njiwa-tz/mail/internal/netlist"
 	"io"
 	"log/slog"
 	"net"
@@ -43,30 +43,7 @@ type Server struct {
 }
 
 // ParseSources parses a comma-separated list of IPs and CIDR ranges.
-func ParseSources(list string) ([]*net.IPNet, error) {
-	var out []*net.IPNet
-	for _, f := range strings.Split(list, ",") {
-		f = strings.TrimSpace(f)
-		if f == "" {
-			continue
-		}
-		if !strings.Contains(f, "/") {
-			if ip := net.ParseIP(f); ip == nil {
-				return nil, fmt.Errorf("invalid source address %q", f)
-			} else if ip.To4() != nil {
-				f += "/32"
-			} else {
-				f += "/128"
-			}
-		}
-		_, n, err := net.ParseCIDR(f)
-		if err != nil {
-			return nil, fmt.Errorf("invalid source range %q", f)
-		}
-		out = append(out, n)
-	}
-	return out, nil
-}
+func ParseSources(list string) ([]*net.IPNet, error) { return netlist.Parse(list) }
 
 func (s *Server) allowed(addr net.Addr) bool {
 	tcp, ok := addr.(*net.TCPAddr)

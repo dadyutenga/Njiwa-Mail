@@ -18,6 +18,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     const expired = () => {
+      // Tell the sign-in page why it is shown (per tab, best effort).
+      try {
+        sessionStorage.setItem("njiwa.signedOut", "1");
+      } catch {
+        /* storage unavailable: the page still works */
+      }
       setCsrf("");
       setUser(null);
       queries.clear();

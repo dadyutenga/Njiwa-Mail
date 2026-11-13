@@ -14,6 +14,15 @@ export function AuthForm({ mode }: { mode: string }) {
   const [needCode, setNeedCode] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
+  const [signedOut] = useState(() => {
+    try {
+      const v = sessionStorage.getItem("njiwa.signedOut") === "1";
+      sessionStorage.removeItem("njiwa.signedOut");
+      return v;
+    } catch {
+      return false;
+    }
+  });
   const { login } = useAuth();
   const phrase = usePhrase();
   const navigate = useNavigate();
@@ -71,6 +80,16 @@ export function AuthForm({ mode }: { mode: string }) {
       <p className="mt-2 text-sm text-muted-foreground">
         {phrase("Use your Njiwa-Mail operator account.")}
       </p>
+      {signedOut && mode === "login" && (
+        <p
+          role="status"
+          className="mt-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
+        >
+          {phrase(
+            "You were signed out. This happens when the session expires, or after a change to the password, role, operator access or two-step sign-in of this account, or a sign-in with a recovery code.",
+          )}
+        </p>
+      )}
       <form onSubmit={submit} className="mt-8 space-y-4">
         {!reset && (
           <label className="block space-y-2 text-sm font-medium">

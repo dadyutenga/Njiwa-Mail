@@ -49,7 +49,13 @@ type Receipt struct {
 	DKIMRecords       map[string]string `json:"dkim_records"` // domain -> TXT value at <selector>._domainkey.<domain>
 	ClientFingerprint string            `json:"client_fingerprint"`
 	PostfixVersion    string            `json:"postfix_version,omitempty"`
+	// InstalledPackages are the packages this apply installed (rollback can
+	// remove exactly these with -remove-packages).
+	InstalledPackages []string `json:"installed_packages,omitempty"`
 }
+
+// ErrBlocked means the host runs a mail service the installer must not touch.
+var ErrBlocked = errors.New("the managed mail service cannot be installed on this host")
 
 // ErrDigestMismatch means the host or the parameters changed after review.
 var ErrDigestMismatch = errors.New("the plan changed since it was reviewed; run plan again and approve the new digest")
@@ -109,12 +115,48 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	if approved == "" || approved != pl.Digest {
 		return nil, ErrDigestMismatch
 	}
+	if len(pl.Blockers) > 0 {
+		var why []string
+		for _, b := range pl.Blockers {
+			why = append(why, b.Detail)
+		}
+		return nil, fmt.Errorf("%w: %s Nothing was changed. Use this host's mail service, or another one, as an existing mail server (njiwa-mail discover shows how)",
+			ErrBlocked, strings.Join(why, " "))
+	}
 	if pl.Conflict != "" && !p.Adopt {
 		return nil, fmt.Errorf("refusing to continue: %s. Pass -adopt to replace it (the current files are backed up first)", pl.Conflict)
+	}
+	if len(pl.MissingPackages) > 0 && pl.PackageManager != "apt" {
+		return nil, fmt.Errorf("install %s with your package manager first, then run plan again", strings.Join(pl.MissingPackages, " "))
 	}
 	id := now.UTC().Format("20060102T150405Z")
 	rc := &Receipt{ID: id, CreatedAt: now.UTC(), PlanDigest: pl.Digest, Params: p, RollbackState: "available",
 		BackupDir: filepath.Join(p.StateDir, "backups", id), DKIMRecords: map[string]string{}}
+
+	step := func(name string, err error, detail string) bool {
+		s := Step{Name: name, OK: err == nil, Detail: detail}
+		if err != nil {
+			s.Detail = strings.TrimSpace(detail + " " + err.Error())
+		}
+		rc.Steps = append(rc.Steps, s)
+		return err == nil
+	}
+	// Packages first, so the files they create (for example the package's
+	// /etc/opendkim.conf) are backed up and restored like any other file.
+	if len(pl.MissingPackages) > 0 {
+		out, ran, err := installPackages(run, pl.MissingPackages)
+		if ran {
+			rc.InstalledPackages = pl.MissingPackages
+		}
+		if !step("install packages "+strings.Join(pl.MissingPackages, " "), err, out) {
+			if ran {
+				removePackages(run, rc)
+			}
+			rc.Result, rc.RollbackState = "failed_rolled_back", "rolled_back"
+			_ = saveReceipt(p, rc)
+			return rc, fmt.Errorf("installing %s failed; nothing else was changed: %w", strings.Join(pl.MissingPackages, " "), err)
+		}
+	}
 
 	// Every path that may change, including generated secrets.
 	targets := []string{}
@@ -139,16 +181,11 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 		}
 		rc.Files = append(rc.Files, rf)
 	}
-	step := func(name string, err error, detail string) bool {
-		s := Step{Name: name, OK: err == nil, Detail: detail}
-		if err != nil {
-			s.Detail = strings.TrimSpace(detail + " " + err.Error())
-		}
-		rc.Steps = append(rc.Steps, s)
-		return err == nil
-	}
 	fail := func() (*Receipt, error) {
 		restore(p, rc, run)
+		// The host goes back to how it was, including the packages this
+		// apply installed (a later rollback finds this receipt rolled back).
+		removePackages(run, rc)
 		rc.Result, rc.RollbackState = "failed_rolled_back", "rolled_back"
 		_ = saveReceipt(p, rc)
 		last := rc.Steps[len(rc.Steps)-1]
@@ -429,6 +466,9 @@ func LoadReceipt(p Params, id string) (*Receipt, error) {
 	}
 	if id == "" {
 		es, err := os.ReadDir(p.receiptDir())
+		if errors.Is(err, os.ErrPermission) {
+			return nil, fmt.Errorf("reading the installer receipts: %w", err)
+		}
 		if err != nil || len(es) == 0 {
 			return nil, errors.New("no installer receipt found")
 		}
@@ -459,8 +499,53 @@ func Rollback(p Params, id string, run Runner) (*Receipt, error) {
 	rp := rc.Params
 	rp.Root = p.Root
 	restore(rp, rc, run)
+	if p.RemovePackages {
+		removePackages(run, rc)
+	}
 	rc.RollbackState = "rolled_back"
 	return rc, saveReceipt(rp, rc)
+}
+
+// installPackages installs the mail packages with apt. It refuses when apt
+// would remove any package (for example another mail server), and Postfix is
+// preseeded to "No configuration" so the package changes nothing before the
+// installer writes its own configuration.
+func installPackages(run Runner, pkgs []string) (out string, ran bool, err error) {
+	// A fresh cloud image often has empty package lists.
+	if out, err := run.Run("env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "update"); err != nil {
+		return out, false, fmt.Errorf("apt-get update failed")
+	}
+	sim, err := run.Run("apt-get", append([]string{"-s", "install", "-y", "--no-install-recommends"}, pkgs...)...)
+	if err != nil {
+		return sim, false, fmt.Errorf("apt-get could not plan the installation")
+	}
+	var removes []string
+	for _, l := range strings.Split(sim, "\n") {
+		if strings.HasPrefix(l, "Remv ") {
+			removes = append(removes, strings.Fields(l)[1])
+		}
+	}
+	if len(removes) > 0 {
+		return sim, false, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removes, ", "))
+	}
+	if out, err := run.Run("sh", "-c", "echo 'postfix postfix/main_mailer_type select No configuration' | debconf-set-selections"); err != nil {
+		return out, false, err
+	}
+	out, err = run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends"}, pkgs...)...)
+	return out, true, err
+}
+
+// removePackages purges the packages a receipt records as installed by its
+// apply, and records the step. It does nothing when there are none.
+func removePackages(run Runner, rc *Receipt) {
+	if len(rc.InstalledPackages) == 0 {
+		return
+	}
+	out, err := run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "purge", "-y"}, rc.InstalledPackages...)...)
+	rc.Steps = append(rc.Steps, Step{Name: "remove packages " + strings.Join(rc.InstalledPackages, " "), OK: err == nil, Detail: strings.TrimSpace(out)})
+	if err == nil {
+		rc.InstalledPackages = nil
+	}
 }
 
 func parseIPs(vals ...string) []net.IP {

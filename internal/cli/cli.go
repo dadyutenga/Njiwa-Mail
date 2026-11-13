@@ -27,6 +27,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/dnsauth"
 	"github.com/njiwa-tz/mail/internal/inbound"
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 	"github.com/njiwa-tz/mail/internal/installer/managed"
 	"github.com/njiwa-tz/mail/internal/installer/preflight"
 	"github.com/njiwa-tz/mail/internal/mailer"
@@ -56,15 +57,23 @@ Runtime:
                               record delivery evidence (sent, deferred, bounced) from Postfix log lines,
                               correlated to messages by queue ID; "-" reads stdin (journalctl -fu postfix | ...)
   smtp-check                  verify TLS + auth against the SMTP server (sends nothing)
+  discover [-json] [-record] [-docker=false]
+                              read-only scan of this host before installing: mail servers (Mailcow, Postfix,
+                              Exim, OpenDKIM, ...), ports, proxies, certificates, Docker networks, resources;
+                              recommends a delivery mode and explains anything that blocks managed mode.
+                              Changes nothing. -record stores it for the setup wizard (needs the database)
   preflight [-hostname H -ip IP -spool DIR -probe DOMAIN -json -record]
                               read-only host checks for "Send from my VPS" (managed mode); changes nothing.
                               -record stores the result for the Delivery infrastructure page (needs the database)
   installer plan|apply|rollback|status   (root, on the mail host; managed mode only)
        [-hostname H -domains a.example,b.example -bounce-domain D -selector S
         -submission 127.0.0.1:10587 -inbound 127.0.0.1:2525 -compose-subnet CIDR -no-firewall
-        -adopt -approve DIGEST -record]
+        -adopt -approve DIGEST -record -remove-packages]
                               plan prints the exact changes and a digest; apply needs -approve with that digest,
-                              backs up, validates (postfix check, opendkim -n) and rolls back on failure
+                              backs up, validates (postfix check, opendkim -n) and rolls back on failure.
+                              Missing postfix/opendkim packages are installed with apt (never removing a package).
+                              A mail service in use on the host (Mailcow, Postfix, Exim, a busy port 25) blocks it:
+                              nothing is changed, and -adopt only replaces an unused default configuration
   installer dkim-rotate prepare|activate|cancel|retire|status -selector S [-record]   (staged DKIM key rotation; -record shows its state on the dashboard)
   retention                   run the retention job once
   rekey [-check]              after changing ENCRYPTION_KEY (old key in ENCRYPTION_KEY_PREVIOUS): re-seal every sealed value with the
@@ -119,6 +128,12 @@ func Run(args []string) {
 		runPreflight(context.Background(), nil, args[1:])
 		return
 	}
+	// Discovery is read-only and runs before Njiwa-Mail is configured; only
+	// -record needs the database.
+	if args[0] == "discover" && !hasFlag(args[1:], "record") {
+		runDiscover(context.Background(), nil, args[1:])
+		return
+	}
 	if args[0] == "mta-agent" {
 		runMTAAgent(args[1:])
 		return
@@ -161,6 +176,7 @@ func Run(args []string) {
 	svc := service.New(pool, box, service.Options{MetadataRetention: cfg.MetadataRetention, CaptureRetention: cfg.CaptureRetention,
 		UnknownPurge: cfg.UnknownPurge, MaxAttempts: cfg.MaxAttempts,
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
+		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
 		PublicURL: cfg.PublicURL, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
@@ -212,6 +228,8 @@ func Run(args []string) {
 		fmt.Println(*role, "healthy")
 	case "installer":
 		runInstaller(ctx, &installerDeps{svc: svc, cfg: cfg}, args)
+	case "discover":
+		runDiscover(ctx, svc, args)
 	case "preflight":
 		runPreflight(ctx, &preflightDeps{svc: svc, hostname: cfg.MailHostname, ip: cfg.OutboundIP, spool: cfg.DataDir}, args)
 	case "mta-log":
@@ -809,6 +827,7 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 	inbound := fs.String("inbound", "127.0.0.1:2525", "Njiwa inbound listener that receives DSNs (host:port)")
 	adopt := fs.Bool("adopt", false, "replace an existing Postfix configuration not written by Njiwa-Mail (backed up first)")
 	noFirewall := fs.Bool("no-firewall", false, "do not install the nftables table that drops Njiwa's private ports from outside")
+	removePackages := fs.Bool("remove-packages", false, "rollback only: also remove the packages that apply installed (postfix, opendkim)")
 	renewCerts := fs.Bool("renew-certs", false, "reissue the submission server and worker certificates now (otherwise done automatically within 60 days of expiry)")
 	subnet := fs.String("compose-subnet", firstNonEmpty(os.Getenv("NJIWA_SUBNET"), "172.30.0.0/24"), "Docker network the worker connects from")
 	approve := fs.String("approve", "", "apply only if the plan digest equals this value")
@@ -830,7 +849,7 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		}
 	}
 	p := managed.Params{Hostname: *hostname, BounceDomain: *bounce, Domains: ds, Selector: *selector,
-		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt, NoFirewall: *noFirewall, ComposeSubnet: *subnet, RenewCerts: *renewCerts}
+		SubmissionBind: *submission, InboundRelay: *inbound, Adopt: *adopt, NoFirewall: *noFirewall, ComposeSubnet: *subnet, RenewCerts: *renewCerts, RemovePackages: *removePackages}
 	show := func(v any, text string) {
 		if *asJSON {
 			_ = json.NewEncoder(os.Stdout).Encode(v)
@@ -843,6 +862,10 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		pl, err := managed.BuildPlan(p)
 		if err != nil {
 			die(err)
+		}
+		if len(pl.Blockers) > 0 {
+			show(pl, pl.Summary()+"\nUse \"Use my existing mail server\" in the setup wizard instead (njiwa-mail discover lists the servers found).\n")
+			os.Exit(3)
 		}
 		show(pl, pl.Summary()+"\nReview the changes, then run:\n  njiwa-mail installer apply -approve "+pl.Digest+" (same flags)\n")
 	case "apply":
@@ -865,6 +888,9 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 		show(rc, "Rolled back receipt "+rc.ID+".\n")
 	case "status":
 		rc, err := managed.LoadReceipt(p, *receipt)
+		if errors.Is(err, os.ErrPermission) {
+			die(errors.New("the installer's receipts are readable by root only: run \"sudo njiwa-mail installer status\""))
+		}
 		if err != nil {
 			die(err)
 		}
@@ -1166,4 +1192,50 @@ func lookupGID(s string) (int, error) {
 		return 0, err
 	}
 	return strconv.Atoi(g.Gid)
+}
+
+// runDiscover is the read-only host discovery (installation step 2).
+func runDiscover(ctx context.Context, svc *service.Service, args []string) {
+	fs := flag.NewFlagSet("discover", flag.ExitOnError)
+	asJSON := fs.Bool("json", false, "print the report as JSON")
+	record := fs.Bool("record", false, "store the report for the setup wizard")
+	useDocker := fs.Bool("docker", true, "list running containers with a read-only 'docker ps' when the Docker socket is readable")
+	root := fs.String("root", "/", "where the host's filesystem is mounted (scripts/discover.sh mounts it read-only at /host)")
+	fs.Parse(args)
+	env := discover.HostEnv(*useDocker)
+	env.Root = *root
+	r := discover.Scan(env)
+	rec := discover.Recommend(r, discoverNeeds())
+	r.Recommendation = &rec
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(r)
+	} else {
+		fmt.Print(discover.Text(r))
+	}
+	if *record {
+		if svc == nil {
+			die(errors.New("-record needs the database configuration (.env)"))
+		}
+		if err := svc.RecordDiscovery(ctx, service.CLIActor, r); err != nil {
+			die(err)
+		}
+		fmt.Println("Recorded: the setup wizard now shows this result.")
+	}
+}
+
+// discoverNeeds are the ports and network this installation will use.
+func discoverNeeds() discover.Needs {
+	n := discover.DefaultNeeds()
+	n.Subnet = firstNonEmpty(os.Getenv("NJIWA_SUBNET"), n.Subnet)
+	for _, v := range []struct {
+		env string
+		dst *int
+	}{{"NJIWA_API_PORT", &n.APIPort}, {"NJIWA_DASHBOARD_PORT", &n.DashboardPort}, {"NJIWA_INBOUND_PORT", &n.InboundPort}} {
+		if p, err := strconv.Atoi(os.Getenv(v.env)); err == nil && p > 0 {
+			*v.dst = p
+		}
+	}
+	return n
 }

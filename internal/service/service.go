@@ -48,6 +48,11 @@ type Options struct {
 	InboundDomain string
 	BounceAddress string
 	DataDir       string // spool and attachment storage, outside any web root
+	// InboundAllowedSources is INBOUND_ALLOWED_SOURCES and NjiwaSubnet is
+	// NJIWA_SUBNET. In managed mode host Postfix relays bounces from the
+	// subnet's gateway, which readiness checks is allowed (task T7.3).
+	InboundAllowedSources string
+	NjiwaSubnet           string
 
 	// DNS health checker expectations.
 	MailHost     string // Mailcow hostname (MX target, PTR value)
