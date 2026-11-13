@@ -8,7 +8,7 @@ An installation sends through exactly one **active** delivery profile. The appli
 | | Managed Postfix | Existing SMTP |
 |---|---|---|
 | Good when | You have a VPS you control and want Njiwa-Mail to run the mail service | You already run, or rent, an SMTP server |
-| You need | Debian 12 or Ubuntu 22.04/24.04 with systemd, a public static IPv4, reverse DNS you can set, outbound port 25 open, no other mail server on the host | SMTP host, port 587 (STARTTLS) or 465 (TLS), a dedicated submission account |
+| You need | Debian 12, Ubuntu 22.04–26.04, AlmaLinux/Rocky Linux/RHEL 9–10 or Fedora 41+ with systemd, a public static IPv4, reverse DNS you can set, outbound port 25 open, no other mail server on the host | SMTP host, port 587 (STARTTLS) or 465 (TLS), a dedicated submission account |
 | Njiwa-Mail does | Configures Postfix and OpenDKIM with a reviewed, reversible installer; signs mail; relays bounces back | Submits to your server; nothing on that server is changed |
 | DKIM and SPF | Generated and shown ready to publish | Your server's operator documents them; you enter them so they are checked |
 | Optional extras | A mail queue screen driven by a small host agent | Mailcow API helpers, only if you choose Mailcow |

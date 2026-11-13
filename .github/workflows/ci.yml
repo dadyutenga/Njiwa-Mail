@@ -94,7 +94,69 @@ jobs:
       - name: End-to-end checks
         run: sudo env "PATH=$PATH" go test -tags managed_e2e ./internal/installer/managed -run E2E -count=1 -v
 
-  # The shipped stack starts from nothing: build the images, bring Compose up,
+  # The managed installer on the RHEL family (AlmaLinux, Rocky Linux, Fedora),
+  # in containers of each distribution: Postfix is first installed by dnf with
+  # its package-default configuration, discovery must not treat that as a mail
+  # service in use, then the installer adopts it, installs OpenDKIM itself
+  # (EPEL on Enterprise Linux), configures both and the end-to-end checks run
+  # against the real Postfix and OpenDKIM. No systemd in containers: the
+  # installer's non-systemd start path is used, as on the build container.
+  installer-binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: |
+          mkdir out
+          CGO_ENABLED=0 go build -o out/njiwa-mail .
+          CGO_ENABLED=0 go test -c -tags managed_e2e -o out/managed-e2e.test ./internal/installer/managed
+      - uses: actions/upload-artifact@v4
+        with: { name: installer-binaries, path: out/, retention-days: 3 }
+
+  managed-mta-rhel:
+    needs: installer-binaries
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["almalinux:9", "rockylinux/rockylinux:9", "fedora:latest", "almalinux:10"]
+    container:
+      image: ${{ matrix.image }}
+      options: --cap-add NET_ADMIN
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: installer-binaries, path: bin }
+      - name: Postfix from the distribution, with its package-default configuration
+        run: |
+          chmod +x bin/*
+          dnf install -y postfix nftables python3 >/dev/null
+          # Fedora's package creates /var/spool/postfix with systemd-tmpfiles,
+          # which runs at boot on a real host but never in a container.
+          if [ ! -d /var/spool/postfix ]; then
+            command -v systemd-tmpfiles >/dev/null || dnf install -y systemd >/dev/null
+            conf=$(rpm -ql postfix | grep '^/usr/lib/tmpfiles.d/' || true)
+            systemd-tmpfiles --create $conf || true
+          fi
+          ls -ld /var/spool/postfix
+          cat /etc/os-release
+          echo "Postfix $(postconf -d -h mail_version); map types: $(postconf -m | tr '\n' ' ')"
+          postconf -n
+      - name: Discovery does not treat the package default as a mail service in use
+        run: |
+          bin/njiwa-mail discover -docker=false | tee /tmp/discover.txt
+          if grep -E "POSTFIX_IN_USE|OPENDKIM_IN_USE|OTHER_MTA_PRESENT|MAIL_PORT_IN_USE|HOST_OS_UNSUPPORTED" /tmp/discover.txt; then exit 1; fi
+      - name: Installer plan and apply (adopts the package default, installs OpenDKIM)
+        run: |
+          F="-hostname mailout.example.test -domains notify.example.test -bounce-domain bounce.example.test -selector njiwa -adopt"
+          bin/njiwa-mail installer plan $F
+          D=$(bin/njiwa-mail installer plan $F -json | python3 -c 'import json,sys;print(json.load(sys.stdin)["digest"])')
+          bin/njiwa-mail installer apply $F -approve "$D" || { cat /var/lib/njiwa-mail/installer/receipts/*.json; exit 1; }
+          postconf -n | grep -E "compatibility_level|relay_clientcerts"
+      - name: End-to-end checks against the real Postfix and OpenDKIM
+        run: bin/managed-e2e.test -test.run E2E -test.count 1 -test.v
+
+
   # wait for readiness, sign in, take it down. Catches a broken Dockerfile,
   # migration, healthcheck or Compose file that unit tests cannot see.
   smoke:

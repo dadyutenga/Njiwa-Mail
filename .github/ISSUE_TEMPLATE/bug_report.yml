@@ -1,0 +1,44 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go to SECURITY.md, not here. Remove secrets, API keys,
+        real email addresses and server names before posting logs.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Delivery mode
+      options: ["Sandbox", "Send from my VPS (managed Postfix)", "Existing mail server (SMTP)", "Not related to sending"]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "e.g. v0.9.0 or a commit hash"
+  - type: input
+    id: os
+    attributes:
+      label: Server OS
+      placeholder: "e.g. Ubuntu 24.04, AlmaLinux 9.6"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output (njiwa-mail discover, installer plan, logs)
+      render: text

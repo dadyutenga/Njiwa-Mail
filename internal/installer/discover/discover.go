@@ -631,7 +631,22 @@ func scanMailServices(e Env, procs []process, r *Report) []Service {
 // None means the package default, which signs nothing; the managed installer
 // uses the same rule for what -adopt may replace.
 func OpenDKIMSigning(conf string) []string {
+	// Mode without "s" only verifies (Fedora's package default lists a key
+	// file but runs "Mode v"). OpenDKIM's own default mode is "sv".
+	if mode := activeValue(conf, "Mode"); mode != "" && !strings.Contains(mode, "s") {
+		return nil
+	}
 	return activeKeys(conf, "KeyTable", "SigningTable", "KeyFile", "Domain", "Selector")
+}
+
+func activeValue(conf, key string) string {
+	for _, l := range strings.Split(conf, "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 2 && strings.EqualFold(f[0], key) {
+			return f[1]
+		}
+	}
+	return ""
 }
 
 func activeKeys(conf string, keys ...string) []string {
@@ -697,6 +712,15 @@ var packageDefaultKeys = map[string]bool{
 	"alias_database": true, "myorigin": true, "mydestination": true, "relayhost": true, "mynetworks": true,
 	"mailbox_size_limit": true, "recipient_delimiter": true, "inet_interfaces": true, "inet_protocols": true,
 	"delay_warning_time": true, "mailbox_command": true, "maillog_file": true,
+	// The RHEL family's postfix package (AlmaLinux, Rocky Linux, RHEL, Fedora).
+	"queue_directory": true, "command_directory": true, "daemon_directory": true, "data_directory": true, "mail_owner": true,
+	"unknown_local_recipient_reject_code": true, "debug_peer_level": true, "debugger_command": true, "sendmail_path": true,
+	"newaliases_path": true, "mailq_path": true, "setgid_group": true, "html_directory": true, "manpage_directory": true,
+	"sample_directory": true, "meta_directory": true, "shlib_directory": true,
+	"smtpd_tls_CAfile": true, "smtpd_tls_CApath": true, "tls_random_source": true, "smtpd_tls_loglevel": true,
+	"smtp_tls_loglevel": true, "smtpd_tls_received_header": true, "smtpd_tls_mandatory_protocols": true,
+	"smtpd_tls_protocols": true, "smtp_tls_mandatory_protocols": true, "smtp_tls_protocols": true,
+	"default_database_type": true,
 }
 
 func parsePostfixConf(cf string) map[string]string {
@@ -755,7 +779,9 @@ func postfixConfigEvidence(e Env, kv map[string]string) []string {
 			break
 		}
 	}
-	if c := kv["smtpd_tls_cert_file"]; c != "" && !strings.Contains(c, "snakeoil") {
+	// The packages' own placeholder certificates: Debian/Ubuntu's snakeoil
+	// and the RHEL family's /etc/pki/tls/certs/postfix.pem.
+	if c := kv["smtpd_tls_cert_file"]; c != "" && !strings.Contains(c, "snakeoil") && c != "/etc/pki/tls/certs/postfix.pem" {
 		ev = append(ev, "Postfix uses its own TLS certificate ("+c+")")
 	}
 	return ev

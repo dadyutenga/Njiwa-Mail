@@ -25,11 +25,21 @@ It checks the distribution, systemd, disk, memory, clock sync, that the IP is on
 
 ### Install the packages
 
+The installer installs what is missing as an approved step of its plan, so this is optional. To do it yourself:
+
 ```bash
 apt-get install postfix opendkim
 ```
 
-Choose "No configuration" for Postfix.
+Choose "No configuration" for Postfix. On AlmaLinux or Rocky Linux 9, OpenDKIM comes from EPEL and needs CodeReady Builder:
+
+```bash
+dnf install -y epel-release && dnf config-manager --set-enabled crb && dnf install -y postfix opendkim
+```
+
+On version 10 and Fedora, `dnf install -y epel-release postfix opendkim` (Fedora has no `epel-release`; leave it out). SELinux stays
+enforcing: the plan labels the submission port and restores file labels. firewalld is never changed; the plan tells you to open
+port 25 for bounce reports.
 
 </Step>
 <Step>

@@ -449,3 +449,70 @@ func TestSocketOwnerIsTheParentEvenAfterPIDWraparound(t *testing.T) {
 		t.Fatal("a non-Postfix 'master' on port 25 was excused")
 	}
 }
+
+func TestOSSupported(t *testing.T) {
+	for _, c := range []struct {
+		id, version string
+		want        bool
+	}{
+		{"debian", "12", true}, {"debian", "11", false}, {"ubuntu", "24.04", true}, {"ubuntu", "26.04", true}, {"ubuntu", "20.04", false},
+		{"almalinux", "9.6", true}, {"rocky", "9.5", true}, {"rhel", "10.0", true}, {"almalinux", "8.10", false},
+		{"fedora", "43", true}, {"fedora", "40", false}, {"centos", "9", false}, {"arch", "", false},
+	} {
+		if got := OSSupported(c.id, c.version); got != c.want {
+			t.Errorf("%s %s: %v", c.id, c.version, got)
+		}
+	}
+}
+
+// The RHEL family's package defaults (Postfix from "dnf install postfix",
+// OpenDKIM from EPEL or Fedora with "Mode v") are adoptable, not in use.
+func TestRHELPackageDefaultsAreAdoptable(t *testing.T) {
+	h := newHost(t, "almalinux", "9.6")
+	h.file("/usr/sbin/postfix", "")
+	h.file("/usr/sbin/opendkim", "")
+	h.file("/etc/hostname", "mail1.example.net\n")
+	h.file("/etc/postfix/main.cf", `compatibility_level = 2
+queue_directory = /var/spool/postfix
+command_directory = /usr/sbin
+daemon_directory = /usr/libexec/postfix
+data_directory = /var/lib/postfix
+mail_owner = postfix
+inet_interfaces = localhost
+inet_protocols = all
+mydestination = $myhostname, localhost.$mydomain, localhost
+unknown_local_recipient_reject_code = 550
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+debug_peer_level = 2
+debugger_command =
+	 PATH=/bin:/usr/bin:/usr/local/bin:/usr/X11R6/bin
+	 ddd $daemon_directory/$process_name $process_id & sleep 5
+sendmail_path = /usr/sbin/sendmail.postfix
+newaliases_path = /usr/bin/newaliases.postfix
+mailq_path = /usr/bin/mailq.postfix
+setgid_group = postdrop
+html_directory = no
+manpage_directory = /usr/share/man
+sample_directory = /usr/share/doc/postfix/samples
+readme_directory = /usr/share/doc/postfix/README_FILES
+smtpd_tls_cert_file = /etc/pki/tls/certs/postfix.pem
+smtpd_tls_key_file = /etc/pki/tls/private/postfix.key
+smtpd_tls_security_level = may
+smtp_tls_CApath = /etc/pki/tls/certs
+smtp_tls_CAfile = /etc/pki/tls/certs/ca-bundle.crt
+smtp_tls_security_level = may
+meta_directory = /etc/postfix
+shlib_directory = /usr/lib64/postfix
+`)
+	h.file("/etc/opendkim.conf", "PidFile /run/opendkim/opendkim.pid\nMode v\nSyslog yes\nUserID opendkim:opendkim\nSocket local:/run/opendkim/opendkim.sock\nSelector default\nKeyFile /etc/opendkim/keys/default.private\n")
+	r := h.scan()
+	if !r.Recommendation.ManagedAllowed() {
+		t.Fatalf("RHEL package defaults blocked managed mode: %+v", r.Recommendation.ManagedBlockers)
+	}
+	// The same OpenDKIM set to sign is in use.
+	h.file("/etc/opendkim.conf", "Mode sv\nSelector default\nKeyFile /etc/opendkim/keys/default.private\n")
+	if !codes(h.scan().Recommendation.ManagedBlockers)[CodeOpenDKIMInUse] {
+		t.Fatal("a signing OpenDKIM must block")
+	}
+}

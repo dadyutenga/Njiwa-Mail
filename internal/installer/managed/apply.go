@@ -52,6 +52,13 @@ type Receipt struct {
 	// InstalledPackages are the packages this apply installed (rollback can
 	// remove exactly these with -remove-packages).
 	InstalledPackages []string `json:"installed_packages,omitempty"`
+	PackageManager    string   `json:"package_manager,omitempty"` // apt | dnf
+	// SELinuxPort is the port this apply labelled smtp_port_t (rollback
+	// removes the label again).
+	SELinuxPort string `json:"selinux_port,omitempty"`
+	// EnabledRepos are dnf repositories this apply enabled (crb); they are
+	// disabled again with the packages.
+	EnabledRepos []string `json:"enabled_repos,omitempty"`
 }
 
 // ErrBlocked means the host runs a mail service the installer must not touch.
@@ -126,7 +133,7 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	if pl.Conflict != "" && !p.Adopt {
 		return nil, fmt.Errorf("refusing to continue: %s. Pass -adopt to replace it (the current files are backed up first)", pl.Conflict)
 	}
-	if len(pl.MissingPackages) > 0 && pl.PackageManager != "apt" {
+	if len(pl.MissingPackages) > 0 && pl.PackageManager == "" {
 		return nil, fmt.Errorf("install %s with your package manager first, then run plan again", strings.Join(pl.MissingPackages, " "))
 	}
 	id := now.UTC().Format("20060102T150405Z")
@@ -144,8 +151,10 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	// Packages first, so the files they create (for example the package's
 	// /etc/opendkim.conf) are backed up and restored like any other file.
 	if len(pl.MissingPackages) > 0 {
-		out, ran, err := installPackages(run, pl.MissingPackages)
-		if ran {
+		rc.PackageManager = pl.PackageManager
+		out, ran, enabled, err := installPackages(run, pl.PackageManager, pl.MissingPackages, pl.EnableRepos)
+		rc.EnabledRepos = enabled
+		if ran || len(enabled) > 0 {
 			rc.InstalledPackages = pl.MissingPackages
 		}
 		if !step("install packages "+strings.Join(pl.MissingPackages, " "), err, out) {
@@ -164,7 +173,7 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 		targets = append(targets, f.Path)
 	}
 	targets = append(targets, njDir+"/ca.crt", njDir+"/ca.key", njDir+"/server.crt", njDir+"/server.key",
-		njDir+"/relay_clientcerts", njDir+"/relay_clientcerts.db", njDir+"/senders.db", njDir+"/transport.db",
+		njDir+"/relay_clientcerts", njDir+"/relay_clientcerts"+p.Platform.mapExt(), njDir+"/senders"+p.Platform.mapExt(), njDir+"/transport"+p.Platform.mapExt(),
 		clientDir+"/client.crt", clientDir+"/client.key", clientDir+"/ca.crt", clientDir+"/client.prev.crt")
 	for _, d := range p.Domains {
 		targets = append(targets, dkimKeyPath(d, p.Selector))
@@ -184,7 +193,11 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	fail := func() (*Receipt, error) {
 		restore(p, rc, run)
 		// The host goes back to how it was, including the packages this
-		// apply installed (a later rollback finds this receipt rolled back).
+		// apply installed and an SELinux port label it added (a later
+		// rollback finds this receipt rolled back).
+		if rc.SELinuxPort != "" {
+			_, _ = run.Run("semanage", "port", "-d", "-t", "smtp_port_t", "-p", "tcp", rc.SELinuxPort)
+		}
 		removePackages(run, rc)
 		rc.Result, rc.RollbackState = "failed_rolled_back", "rolled_back"
 		_ = saveReceipt(p, rc)
@@ -226,8 +239,31 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 		chownTo(p.path(t), "opendkim")
 	}
 	for _, m := range []string{"senders", "transport", "relay_clientcerts"} {
-		out, err := run.Run("postmap", "hash:"+p.path(njDir+"/"+m))
+		out, err := run.Run("postmap", p.Platform.mapType()+":"+p.path(njDir+"/"+m))
 		if !step("postmap "+m, err, out) {
+			return fail()
+		}
+	}
+	if p.Platform.SELinux {
+		// Files written by the installer get their SELinux labels, and the
+		// private submission port is allowed for Postfix.
+		for _, a := range pl.Actions {
+			if a.Kind != "selinux_port" {
+				continue
+			}
+			_, port, _ := net.SplitHostPort(p.SubmissionBind)
+			out, err := run.Run("semanage", "port", "-a", "-t", "smtp_port_t", "-p", "tcp", port)
+			if err != nil && strings.Contains(out, "already defined") {
+				out, err = run.Run("semanage", "port", "-m", "-t", "smtp_port_t", "-p", "tcp", port)
+			} else if err == nil {
+				rc.SELinuxPort = port
+			}
+			if !step("selinux: label tcp/"+port+" as smtp_port_t", err, out) {
+				return fail()
+			}
+		}
+		out, err := run.Run("restorecon", "-R", p.path(pfDir), p.path(dkimDir), p.path(dkimConf), p.path("/etc/njiwa-mail"))
+		if !step("selinux: restore file labels", err, out) {
 			return fail()
 		}
 	}
@@ -499,6 +535,10 @@ func Rollback(p Params, id string, run Runner) (*Receipt, error) {
 	rp := rc.Params
 	rp.Root = p.Root
 	restore(rp, rc, run)
+	if rc.SELinuxPort != "" {
+		out, err := run.Run("semanage", "port", "-d", "-t", "smtp_port_t", "-p", "tcp", rc.SELinuxPort)
+		rc.Steps = append(rc.Steps, Step{Name: "selinux: remove the label on tcp/" + rc.SELinuxPort, OK: err == nil, Detail: strings.TrimSpace(out)})
+	}
 	if p.RemovePackages {
 		removePackages(run, rc)
 	}
@@ -510,14 +550,17 @@ func Rollback(p Params, id string, run Runner) (*Receipt, error) {
 // would remove any package (for example another mail server), and Postfix is
 // preseeded to "No configuration" so the package changes nothing before the
 // installer writes its own configuration.
-func installPackages(run Runner, pkgs []string) (out string, ran bool, err error) {
+func installPackages(run Runner, pm string, pkgs, repos []string) (out string, ran bool, enabled []string, err error) {
+	if pm == "dnf" {
+		return installPackagesDNF(run, pkgs, repos)
+	}
 	// A fresh cloud image often has empty package lists.
 	if out, err := run.Run("env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "update"); err != nil {
-		return out, false, fmt.Errorf("apt-get update failed")
+		return out, false, nil, fmt.Errorf("apt-get update failed")
 	}
 	sim, err := run.Run("apt-get", append([]string{"-s", "install", "-y", "--no-install-recommends"}, pkgs...)...)
 	if err != nil {
-		return sim, false, fmt.Errorf("apt-get could not plan the installation")
+		return sim, false, nil, fmt.Errorf("apt-get could not plan the installation")
 	}
 	var removes []string
 	for _, l := range strings.Split(sim, "\n") {
@@ -526,22 +569,115 @@ func installPackages(run Runner, pkgs []string) (out string, ran bool, err error
 		}
 	}
 	if len(removes) > 0 {
-		return sim, false, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removes, ", "))
+		return sim, false, nil, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removes, ", "))
 	}
 	if out, err := run.Run("sh", "-c", "echo 'postfix postfix/main_mailer_type select No configuration' | debconf-set-selections"); err != nil {
-		return out, false, err
+		return out, false, nil, err
 	}
 	out, err = run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends"}, pkgs...)...)
-	return out, true, err
+	return out, true, nil, err
+}
+
+// installPackagesDNF installs with dnf on the RHEL family. epel-release, when
+// listed, is installed first (OpenDKIM comes from EPEL on Enterprise Linux),
+// then the repositories in repos are enabled (crb on Enterprise Linux 9; the
+// config-manager command comes with epel-release). Like apt, it refuses when
+// the transaction would remove any package.
+func installPackagesDNF(run Runner, pkgs, repos []string) (string, bool, []string, error) {
+	rest := pkgs
+	ran := false
+	var log []string
+	if len(pkgs) > 0 && pkgs[0] == "epel-release" {
+		out, err := run.Run("dnf", "install", "-y", "epel-release")
+		log = append(log, out)
+		if err != nil {
+			return strings.Join(log, "\n"), false, nil, fmt.Errorf("enabling EPEL (dnf install epel-release) failed")
+		}
+		ran, rest = true, pkgs[1:]
+	}
+	var enabled []string
+	for _, r := range repos {
+		out, err := setRepo(run, r, true)
+		log = append(log, out)
+		if err != nil {
+			return strings.Join(log, "\n"), ran, enabled, fmt.Errorf("enabling the %s repository failed", r)
+		}
+		enabled = append(enabled, r)
+	}
+	// --assumeno shows the transaction and stops (it exits non-zero by design).
+	sim, _ := run.Run("dnf", append([]string{"install", "--assumeno"}, rest...)...)
+	if strings.Contains(sim, "No match for argument") || strings.Contains(sim, "Unable to find a match") {
+		return sim, ran, enabled, fmt.Errorf("dnf cannot find %s", strings.Join(rest, " "))
+	}
+	if strings.Contains(sim, "nothing provides") {
+		return sim, ran, enabled, fmt.Errorf("dnf cannot resolve the dependencies of %s", strings.Join(rest, " "))
+	}
+	if removing := dnfRemovals(sim); len(removing) > 0 {
+		return sim, ran, enabled, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removing, ", "))
+	}
+	out, err := run.Run("dnf", append([]string{"install", "-y"}, rest...)...)
+	return out, true, enabled, err
+}
+
+// setRepo enables or disables a dnf repository: dnf 4 (Enterprise Linux 9)
+// takes --set-enabled, dnf 5 (Fedora, Enterprise Linux 10+) setopt.
+func setRepo(run Runner, repo string, on bool) (string, error) {
+	flag, val := "--set-disabled", "0"
+	if on {
+		flag, val = "--set-enabled", "1"
+	}
+	out, err := run.Run("dnf", "config-manager", flag, repo)
+	if err == nil {
+		return out, nil
+	}
+	out2, err2 := run.Run("dnf", "config-manager", "setopt", repo+".enabled="+val)
+	return strings.TrimSpace(out + "\n" + out2), err2
+}
+
+// dnfRemovals lists the packages in the "Removing:" section of a dnf
+// transaction summary (dnf 4 and dnf 5 print the same heading).
+func dnfRemovals(out string) []string {
+	var names []string
+	in := false
+	for _, l := range strings.Split(out, "\n") {
+		t := strings.TrimSpace(l)
+		switch {
+		case strings.HasPrefix(t, "Removing") && strings.HasSuffix(t, ":"):
+			in = true
+		case in && (t == "" || strings.HasSuffix(t, ":") || strings.HasPrefix(t, "Transaction Summary")):
+			in = false
+		case in:
+			if f := strings.Fields(t); len(f) > 0 {
+				names = append(names, f[0])
+			}
+		}
+	}
+	return names
 }
 
 // removePackages purges the packages a receipt records as installed by its
 // apply, and records the step. It does nothing when there are none.
 func removePackages(run Runner, rc *Receipt) {
+	// Repositories first: dnf config-manager may leave with epel-release.
+	for len(rc.EnabledRepos) > 0 {
+		r := rc.EnabledRepos[0]
+		out, err := setRepo(run, r, false)
+		rc.Steps = append(rc.Steps, Step{Name: "disable repository " + r, OK: err == nil, Detail: strings.TrimSpace(out)})
+		if err != nil {
+			break
+		}
+		rc.EnabledRepos = rc.EnabledRepos[1:]
+	}
 	if len(rc.InstalledPackages) == 0 {
 		return
 	}
-	out, err := run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "purge", "-y"}, rc.InstalledPackages...)...)
+	var out string
+	var err error
+	if rc.PackageManager == "dnf" {
+		out, err = run.Run("dnf", append([]string{"remove", "-y"}, rc.InstalledPackages...)...)
+	} else {
+		out, err = run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "purge", "-y"}, rc.InstalledPackages...)...)
+	}
 	rc.Steps = append(rc.Steps, Step{Name: "remove packages " + strings.Join(rc.InstalledPackages, " "), OK: err == nil, Detail: strings.TrimSpace(out)})
 	if err == nil {
 		rc.InstalledPackages = nil

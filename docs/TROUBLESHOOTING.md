@@ -49,7 +49,7 @@ Problems are reported with a stable **code**: in the dashboard (Installation, De
 | `INSTALLER_NOT_AVAILABLE` | Run the host installer on this server as root: njiwa-mail installer plan, then installer apply -approve <digest> -record. Until then, mail cannot be sent directly from this VPS. |
 | `CLIENT_CERT_EXPIRING` | On the mail host run the installer again (njiwa-mail installer plan, then installer apply -record with the new digest). It renews the certificate and records it; mail keeps flowing during the change. |
 | `CLIENT_CERT_EXPIRED` | On the mail host run njiwa-mail installer plan -renew-certs, then installer apply -record with the new digest. Live mail stays queued until the new certificate is recorded. |
-| `HOST_OS_UNSUPPORTED` | Use Debian 12 or Ubuntu 22.04/24.04 for managed delivery, or connect an existing mail server. |
+| `HOST_OS_UNSUPPORTED` | Use Debian 12, Ubuntu 22.04/24.04/26.04, AlmaLinux/Rocky Linux/RHEL 9 or 10, or Fedora 41+ for managed delivery, or connect an existing mail server. |
 | `HOST_NO_SYSTEMD` | Managed delivery needs systemd to run the mail service. |
 | `HOST_DISK_LOW` | Free at least 2 GiB and 100,000 inodes for the mail queue and logs. |
 | `HOST_MEMORY_LOW` | Provide at least 512 MiB of free memory. |
