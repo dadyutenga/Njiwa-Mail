@@ -614,32 +614,131 @@ func postfixUse(e Env, s *Service, r *Report) {
 		s.Ours = true
 		return
 	}
-	kv := map[string]string{}
-	for _, l := range strings.Split(cf, "\n") {
-		if k, v, ok := strings.Cut(l, "="); ok && !strings.HasPrefix(strings.TrimSpace(k), "#") {
-			kv[strings.TrimSpace(k)] = strings.TrimSpace(v)
-		}
-	}
+	kv := parsePostfixConf(cf)
 	s.Hostname = kv["myhostname"]
-	for _, k := range []string{"relayhost", "relay_domains", "virtual_mailbox_domains", "virtual_alias_domains", "smtpd_sasl_auth_enable", "smtpd_milters"} {
-		if v := kv[k]; v != "" && v != "no" {
-			s.Evidence = append(s.Evidence, k+" is set in /etc/postfix/main.cf")
-		}
+	s.Evidence = append(s.Evidence, postfixConfigEvidence(e, kv)...)
+	if ev := masterServices(e); ev != "" {
+		s.Evidence = append(s.Evidence, ev)
 	}
 	if n, ok := countQueue(e); ok && n > 0 {
 		s.Evidence = append(s.Evidence, fmt.Sprintf("%d message(s) in the Postfix queue", n))
 	} else if !ok {
-		r.Limits = append(r.Limits, "the Postfix queue could not be read (run as root)")
+		// Unknown is treated as in use: never adopt what could not be checked.
+		s.Evidence = append(s.Evidence, "the Postfix queue could not be read (run as root)")
 	}
 	if sentRemote(e) {
 		s.Evidence = append(s.Evidence, "/var/log/mail.log shows mail sent to other servers")
 	}
-	// A configuration Njiwa did not write is in use as soon as there is any
-	// sign of real traffic or configuration beyond the package default.
-	// Running alone is not: "apt install postfix" (Internet Site) starts it
-	// with the default configuration, which the installer may replace with
-	// -adopt after backing it up.
+	// Conservative: a configuration Njiwa did not write is in use unless it is
+	// exactly what the distribution package writes (only the keys and values
+	// below). Running alone is not evidence: "apt install postfix" (Internet
+	// Site) starts it with the package configuration, which the installer may
+	// replace with -adopt after backing it up.
 	s.InUse = len(s.Evidence) > 0
+}
+
+// packageDefaultKeys are the main.cf settings the Debian/Ubuntu postfix
+// package writes for "Internet Site" or "Local only". Any other key with a
+// value is site configuration, so the server is treated as in use.
+var packageDefaultKeys = map[string]bool{
+	"smtpd_banner": true, "biff": true, "append_dot_mydomain": true, "readme_directory": true, "compatibility_level": true,
+	"smtpd_tls_cert_file": true, "smtpd_tls_key_file": true, "smtpd_tls_security_level": true, "smtpd_use_tls": true,
+	"smtpd_tls_session_cache_database": true, "smtp_tls_CApath": true, "smtp_tls_CAfile": true, "smtp_tls_security_level": true,
+	"smtp_tls_session_cache_database": true, "smtpd_relay_restrictions": true, "myhostname": true, "alias_maps": true,
+	"alias_database": true, "myorigin": true, "mydestination": true, "relayhost": true, "mynetworks": true,
+	"mailbox_size_limit": true, "recipient_delimiter": true, "inet_interfaces": true, "inet_protocols": true,
+	"delay_warning_time": true, "mailbox_command": true, "maillog_file": true,
+}
+
+func parsePostfixConf(cf string) map[string]string {
+	kv := map[string]string{}
+	key := ""
+	for _, l := range strings.Split(cf, "\n") {
+		t := strings.TrimSpace(l)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if (l[0] == ' ' || l[0] == '\t') && key != "" { // continuation line
+			kv[key] += " " + t
+			continue
+		}
+		if k, v, ok := strings.Cut(l, "="); ok {
+			key = strings.TrimSpace(k)
+			kv[key] = strings.TrimSpace(v)
+		}
+	}
+	return kv
+}
+
+func postfixConfigEvidence(e Env, kv map[string]string) []string {
+	var ev []string
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if kv[k] != "" && !packageDefaultKeys[k] {
+			ev = append(ev, k+" is configured in /etc/postfix/main.cf")
+		}
+	}
+	if v := kv["relayhost"]; v != "" {
+		ev = append(ev, "relayhost is set in /etc/postfix/main.cf")
+	}
+	for _, n := range listItems(kv["mynetworks"]) {
+		if !loopbackNet(n) {
+			ev = append(ev, "Postfix relays mail for "+n+" (mynetworks)")
+			break
+		}
+	}
+	local := map[string]bool{"$myhostname": true, "localhost": true, "localhost.localdomain": true, "localhost.$mydomain": true}
+	local[strings.ToLower(kv["myhostname"])] = true
+	if h, err := e.read("/etc/hostname"); err == nil {
+		name := strings.ToLower(strings.TrimSpace(string(h)))
+		local[name] = true
+		if short, _, ok := strings.Cut(name, "."); ok {
+			local[short] = true
+		}
+	}
+	for _, d := range listItems(kv["mydestination"]) {
+		if !local[strings.ToLower(d)] {
+			ev = append(ev, "Postfix receives mail for "+d+" (mydestination)")
+			break
+		}
+	}
+	if c := kv["smtpd_tls_cert_file"]; c != "" && !strings.Contains(c, "snakeoil") {
+		ev = append(ev, "Postfix uses its own TLS certificate ("+c+")")
+	}
+	return ev
+}
+
+func listItems(v string) []string {
+	return strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
+}
+
+func loopbackNet(n string) bool {
+	n = strings.Trim(n, "[]")
+	switch n {
+	case "127.0.0.0/8", "::1/128", "::ffff:127.0.0.0/104", "[::ffff:127.0.0.0]/104", "[::1]/128", "127.0.0.1", "::1":
+		return true
+	}
+	return strings.HasPrefix(n, "::ffff:127.0.0.0]/") || strings.HasPrefix(n, "::1]/")
+}
+
+// masterServices reports a submission or smtps service enabled in
+// master.cf: the server takes mail from users.
+func masterServices(e Env) string {
+	b, err := e.read("/etc/postfix/master.cf")
+	if err != nil {
+		return ""
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 2 && (f[0] == "submission" || f[0] == "smtps" || f[0] == "submissions" || f[0] == "465" || f[0] == "587") && f[1] == "inet" {
+			return "master.cf enables the " + f[0] + " service (users submit mail here)"
+		}
+	}
+	return ""
 }
 
 // sentRemote reads the end of the mail log for mail relayed to another
