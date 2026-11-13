@@ -418,3 +418,34 @@ inet_protocols = all
 		t.Fatalf("package default blocked: %+v", r.Recommendation.ManagedBlockers)
 	}
 }
+
+// Review finding (PR #11): attribution must not depend on the lowest PID,
+// and a process merely named "master" is not Postfix.
+func TestSocketOwnerIsTheParentEvenAfterPIDWraparound(t *testing.T) {
+	h := newHost(t, "debian", "12")
+	h.file("/usr/sbin/postfix", "")
+	h.file("/etc/postfix/main.cf", Marker+" Manual changes are replaced on the next apply.\n")
+	h.listen("master", []string{"/usr/lib/postfix/sbin/master", "-w"}, "00000000", 25)
+	masterPID, inode := h.pid, h.inode
+	h.file(fmt.Sprintf("/proc/%d/stat", masterPID), fmt.Sprintf("%d (master) S 1 0 0", masterPID))
+	// A worker with a LOWER pid (wrapped around), child of master.
+	base := "/proc/7"
+	h.file(base+"/comm", "smtpd\n")
+	h.file(base+"/cmdline", "smtpd\x00-n\x00smtp\x00")
+	h.file(base+"/stat", fmt.Sprintf("7 (smtpd) S %d 0 0", masterPID))
+	os.MkdirAll(filepath.Join(h.root, base, "fd"), 0o755)
+	os.Symlink(fmt.Sprintf("socket:[%d]", inode), filepath.Join(h.root, base, "fd", "6"))
+	r := h.scan()
+	if p := r.PortsIn(25); len(p) != 1 || p[0].Process != "master" || !r.Recommendation.ManagedAllowed() {
+		t.Fatalf("ports %+v, blockers %+v", r.Ports, r.Recommendation.ManagedBlockers)
+	}
+
+	// An unrelated program called "master" on port 25 is not excused.
+	h2 := newHost(t, "debian", "12")
+	h2.file("/usr/sbin/postfix", "")
+	h2.file("/etc/postfix/main.cf", Marker+" Manual changes are replaced on the next apply.\n")
+	h2.listen("master", []string{"/opt/app/bin/master", "--listen", "25"}, "00000000", 25)
+	if !codes(h2.scan().Recommendation.ManagedBlockers)[CodeMailPortInUse] {
+		t.Fatal("a non-Postfix 'master' on port 25 was excused")
+	}
+}

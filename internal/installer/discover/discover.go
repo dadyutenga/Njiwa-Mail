@@ -278,9 +278,18 @@ func parseKV(s string) map[string]string {
 
 type process struct {
 	pid     int
+	ppid    int
 	comm    string
+	exe     string // resolved executable path ("" when not readable)
 	cmdline []string
 	sockets map[string]bool // socket inode numbers
+}
+
+// isPostfix reports a process that belongs to Postfix (master, smtpd and
+// the other daemons), by executable path or command line, not by its name:
+// "master" and "smtpd" are common names.
+func (p process) isPostfix() bool {
+	return strings.Contains(p.exe, "/postfix/") || strings.Contains(strings.Join(p.cmdline, " "), "postfix")
 }
 
 func scanProcesses(e Env) ([]process, bool) {
@@ -303,6 +312,17 @@ func scanProcesses(e Env) ([]process, bool) {
 		p := process{pid: pid, comm: strings.TrimSpace(string(comm)), sockets: map[string]bool{}}
 		if cl, err := e.read(base + "/cmdline"); err == nil {
 			p.cmdline = strings.Split(strings.TrimRight(string(cl), "\x00"), "\x00")
+		}
+		if st, err := e.read(base + "/stat"); err == nil {
+			// "pid (comm) state ppid ...": comm may contain spaces and ")".
+			if i := strings.LastIndexByte(string(st), ')'); i > 0 {
+				if f := strings.Fields(string(st)[i+1:]); len(f) > 1 {
+					p.ppid, _ = strconv.Atoi(f[1])
+				}
+			}
+		}
+		if x, err := os.Readlink(e.path(base + "/exe")); err == nil {
+			p.exe = x
 		}
 		fds, err := os.ReadDir(e.path(base + "/fd"))
 		if err != nil {
@@ -332,15 +352,35 @@ func hasProc(ps []process, comm string) bool {
 
 func scanPorts(e Env, procs []process, r *Report) []Port {
 	// A listening socket is shared by a daemon and its workers (Postfix's
-	// master and its smtpd processes): attribute it to the parent, the
-	// lowest pid. Postfix's workers are named "smtpd", like OpenSMTPD.
-	byInode := map[string]process{}
+	// master and its smtpd processes). It belongs to the holder whose parent
+	// does not hold it too: the daemon that opened it. PIDs wrap around, so
+	// the lowest PID is only the fallback when the parents are unknown.
+	holders := map[string][]process{}
 	for _, p := range procs {
 		for s := range p.sockets {
-			if cur, ok := byInode[s]; !ok || p.pid < cur.pid {
-				byInode[s] = p
+			holders[s] = append(holders[s], p)
+		}
+	}
+	byInode := map[string]process{}
+	for inode, hs := range holders {
+		pids := map[int]bool{}
+		for _, h := range hs {
+			pids[h.pid] = true
+		}
+		var root, lowest *process
+		for i := range hs {
+			h := &hs[i]
+			if lowest == nil || h.pid < lowest.pid {
+				lowest = h
+			}
+			if h.ppid != 0 && !pids[h.ppid] && (root == nil || h.pid < root.pid) {
+				root = h
 			}
 		}
+		if root == nil {
+			root = lowest
+		}
+		byInode[inode] = *root
 	}
 	// docker-proxy publishes a container port: -host-port 25 -container-ip 172.22.1.253 -container-port 25
 	proxyTarget := map[int]string{}
@@ -389,6 +429,9 @@ func scanPorts(e Env, procs []process, r *Report) []Port {
 			pt := Port{Port: port, Address: ip.String(), Public: ip.IsUnspecified() || (!ip.IsLoopback() && !ip.IsPrivate())}
 			if p, ok := byInode[fs[9]]; ok {
 				pt.Process = p.comm
+				if p.comm == "master" && !p.isPostfix() {
+					pt.Process = "master (not Postfix)"
+				}
 				if p.comm == "docker-proxy" {
 					pt.Container = proxyTarget[port]
 				}
@@ -546,11 +589,10 @@ func scanMailServices(e Env, procs []process, r *Report) []Service {
 			for _, c := range d.comms {
 				switch {
 				case p.comm != c:
-				case d.name == "postfix" && !strings.Contains(strings.Join(p.cmdline, " "), "postfix"):
+				case d.name == "postfix" && !p.isPostfix():
 					// "master" is a common name: only Postfix's counts.
-				case d.name == "opensmtpd" && !s.Installed:
-					// Postfix's workers are also called "smtpd": OpenSMTPD
-					// counts only when its own binary is installed.
+				case d.name == "opensmtpd" && (p.isPostfix() || (!s.Installed && p.exe != "/usr/sbin/smtpd")):
+					// Postfix's workers are also called "smtpd".
 				default:
 					s.Running = true
 				}
