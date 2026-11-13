@@ -176,7 +176,9 @@ backing it up.
 - **Undo the firewall table only:** `systemctl disable --now njiwa-mail-firewall` (or `nft delete table inet njiwa_mail`).
 - **Remove Njiwa-Mail itself:** `docker compose down`. Your data stays in the volumes. Delete them yourself with `docker compose
   down -v` only after a backup (`scripts/backup.sh`).
-- **Upgrade:** `git pull`, `docker compose up -d --build`. Migrations are additive and keep every setting. Upgrades are tested by
+- **Upgrade:** `git pull`, `docker compose up -d --build`. When upgrading an installation made before the fixed database address
+  (`NJIWA_DB_IP`, `NJIWA_IP_RANGE`), recreate the network once so those take effect: `docker compose down` (without `-v`: data stays),
+  then `docker compose up -d`. Migrations are additive and keep every setting. Upgrades are tested by
   re-running migrations on a legacy snapshot.
 
 ---

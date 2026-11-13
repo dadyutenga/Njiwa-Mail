@@ -608,7 +608,7 @@ func scanMailServices(e Env, procs []process, r *Report) []Service {
 			if b, err := e.read("/etc/opendkim.conf"); err == nil {
 				if strings.HasPrefix(string(b), Marker) {
 					s.Ours = true
-				} else if signing := activeKeys(string(b), "KeyTable", "SigningTable", "KeyFile", "Domain"); len(signing) > 0 {
+				} else if signing := OpenDKIMSigning(string(b)); len(signing) > 0 {
 					s.InUse = true
 					s.Evidence = append(s.Evidence, "/etc/opendkim.conf signs mail ("+strings.Join(signing, ", ")+")")
 				}
@@ -625,6 +625,13 @@ func scanMailServices(e Env, procs []process, r *Report) []Service {
 		out = append(out, s)
 	}
 	return out
+}
+
+// OpenDKIMSigning lists the signing settings an opendkim.conf contains.
+// None means the package default, which signs nothing; the managed installer
+// uses the same rule for what -adopt may replace.
+func OpenDKIMSigning(conf string) []string {
+	return activeKeys(conf, "KeyTable", "SigningTable", "KeyFile", "Domain", "Selector")
 }
 
 func activeKeys(conf string, keys ...string) []string {

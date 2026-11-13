@@ -639,19 +639,7 @@ func installBlockers(p Params) []discover.Issue {
 // isPackageDefault reports a configuration file as shipped by the
 // distribution package, which carries no site configuration to protect.
 func isPackageDefault(path string, b []byte) bool {
-	if path != dkimConf {
-		return false
-	}
-	for _, l := range strings.Split(string(b), "\n") {
-		f := strings.Fields(l)
-		if len(f) > 0 && !strings.HasPrefix(f[0], "#") {
-			switch strings.ToLower(f[0]) {
-			case "keytable", "signingtable", "keyfile", "domain", "selector":
-				return false
-			}
-		}
-	}
-	return true
+	return path == dkimConf && len(discover.OpenDKIMSigning(string(b))) == 0
 }
 
 // missingPackages lists the programs the installer needs that are not

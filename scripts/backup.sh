@@ -30,6 +30,9 @@ fi
 if [ -n "${DATA_VOLUME:-}" ]; then
   # Compose installs keep DATA_DIR in a named volume (njiwa-mail_maildata):
   # read it through a throwaway container instead of Docker's internal path.
+  # A missing volume is an error: "docker run -v" would silently create an
+  # empty one and back that up.
+  docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1 || { echo "volume $DATA_VOLUME does not exist (see: docker volume ls)" >&2; exit 1; }
   docker run --rm -v "$DATA_VOLUME:/data:ro" "${PG_IMAGE:-postgres:16.4-alpine}" tar -C /data -czf - . > "$out/data.tgz"
 elif [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR" ]; then
   tar -C "$DATA_DIR" -czf "$out/data.tgz" .
