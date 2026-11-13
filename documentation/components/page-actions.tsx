@@ -59,11 +59,16 @@ export function PageActions({ markdownPath }: { markdownPath: string }) {
       toast("That link is not allowed.", "error");
       return;
     }
-    if (target === svc.homepage) {
-      const ok = await copyText(prompt);
-      toast(ok ? `Prompt copied. Paste it into ${svc.name}.` : "Could not copy the prompt.", ok ? "ok" : "error");
+    if (target !== svc.homepage) {
+      window.open(target, "_blank", "noopener,noreferrer");
+      return;
     }
+    // Start the copy and open the window in the same click: a window opened
+    // after an await is no longer a user action and may be blocked as a popup.
+    const copying = copyText(prompt);
     window.open(target, "_blank", "noopener,noreferrer");
+    const ok = await copying;
+    toast(ok ? `Prompt copied. Paste it into ${svc.name}.` : "Could not copy the prompt.", ok ? "ok" : "error");
   };
 
   const btn =
