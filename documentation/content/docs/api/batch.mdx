@@ -1,0 +1,47 @@
+---
+title: Batch send
+description: POST /v1/emails/batch queues up to 100 emails with one result each.
+---
+
+`POST /v1/emails/batch` takes up to 100 messages. Each item has its **own** `idempotency_key` and gets its own result. One rejected item does not undo the others, and the HTTP status is `200` whenever the batch itself could be read.
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/emails/batch" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d @- <<'JSON'
+{
+  "messages": [
+    {
+      "idempotency_key": "welcome-1001",
+      "from": "noreply@notify.example.com",
+      "to": "a@example.org",
+      "template": "account-notice",
+      "variables": { "title": "Welcome", "message": "Your account is ready." }
+    },
+    {
+      "idempotency_key": "welcome-1002",
+      "from": "noreply@notify.example.com",
+      "to": "b@example.org",
+      "template": "account-notice",
+      "variables": { "title": "Welcome", "message": "Your account is ready." }
+    }
+  ]
+}
+JSON
+```
+
+## Response
+
+```json
+{
+  "results": [
+    { "index": 0, "id": "6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11", "status": 202, "state": "queued" },
+    { "index": 1, "status": 422, "code": "invalid_recipient" }
+  ]
+}
+```
+
+`status` is the HTTP status the item would have had on its own. Retry only the items that failed with a retryable status (`429`, `5xx`), each with its own original `idempotency_key`.
+
+Limits: 1 to 100 messages (`422 invalid_batch` otherwise) and a body of at most 6 MiB. The batch endpoint takes the keys from the items, not from a header.

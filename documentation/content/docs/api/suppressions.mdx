@@ -1,0 +1,21 @@
+---
+title: Suppressions
+description: Addresses that must not receive mail, and how to manage them.
+---
+
+A suppressed address is refused at accept time with `422 recipient_suppressed`. Hard bounces add addresses automatically. With scope `suppressions:manage` you can also manage them:
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/suppressions" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "blocked@example.org", "reason": "user request"}'
+```
+
+| Call | Returns |
+|---|---|
+| `GET /v1/suppressions?limit=&offset=` | A page. Addresses are **masked** |
+| `POST /v1/suppressions` with `email` and `reason` (up to 200 characters) | `{"id": "…"}` |
+| `DELETE /v1/suppressions/{id}` | `{"ok": true}`. `{id}` may be the suppression id or the address itself |
+
+Suppressions are per project and environment. Removing one lets the address receive mail again, so only do it on the user's request.

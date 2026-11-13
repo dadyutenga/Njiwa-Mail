@@ -1,0 +1,17 @@
+---
+title: Versions and migration
+description: How these docs are versioned, and what changes between API versions.
+---
+
+These docs describe **API version 1** (`/v1`), documentation version 1.0. The version selector in the header lists every published version; today there is one.
+
+- The documentation version follows the API version. A breaking change to `/v1` would be a new `/v2` and a new documentation version; the old one stays published.
+- Adding an optional field, a new error code or a new endpoint is not breaking: ignore fields you do not know.
+- Webhook payloads carry their own `schema_version`.
+- Every page, `llms.txt` and the OpenAPI file are generated from the same source at the same version, and the build shows its source commit in the footer of `llms.txt`.
+
+## Migrating
+
+There is no earlier published API version to migrate from. If you used an earlier unreleased build, the notable differences are: `template_version` is optional; `locale`, `send_at`, `cc`, `bcc`, `priority`, attachments and raw sends exist; the states `scheduled` and `cancelled` exist; `POST /v1/emails/batch` and `/cancel` exist.
+
+The repository's `docs/public-portal/` folder has the contribution and style guide, the version policy and the migration notes.

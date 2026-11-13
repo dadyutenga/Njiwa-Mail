@@ -1,0 +1,39 @@
+---
+title: Authentication
+description: API keys, scopes, IP allowlists, and what must never leave your server.
+---
+
+Every `/v1` call (except health and unsubscribe) carries an API key as a bearer token:
+
+```http
+Authorization: Bearer dmk_sbx_<prefix>_<secret>
+```
+
+## Keys
+
+- A key belongs to **one project and one environment**. `dmk_sbx_…` is sandbox, `dmk_liv_…` is live. A sandbox key can never touch live data and the reverse.
+- The secret is shown once when the key is created. Only a hash is stored; lose it and you rotate the key.
+- Operators manage keys with `njiwa-mail key create|rotate|revoke|list` or in the dashboard. `key rotate -grace 24h` keeps the old key working for the grace period so you can switch over.
+- A key may have an expiry (`-ttl`) and an IP allowlist; a call from another address is refused with `403 ip_not_allowed`.
+
+## Scopes
+
+| Scope | Allows |
+|---|---|
+| `emails:send` | Send template emails, batch, and cancel |
+| `emails:send_raw` | Send your own `subject` and `html`/`text` (no template), and cancel |
+| `emails:read` | `GET /v1/emails/{id}` |
+| `inbound:read` | List and read inbound mail and attachments |
+| `suppressions:manage` | List, add and remove suppressions |
+
+Give an application only the scopes it needs. A call without the right scope is `403 missing_scope`.
+
+## Keep keys on the server
+
+<Callout type="warn" title="Never in a browser">
+Call the API from your backend only. A key in a web page, mobile app or frontend build can be extracted by anyone. Also keep keys out of logs, URLs, error messages and source control. A key that leaked is revoked, not "hidden".
+</Callout>
+
+## Errors
+
+A missing or wrong key is `401 invalid_api_key` with a `WWW-Authenticate: Bearer` header. See [Rate limits and errors](/docs/api/rate-limits-and-errors) for every code.

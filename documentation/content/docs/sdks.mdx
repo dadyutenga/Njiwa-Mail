@@ -1,0 +1,38 @@
+---
+title: SDKs and agent skill
+description: The Go and TypeScript clients, how to call the API from any language, and the skill for coding agents.
+---
+
+## What exists today
+
+| | Status |
+|---|---|
+| **Go** client | In the repository: `github.com/njiwa-tz/mail/njiwamail` (and the same code as `.../client`). It sends and reads status with retries on the same idempotency key, and verifies webhooks. It has **no** batch, cancel, inbound or suppression methods |
+| **TypeScript** client | One file, `clients/typescript/index.ts`: copy it into your project. It sends, cancels, reads status and verifies webhooks. **It is not published to npm** |
+| Any other language | Call the HTTP API using the [OpenAPI file](/openapi.yaml); the [quickstart](/docs/quickstart) shows curl and Python |
+
+Packages published to npm, PyPI or a Go proxy are [planned](/docs/roadmap), not available. Do not run `npm install` or `pip install` for a Njiwa-Mail package.
+
+## Go
+
+Add the module and import the client:
+
+```bash
+go get github.com/njiwa-tz/mail@latest
+```
+
+See the [quickstart](/docs/quickstart) and [Idempotency](/docs/api/idempotency) for complete programs.
+
+## Agent skill [#agent-skill]
+
+Coding agents get the same facts from three machine-readable routes, all generated from this documentation at the same version:
+
+- [`/llms.txt`](/llms.txt): an index of every page.
+- [`/llms-full.txt`](/llms-full.txt): every page in one file.
+- Every page as Markdown: add `.md` to its URL, for example `/docs/quickstart.md`.
+- [`/openapi.yaml`](/openapi.yaml) and [`/openapi.json`](/openapi.json): the API contract.
+- [`/skills/njiwa-mail-integration/SKILL.md`](/skills/njiwa-mail-integration/SKILL.md): a short skill with playbooks for OTP, password reset, webhooks, key management, DNS diagnostics, and both mail transports. It names only endpoints that exist, and a test fails if it does not.
+
+<Callout title="For agents">
+Fetch `/llms.txt`, then the page you need as `.md`, then `/openapi.yaml`. Use only what they document. If something is missing, say so instead of guessing an endpoint or a package name.
+</Callout>

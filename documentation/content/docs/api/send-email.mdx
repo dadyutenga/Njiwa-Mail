@@ -1,0 +1,67 @@
+---
+title: Send an email
+description: POST /v1/emails queues one template or raw email.
+---
+
+`POST /v1/emails` validates a message, stores it encrypted, and answers `202`. It needs scope `emails:send` (template) or `emails:send_raw` (your own subject and body). The body may be up to 6 MiB as shipped, so attachments fit.
+
+## Request
+
+| Field | Type | Rule |
+|---|---|---|
+| `from` | string | Required. An approved sender identity for the key's project and environment |
+| `to` | string | Required. One bare address. With `cc` and `bcc`, at most 10 addresses in total |
+| `template` | string | `otp`, `password-reset`, `account-notice`, or a template published for the project. Omit it for a raw send |
+| `template_version` | integer | Optional. Omitted pins the newest published version |
+| `locale` | `en` or `sw` | Default `en`. Missing Kiswahili content falls back to English |
+| `variables` | object | Names and types come from the template. HTML is escaped |
+| `ttl_seconds` | integer | Submission will not start after this. Minimum 30. Auth templates default 300 (max 900); notices default 3600 (max 86400) |
+| `metadata.request_id` | string | Optional correlation id, `[A-Za-z0-9._:-]`, up to 128. Not a secret |
+| `subject`, `html`, `text` | string | Raw send only (scope `emails:send_raw`) |
+| `reply_to`, `cc`, `bcc` | string, arrays | Optional |
+| `priority` | `high` or `normal` | `otp` and `password-reset` default to `high` |
+| `send_at` | RFC 3339 | Optional, at most 7 days ahead. The message is then `scheduled` |
+| `attachments` | array | Up to 5 files, 5 MiB in total; `application/pdf`, `image/png`, `image/jpeg`, `text/plain`; content is standard base64 |
+| `headers` | object | Optional extra headers |
+
+Unknown fields are rejected with `422 invalid_request`. Header: `Idempotency-Key` is required, see [Idempotency](/docs/api/idempotency).
+
+## Example
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/emails" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d @- <<'JSON'
+{
+  "from": "noreply@notify.example.com",
+  "to": "user@example.org",
+  "template": "password-reset",
+  "variables": {
+    "name": "Ada",
+    "reset_url": "https://app.example.com/reset?token=abc123",
+    "expires_in_minutes": 30
+  },
+  "metadata": { "request_id": "reset-9c1d" }
+}
+JSON
+```
+
+## Response
+
+`202`:
+
+```json
+{ "id": "6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11", "status": "queued" }
+```
+
+`status` is `queued`, or `scheduled` when `send_at` is in the future. A repeat with the same key and body returns the same `id` (and its current state). The same key with a different body is `409 idempotency_conflict`.
+
+## What to do with the answer
+
+1. Store the `id` if you may need to match a later webhook or status call to a user.
+2. Do not tell your user the email "was delivered". Say it was sent.
+3. If the call fails with a timeout, `429` or `5xx`, retry with the same key. Other `4xx` mean fix the request.
+
+See [Rate limits and errors](/docs/api/rate-limits-and-errors) for every code.

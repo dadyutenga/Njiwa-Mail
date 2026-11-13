@@ -1,0 +1,27 @@
+---
+title: Sandbox and live
+description: What each environment does, and what live additionally requires.
+---
+
+| | Sandbox | Live |
+|---|---|---|
+| Key prefix | `dmk_sbx_` | `dmk_liv_` |
+| Sends mail | **No.** The message is captured; the state ends as `captured` | Yes, through the active mail server |
+| Sender | Must be an approved sender | Must be an approved sender |
+| Sending domain | Not required | Must be registered for the project, ownership-verified, claimed, and passing SPF, DKIM and DMARC |
+| Recipients | Any valid address | The operator may restrict live recipients to an allowlist (`recipient_not_allowed`) |
+
+## Live checks, in order
+
+A live send is refused with a specific code when it is not ready:
+
+- `domain_not_registered`: the sender's domain is not a sending domain of this project.
+- `domain_claimed_elsewhere`: another project in this instance holds the domain, or it awaits operator review.
+- `domain_not_ready`: ownership, SPF, DKIM or DMARC does not pass yet. See [Set up DNS](/docs/dns/overview).
+- `sender_not_approved`, `project_disabled`, `ip_not_allowed`, `missing_scope`.
+
+Fix the cause and retry. Nothing was queued when a send was refused.
+
+<Callout title="Same code, two keys">
+Develop against sandbox with the same request bodies you will use live. Only the key and base URL configuration change.
+</Callout>

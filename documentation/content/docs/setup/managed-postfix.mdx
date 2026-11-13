@@ -1,0 +1,66 @@
+---
+title: Managed Postfix on your VPS
+description: Check the host, install Postfix and OpenDKIM with the reviewed installer, publish DNS, and test.
+---
+
+<Callout type="warn" title="Status: implemented, not yet verified on a clean VPS release">
+The installer and its end-to-end checks pass in a development container. A run on a clean production VPS with real DNS and mailboxes at major providers is still outstanding, so treat the first install as a supervised one and read the checks below.
+</Callout>
+
+The installer is a root-only command on the mail host. The Njiwa web process never changes host configuration.
+
+<Steps>
+<Step>
+
+### Preflight (read-only)
+
+```bash
+njiwa-mail preflight -hostname mailout.example.com -ip 203.0.113.10
+```
+
+It checks the distribution, systemd, disk, memory, clock sync, that the IP is on this host, the hostname's A record, reverse DNS (PTR) forward-confirmed, outbound port 25 (it reads a greeting, sends no mail), and any existing mail server. A check it cannot verify is reported `CANNOT_CONFIRM`, never as ready. It exits non-zero until every required check passes.
+
+</Step>
+<Step>
+
+### Install the packages
+
+```bash
+apt-get install postfix opendkim
+```
+
+Choose "No configuration" for Postfix.
+
+</Step>
+<Step>
+
+### Plan, review, apply
+
+```bash
+njiwa-mail installer plan  -hostname mailout.example.com -domains notify.example.com -bounce-domain bounce.example.com
+njiwa-mail installer apply -hostname mailout.example.com -domains notify.example.com -bounce-domain bounce.example.com -approve <digest> -record
+```
+
+`plan` prints every file it will create or change, the keys it will generate and a digest. `apply` runs only when `-approve` matches the digest of the plan recomputed at that moment. Existing files are backed up; `postfix check` and `opendkim -n` validate the result and any failure restores everything. A Postfix configuration the installer did not write, Exim, or Mailcow on the host is refused.
+
+What it sets up: Postfix delivers directly to recipient servers; port 25 accepts only mail for the bounce domain and hands it to Njiwa-Mail (no open relay); the Njiwa worker submits on a private listener (default `127.0.0.1:10587`) that needs the client certificate the installer issued (mutual TLS) and accepts only your sending domains as senders; OpenDKIM signs from that listener only, and if the signer is down the listener refuses mail rather than sending it unsigned.
+
+</Step>
+<Step>
+
+### Publish DNS and test
+
+Publish the DKIM records `apply` prints plus the records on the Domains page ([DNS setup](/docs/dns/overview)), then run the connection test on the Delivery infrastructure page. Managed mode can be activated only after it passes.
+
+</Step>
+</Steps>
+
+## Day two
+
+- `njiwa-mail installer status` shows the latest receipt; `installer rollback` restores the files from an apply's backup.
+- Adding sending domains later: run `plan` and `apply` again.
+- DKIM key rotation is staged: `njiwa-mail installer dkim-rotate prepare|activate|cancel|retire|status`.
+- Client certificates need renewing before they expire; the dashboard warns, and the installer renews them.
+- Delivery evidence from the Postfix log (`njiwa-mail mta-log`) and the optional mail queue screen are described in [operations](/docs/operations/install-and-upgrade).
+
+Fix problems with [Troubleshooting](/docs/operations/troubleshooting). Backups include private keys: see [Backups and restore](/docs/operations/backups-and-restore).

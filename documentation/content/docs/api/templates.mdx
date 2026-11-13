@@ -1,0 +1,24 @@
+---
+title: Templates
+description: The built-in templates, their variables, locales, and custom templates.
+---
+
+A template send names a template and supplies `variables`. The service renders subject, text and HTML; HTML in a variable is escaped. A raw send (`subject` plus `html` and/or `text`, scope `emails:send_raw`) bypasses templates.
+
+## Built-in templates
+
+| Template | Variables | Default priority |
+|---|---|---|
+| `otp` | `name` (optional), `code` (4 to 12 letters or digits), `expires_in_minutes` (1 to 60) | `high` |
+| `password-reset` | `name` (optional), `reset_url` (https, origin approved for the environment), `expires_in_minutes` (1 to 1440) | `high` |
+| `account-notice` | `name` (optional), `title` (up to 100, one line), `message` (up to 1000, no HTML) | `normal` |
+
+`reset_url` must be an `https` URL whose origin the operator approved for that environment (`njiwa-mail env origins`). Anything else is refused.
+
+## Locales
+
+`locale` is `en` (default) or `sw` (Kiswahili). If a template has no Kiswahili content, English is used.
+
+## Versions and custom templates
+
+Each template has published versions. Omit `template_version` to use the newest published version; pass a number to pin one. Projects can publish their own templates in the dashboard; a template you publish is then usable by its slug, with the variables it declares. There is no public endpoint to list templates: read them in the dashboard.

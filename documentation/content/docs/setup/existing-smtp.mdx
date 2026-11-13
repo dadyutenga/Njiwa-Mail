@@ -1,0 +1,34 @@
+---
+title: Existing SMTP server
+description: Connect Njiwa-Mail to an SMTP server you already have.
+---
+
+Njiwa-Mail submits mail to your server over TLS with a dedicated account. It changes nothing on that server.
+
+## 1. Prepare the account
+
+- Create a dedicated submission account. Do not use a personal or admin account.
+- Allow it to send as every sender address you will approve in Njiwa-Mail, and as the return-path address if you use one.
+- Use port **587 with STARTTLS** or **465 with TLS**. Plain-text SMTP is not supported, and the server certificate must match the host name.
+
+## 2. Enter it
+
+In the dashboard open **Delivery infrastructure**, choose existing SMTP, and enter host, port, encryption, username and password (stored encrypted, never shown again). Or set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` in the environment; the environment wins.
+
+Then run the connection test. It verifies TLS, authenticates and checks the sender, and sends nothing. From the host you can also run:
+
+```bash
+njiwa-mail smtp-check
+```
+
+## 3. Tell Njiwa-Mail what your server sends from
+
+Njiwa-Mail cannot see your server's sending addresses or its DKIM signer, so SPF and DKIM start as templates. Under **What your mail server sends from** enter the sending IP addresses or ranges (public only) or the SPF `include:` domain, and the DKIM selector. On each domain's page enter the public key your server signs that domain with. They become real checks.
+
+## 4. DNS and live
+
+Publish the [DNS records](/docs/dns/overview), wait for the domain to verify, approve a sender, and use a live key. Test with one message to a mailbox you control and read the original message headers for DKIM and SPF results.
+
+## When your server accepts but mail does not arrive
+
+`submitted` means your server accepted the message. What happens next is your server's responsibility: read its logs, and use [bounce](/docs/webhooks) events. Njiwa-Mail does not see inside a server it does not run.

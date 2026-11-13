@@ -1,0 +1,18 @@
+---
+title: Limitations and roadmap
+description: What is not available today, so you do not build against it.
+---
+
+| Item | Status |
+|---|---|
+| Packages for npm, PyPI or a Go proxy | **PLANNED.** Copy the Go module or the one TypeScript file for now |
+| Go client methods for batch, cancel, inbound and suppressions | **PLANNED.** Call the HTTP API |
+| One-click DNS through Domain Connect | **PLANNED.** Needs a registered template. Cloudflare one-click exists; see [DNS setup](/docs/dns/overview) |
+| Cloudflare sign-in (OAuth) | Available only if your operator registered an OAuth client; API tokens always work |
+| Try-it console on this site | **Intentionally disabled.** It would need explicit scoped authentication and auditing |
+| [Documentation MCP tools](/docs/planned/documentation-mcp) | **PLANNED**, read-only |
+| A `delivered` status or event | **Never.** The service cannot prove delivery |
+| Managed Postfix verified on a clean production VPS | Implemented; real-host evidence still outstanding |
+| A native-speaker review of the Kiswahili | Outstanding |
+
+Anything marked PLANNED may change or never ship. Do not build against it.

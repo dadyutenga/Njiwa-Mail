@@ -1,0 +1,23 @@
+---
+title: Inbound mail
+description: Read mail received at your inbound addresses, with the inbound:read scope.
+---
+
+When an operator sets up a receiving domain and an inbound address, mail to it is parsed and stored. Read it with a key that has `inbound:read`.
+
+```bash curl-check
+curl -sS "$NJIWA_MAIL_URL/v1/inbound?limit=20" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY"
+```
+
+| Call | Returns |
+|---|---|
+| `GET /v1/inbound?q=&limit=&offset=` | A page: `items`, `has_more`, `limit`, `offset`. `limit` is 1 to 100 (default 50) |
+| `GET /v1/inbound/{id}` | One message: headers, `text`, `html`, and its attachment list |
+| `GET /v1/inbound/{id}/attachments/{aid}` | The file, always as `application/octet-stream` with `Content-Disposition: attachment` |
+
+<Callout type="warn" title="Inbound content is untrusted">
+`text`, `html` and attachments come from outside senders. Never render `html` without sanitizing it, and never open an attachment automatically. Bodies and attachments are removed after the retention period the operator configured.
+</Callout>
+
+The `inbound.received` [webhook](/docs/webhooks) tells you when something arrived; it carries ids only.

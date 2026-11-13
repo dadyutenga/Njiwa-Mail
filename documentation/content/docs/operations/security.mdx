@@ -1,0 +1,16 @@
+---
+title: Security model
+description: What is protected, what is not, and how to report a problem.
+---
+
+- **Keys:** bearer secrets stored as hashes; shown once; scoped; optionally IP-restricted and expiring. Keep them on servers only.
+- **Data at rest:** message payloads, inbound bodies and attachments, SMTP passwords, webhook secrets and DNS provider tokens are sealed with `ENCRYPTION_KEY`. Rotate it with `rekey`.
+- **Data in the API:** status responses never include variables, tokens or the recipient. Webhook payloads carry ids and states only.
+- **Webhooks:** signed, with a replay window; SSRF-guarded on every connection; redirects never followed.
+- **Operator API:** `/admin/v1` is for the dashboard and operators with a session and CSRF protection. Do not publish it, and do not route this documentation site to it.
+- **Mail:** managed submission uses mutual TLS and fails closed without the DKIM signer; there is no open relay.
+- **Delivery:** the system cannot prove delivery and says so everywhere.
+
+## Reporting a vulnerability
+
+Do not open a public issue with exploit details. Contact the operator of your instance, and the maintainers through the repository's security contact.

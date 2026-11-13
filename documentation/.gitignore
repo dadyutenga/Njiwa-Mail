@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+.source
+public/llms.txt
+public/llms-full.txt
+public/openapi.yaml
+public/openapi.json
+public/docs/**/*.md
+public/docs/*.md
+public/skills
+public/versions.json
+playwright-report
+test-results
+.snippet-check
+next-env.d.ts
+shots

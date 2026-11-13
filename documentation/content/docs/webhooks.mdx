@@ -1,0 +1,143 @@
+---
+title: Webhooks
+description: Signed events about your messages and inbound mail, how to verify them, and how retries work.
+---
+
+Njiwa-Mail posts a signed JSON event to your endpoint when something happens to a message you sent, or when mail arrives for one of your inbound addresses. An administrator creates endpoints in the dashboard.
+
+## Events
+
+| Type | When | `data` |
+|---|---|---|
+| `email.submitted` | Your mail server acknowledged the message. This is **not** proof of delivery | `message_id`, `state`, `reason`, `template`, `request_id` |
+| `email.failed` | Permanent failure before acceptance, or retries exhausted | same |
+| `email.unknown` | Acceptance could not be confirmed; an operator will reconcile | same |
+| `email.expired` | The time to live passed before submission started | same |
+| `email.bounced` | A delivery status notification came back | `message_id`, `bounce_id`, `type` (`hard`, `soft`, `policy`, `unknown`), `status`, `suppressed` |
+| `email.delivery_deferred` | The mail server log shows the recipient's server has not accepted it yet | `message_id`, `event`, `status` |
+| `email.delivery_remote_accepted` | The mail server log shows the recipient's server accepted it. This does **not** show inbox placement | same |
+| `email.delivery_bounced` | The mail server log shows a permanent rejection | same |
+| `email.delivery_expired_in_queue` | The mail server gave up retrying | same |
+| `inbound.received` | Mail was parsed for one of your inbound addresses | `inbound_id`, `address_id`, `attachment_count`, `raw_size` |
+
+There is no `email.delivered` event and there never will be: the service cannot prove delivery. The `email.delivery_*` events come from the mail server log and exist only when the log collector runs; a message's `state` never changes because of them.
+
+Payloads carry ids, states and safe reason codes. They never contain bodies, variables, tokens or recipient addresses.
+
+## The request
+
+```http
+POST https://your-app.example.com/hooks/njiwa
+Content-Type: application/json
+X-DM-Event-ID: 6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11
+X-DM-Event-Type: email.bounced
+X-DM-Schema-Version: 1
+X-DM-Signature: t=1794222000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
+```
+
+```json
+{
+  "id": "6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11",
+  "type": "email.bounced",
+  "schema_version": 1,
+  "created_at": "2026-11-09T10:00:00Z",
+  "data": { "message_id": "…", "bounce_id": "…", "type": "hard", "status": "5.1.1", "suppressed": true }
+}
+```
+
+## Verify the signature
+
+1. Read the **raw** body before parsing it.
+2. Split `X-DM-Signature` into `t` and `v1`.
+3. Compute `HMAC-SHA256(signing_secret, t + "." + raw_body)` as hex.
+4. Compare with `v1` in constant time.
+5. Reject if `t` is more than **five minutes** from your clock.
+
+The signing secret (`whsec_…`) is shown once when the endpoint is created or its secret is rotated. Keep it in server configuration.
+
+<Tabs items={["Go", "TypeScript", "Python"]}>
+<Tab value="Go">
+
+```go check
+package main
+
+import (
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"time"
+
+	mail "github.com/njiwa-tz/mail/njiwamail"
+)
+
+func main() {
+	http.HandleFunc("/hooks/njiwa", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+		ev, err := mail.VerifyWebhook(os.Getenv("NJIWA_WEBHOOK_SECRET"), r.Header.Get("X-DM-Signature"), body, time.Now())
+		if err != nil {
+			http.Error(w, "bad signature", http.StatusUnauthorized)
+			return
+		}
+		log.Println(ev.ID, ev.Type) // store ev.ID and ignore ids you already handled
+		w.WriteHeader(http.StatusNoContent)
+	})
+	log.Fatal(http.ListenAndServe(":8081", nil))
+}
+```
+
+</Tab>
+<Tab value="TypeScript">
+
+`verifyWebhook` is exported by the same `njiwa-mail.ts` file as the client.
+
+```ts check
+import { verifyWebhook } from "./njiwa-mail";
+
+export async function handle(rawBody: string, signature: string): Promise<number> {
+  const ok = await verifyWebhook(process.env.NJIWA_WEBHOOK_SECRET!, signature, rawBody, Math.floor(Date.now() / 1000));
+  if (!ok) return 401;
+  const event = JSON.parse(rawBody) as { id: string; type: string };
+  console.log(event.id, event.type); // store event.id and ignore ids you already handled
+  return 204;
+}
+```
+
+</Tab>
+<Tab value="Python">
+
+```python check
+import hashlib
+import hmac
+import os
+import time
+
+
+def verify(signature_header: str, raw_body: bytes) -> bool:
+    parts = dict(p.strip().split("=", 1) for p in signature_header.split(","))
+    timestamp, signature = parts.get("t", ""), parts.get("v1", "")
+    if not timestamp.isdigit() or abs(time.time() - int(timestamp)) > 300:
+        return False
+    secret = os.environ["NJIWA_WEBHOOK_SECRET"].encode()
+    expected = hmac.new(secret, timestamp.encode() + b"." + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+```
+
+</Tab>
+</Tabs>
+
+## Respond, retries, duplicates
+
+- Answer **2xx within 10 seconds**; do slow work afterwards. Any other status, a timeout or a redirect is a failure. Redirects are never followed.
+- Delivery is **at least once**. Store `id` and ignore one you already processed; a retry and a replay carry the same `id`.
+- Failed deliveries retry after about 30 s, 2 min, 10 min, 30 min, 1 h, 2 h, 4 h, 6 h and 10 h (roughly 24 hours), then are marked `dead`. An operator can replay any finished delivery.
+- After 20 consecutive failed attempts (configurable) the endpoint is disabled and an alert is raised. Events that happen while it is disabled are **not queued**; read current state through the API after re-enabling.
+- Events are not ordered. Use `GET /v1/emails/{id}` when you need the current state.
+
+## Schema versions
+
+Every event carries `schema_version` (an integer, also sent as `X-DM-Schema-Version`). It is `1` today. Adding a field does not change it: ignore fields you do not know. Changing or removing a field adds a new version, and an endpoint keeps receiving the version it is pinned to.
+
+## Endpoint rules
+
+HTTPS only, a public hostname, no credentials in the URL. Private, loopback, link-local and other reserved addresses are refused when the endpoint is saved and again on every connection.

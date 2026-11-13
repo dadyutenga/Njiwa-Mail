@@ -1,0 +1,46 @@
+---
+title: Install and upgrade
+description: Run an instance with Docker Compose, the roles, health checks, and upgrades.
+---
+
+## Install
+
+```bash
+cp .env.example .env     # fill POSTGRES_PASSWORD, ENCRYPTION_KEY, HMAC_KEY; leave SMTP_* empty for sandbox
+docker compose up -d --build
+
+CLI="docker compose run --rm api"
+$CLI project create -name myapp
+docker compose run --rm -T api user create -email you@example.com -role admin <<< 'a-long-password'
+```
+
+Without Docker: build with `go build -o njiwa-mail ./cmd/njiwa-mail`, set the variables from `.env.example`, run `njiwa-mail migrate`, then `serve`, `worker` and `scheduler` (systemd units are in `deploy/`). Put the API behind HTTPS with `deploy/nginx.conf`.
+
+`ENCRYPTION_KEY` and `HMAC_KEY` are **not** part of a database backup. Store them separately and protected: without them, encrypted payloads cannot be read.
+
+## Roles
+
+| Role | Command | Does |
+|---|---|---|
+| api | `serve` | Application API, operator API, health, metrics |
+| worker | `worker` | Outbound submission, retries, webhook delivery |
+| scheduler | `scheduler` | Retention, lease recovery, daily DNS check, bounce-rate alerts |
+| inbound | `inbound` | Private SMTP listener for inbound mail and bounces (optional) |
+
+Each is safe to restart at any time and to run more than once.
+
+## Health and metrics
+
+`GET /health/live` (process) and `GET /health/ready` (database and schema). With `METRICS_TOKEN` set, `GET /metrics` serves Prometheus text with a bearer token. Alert on a role being down, a rising oldest-queued age, any `unknown`, rising `failed` or `retry_wait`, open alerts, and dead webhook deliveries.
+
+## Upgrade
+
+1. Take a `pg_dump` and keep the previous image tag.
+2. Deploy the new image and run `njiwa-mail migrate` (the compose file does this). Migrations are forward-only.
+3. Check `/health/ready`, send one sandbox message, and read the dashboard's installation page.
+
+A binary older than the database may not run against it (for example, an old release cannot read sealed attachments or signed return paths). Read the release notes before an upgrade, and see [Rollback](/docs/operations/backups-and-restore#rollback).
+
+## Rotating the encryption key
+
+Put the new key in `ENCRYPTION_KEY` and the old one in `ENCRYPTION_KEY_PREVIOUS`, run `njiwa-mail rekey -check` and then `njiwa-mail rekey` until nothing is left, then remove the old key.

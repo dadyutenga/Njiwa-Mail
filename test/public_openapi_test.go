@@ -228,9 +228,9 @@ func TestPublicOpenAPIScopesStatesAndCodesMatchSource(t *testing.T) {
 	// Error codes: everything the spec lists exists in source, and every code
 	// the public paths can return is listed somewhere in the spec.
 	src := goSource(t, "internal/service/accept.go", "internal/service/auth.go", "internal/service/status.go", "internal/service/claims.go",
-		"internal/service/product.go", "internal/service/adminviews.go", "internal/service/templates.go", "internal/api/api.go")
+		"internal/service/product.go", "internal/service/adminviews.go", "internal/service/templates.go", "internal/api/api.go", "internal/tmpl/tmpl.go")
 	known := map[string]bool{}
-	for _, r := range []*regexp.Regexp{regexp.MustCompile(`invalid\("([a-z_]+)"\)`), regexp.MustCompile(`newErr\(\d+, "([a-z_]+)"\)`), regexp.MustCompile(`Code: "([a-z_]+)"`)} {
+	for _, r := range []*regexp.Regexp{regexp.MustCompile(`invalid\("([a-z_]+)"\)`), regexp.MustCompile(`newErr\(\d+, "([a-z_]+)"\)`), regexp.MustCompile(`Code: "([a-z_]+)"`), regexp.MustCompile(`bad\("([a-z_]+)"\)`)} {
 		for _, mm := range r.FindAllStringSubmatch(src, -1) {
 			known[mm[1]] = true
 		}
@@ -250,8 +250,8 @@ func TestPublicOpenAPIScopesStatesAndCodesMatchSource(t *testing.T) {
 	}
 	// Codes that are not API errors a client sees, or that are documented elsewhere.
 	ignore := map[string]bool{"internal_error": true, "forbidden": true, "unauthenticated": true, "body_too_large": true}
-	accept := goSource(t, "internal/service/accept.go")
-	for _, r := range []*regexp.Regexp{regexp.MustCompile(`invalid\("([a-z_]+)"\)`), regexp.MustCompile(`newErr\(\d+, "([a-z_]+)"\)`), regexp.MustCompile(`Code: "([a-z_]+)"`)} {
+	accept := goSource(t, "internal/service/accept.go", "internal/tmpl/tmpl.go")
+	for _, r := range []*regexp.Regexp{regexp.MustCompile(`invalid\("([a-z_]+)"\)`), regexp.MustCompile(`newErr\(\d+, "([a-z_]+)"\)`), regexp.MustCompile(`Code: "([a-z_]+)"`), regexp.MustCompile(`bad\("([a-z_]+)"\)`)} {
 		for _, mm := range r.FindAllStringSubmatch(accept, -1) {
 			if !listed[mm[1]] && !ignore[mm[1]] {
 				t.Errorf("accept.go can return %q but docs/openapi.yaml does not list it", mm[1])

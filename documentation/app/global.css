@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+@source "../node_modules/fumadocs-ui/dist/**/*.js";
+
+/* Fumadocs' neutral muted text is just under WCAG AA on the card and secondary backgrounds. */
+:root {
+  --color-fd-muted-foreground: hsl(0 0% 32%);
+}
+.dark {
+  --color-fd-muted-foreground: hsl(0 0% 74%);
+}
+
+/* The high-contrast theme's comment colour is 4.46:1 on the code background; AA needs 4.5:1. */
+span[style*="--shiki-light:#66707B"] {
+  --shiki-light: #4b5560 !important;
+}

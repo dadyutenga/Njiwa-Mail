@@ -1,0 +1,34 @@
+---
+title: Projects and architecture
+description: Projects, environments, keys, senders, domains and the services that run an instance.
+---
+
+## The model
+
+| Thing | What it is |
+|---|---|
+| **Project** | One application. It has its own keys, senders, templates, webhooks, quotas and domains. |
+| **Environment** | `sandbox` or `live`, per project. Keys, senders, allowed origins and recipient rules are per environment. |
+| **API key** | A bearer secret for one project and environment, with scopes. |
+| **Sender identity** | An address a project may send from (`from`). It must be approved for the environment. |
+| **Sending domain** | A domain the project proved it owns and whose SPF, DKIM and DMARC pass. Live mail needs it. |
+| **Allowed origin** | The https origins a link in a message (such as `reset_url`) may point to. |
+
+One application is one project. There is no per-application adapter or package: every app uses the same API.
+
+## What runs
+
+| Role | Does |
+|---|---|
+| `api` | The application API (`/v1`), the operator API and dashboard backend, health, and metrics |
+| `worker` | Submits queued messages to your mail server, retries, and delivers webhooks |
+| `scheduler` | Retention, lease recovery, DNS checks, bounce-rate alerts |
+| `inbound` | Optional private SMTP listener that parses inbound mail and bounces |
+| PostgreSQL | All state. Payloads are encrypted at rest |
+| Mail server | Managed Postfix and OpenDKIM, or your existing SMTP server |
+
+Every role is safe to restart at any time. A worker that dies mid-send leaves the message `unknown`; it is never resent automatically.
+
+## Two APIs
+
+The **application API** (`/v1`, documented here) is for your services. The **operator API** (`/admin/v1`) and the dashboard are for the people who run the instance. Do not call the operator API from an application, and never expose it on a public reverse proxy rule meant for these docs.

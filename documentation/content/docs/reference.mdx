@@ -1,0 +1,23 @@
+---
+title: OpenAPI reference
+description: The machine-readable contract and a table of every public operation.
+---
+
+The contract is [`/openapi.yaml`](/openapi.yaml) (also [`/openapi.json`](/openapi.json)). It is checked against the server's real routes, scopes, states and error codes on every change.
+
+| Operation | Scope | Page |
+|---|---|---|
+| `POST /v1/emails` | `emails:send` or `emails:send_raw` | [Send an email](/docs/api/send-email) |
+| `POST /v1/emails/batch` | as above, per item | [Batch send](/docs/api/batch) |
+| `GET /v1/emails/{id}` | `emails:read` | [Status and cancel](/docs/api/status-and-cancel) |
+| `POST /v1/emails/{id}/cancel` | `emails:send` or `emails:send_raw` | [Status and cancel](/docs/api/status-and-cancel) |
+| `GET /v1/inbound` | `inbound:read` | [Inbound mail](/docs/api/inbound) |
+| `GET /v1/inbound/{id}` | `inbound:read` | [Inbound mail](/docs/api/inbound) |
+| `GET /v1/inbound/{id}/attachments/{aid}` | `inbound:read` | [Inbound mail](/docs/api/inbound) |
+| `GET /v1/suppressions` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |
+| `POST /v1/suppressions` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |
+| `DELETE /v1/suppressions/{id}` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |
+| `GET`, `POST /v1/unsubscribe/{token}` | none (token in the link) | Opened by recipients from bulk mail |
+| `GET /health/live`, `GET /health/ready` | none | [Install and upgrade](/docs/operations/install-and-upgrade) |
+
+The operator API (`/admin/v1`) is not part of this contract and is not documented here.

@@ -1,0 +1,168 @@
+---
+title: Quickstart
+description: Send a sandbox email from your server, read its status, and learn what to do next.
+---
+
+This takes about ten minutes once you have a running instance. Sandbox sends nothing: the message is captured so you can test your integration safely.
+
+<Steps>
+<Step>
+
+### Get a project and a sandbox key from your operator
+
+The person who runs your instance creates one project per application and gives you a sandbox key. If that is you, run these on the instance (the secret is shown once):
+
+```bash
+njiwa-mail project create -name myapp
+njiwa-mail env origins -project myapp -mode sandbox -origin https://app.example.com
+njiwa-mail sender add -project myapp -mode sandbox -email noreply@notify.example.com -display "My App"
+njiwa-mail key create -project myapp -mode sandbox -scopes emails:send,emails:read -label myapp-sandbox
+```
+
+Store the key in your server's configuration, never in a browser or mobile app:
+
+```bash
+export NJIWA_MAIL_URL="https://mail-api.example.com"
+export NJIWA_MAIL_API_KEY="dmk_sbx_..."
+```
+
+</Step>
+<Step>
+
+### Send one email
+
+Use one new `Idempotency-Key` for each logical event (one OTP, one reset). Retries of that same event reuse it.
+
+<Tabs items={["curl", "TypeScript", "Go", "Python"]}>
+<Tab value="curl">
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/emails" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d @- <<'JSON'
+{
+  "from": "noreply@notify.example.com",
+  "to": "user@example.org",
+  "template": "otp",
+  "locale": "en",
+  "variables": { "name": "Ada", "code": "482913", "expires_in_minutes": 5 }
+}
+JSON
+```
+
+</Tab>
+<Tab value="TypeScript">
+
+Copy `clients/typescript/index.ts` from the repository into your project as `njiwa-mail.ts` (it is not published as a package).
+
+```ts check
+import { randomUUID } from "node:crypto";
+import { NjiwaMail } from "./njiwa-mail";
+
+const mail = new NjiwaMail(process.env.NJIWA_MAIL_URL!, process.env.NJIWA_MAIL_API_KEY!);
+
+const accepted = await mail.send(randomUUID(), {
+  from: "noreply@notify.example.com",
+  to: "user@example.org",
+  template: "otp",
+  locale: "en",
+  variables: { name: "Ada", code: "482913", expires_in_minutes: 5 },
+});
+console.log(accepted.id, accepted.status);
+```
+
+</Tab>
+<Tab value="Go">
+
+```go check
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	mail "github.com/njiwa-tz/mail/njiwamail"
+)
+
+func main() {
+	c := mail.New(os.Getenv("NJIWA_MAIL_URL"), os.Getenv("NJIWA_MAIL_API_KEY"))
+	res, err := c.Send(context.Background(), mail.NewIdempotencyKey("otp"), mail.Email{
+		From:      "noreply@notify.example.com",
+		To:        "user@example.org",
+		Template:  "otp",
+		Locale:    "en",
+		Variables: map[string]any{"name": "Ada", "code": "482913", "expires_in_minutes": 5},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(res.ID, res.Status)
+}
+```
+
+</Tab>
+<Tab value="Python">
+
+```python check
+import os
+import uuid
+
+import requests
+
+response = requests.post(
+    os.environ["NJIWA_MAIL_URL"] + "/v1/emails",
+    headers={
+        "Authorization": "Bearer " + os.environ["NJIWA_MAIL_API_KEY"],
+        "Idempotency-Key": str(uuid.uuid4()),
+    },
+    json={
+        "from": "noreply@notify.example.com",
+        "to": "user@example.org",
+        "template": "otp",
+        "locale": "en",
+        "variables": {"name": "Ada", "code": "482913", "expires_in_minutes": 5},
+    },
+    timeout=10,
+)
+response.raise_for_status()
+print(response.json())
+```
+
+</Tab>
+</Tabs>
+
+A successful call answers `202`:
+
+```json
+{ "id": "6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11", "status": "queued" }
+```
+
+</Step>
+<Step>
+
+### Read the status
+
+```bash curl-check
+curl -sS "$NJIWA_MAIL_URL/v1/emails/$MESSAGE_ID" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY"
+```
+
+In sandbox the worker moves the message to `captured`: it was processed and nothing was sent. In live it moves to `submitted` when your mail server accepts it. The response never contains the recipient or your variables.
+
+</Step>
+<Step>
+
+### Go live
+
+Live needs a verified sending domain, an approved sender, a live key and your operator's mail setup. Read [Sandbox and live](/docs/concepts/sandbox-and-live) and [Set up DNS](/docs/dns/overview).
+
+</Step>
+</Steps>
+
+<Callout title="Retry safely">
+If a call times out, send it again with the **same** `Idempotency-Key`. You get the original message id, never a second email. See [Idempotency](/docs/api/idempotency).
+</Callout>

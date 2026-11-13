@@ -1,0 +1,56 @@
+---
+title: Status and cancel
+description: Read a message's state, and cancel one that has not started submission.
+---
+
+## Status
+
+`GET /v1/emails/{id}` needs scope `emails:read`. It returns metadata only: never your variables, tokens or the recipient. A message of another project or environment is a plain `404`.
+
+```bash curl-check
+curl -sS "$NJIWA_MAIL_URL/v1/emails/$MESSAGE_ID" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY"
+```
+
+```json
+{
+  "id": "6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11",
+  "status": "submitted",
+  "template": "otp",
+  "template_version": 1,
+  "attempts": 1,
+  "smtp_reply": "2.0.0 Ok: queued as 4F2A91",
+  "created_at": "2026-11-13T09:00:00Z",
+  "updated_at": "2026-11-13T09:00:02Z",
+  "expires_at": "2026-11-13T09:05:00Z",
+  "submitted_at": "2026-11-13T09:00:02Z",
+  "metadata": { "request_id": "login-7f3a" },
+  "events": [{ "type": "submitted", "at": "2026-11-13T09:00:02Z" }]
+}
+```
+
+## States
+
+| State | Meaning |
+|---|---|
+| `queued` | Stored, waiting for a worker |
+| `scheduled` | Stored, waiting for `send_at` |
+| `submitting` | A worker is handing it to the mail server |
+| `retry_wait` | A temporary failure; a bounded retry is coming |
+| `submitted` | The mail server **acknowledged** it. This is not delivery |
+| `failed` | A permanent failure, or retries were exhausted |
+| `unknown` | Acceptance may have happened but could not be confirmed. An operator reconciles it; **never resend blindly** |
+| `expired` | The time to live passed before submission started |
+| `captured` | Sandbox only: processed, nothing was sent |
+| `cancelled` | Cancelled before submission started |
+
+## Cancel
+
+`POST /v1/emails/{id}/cancel` needs `emails:send` or `emails:send_raw`. It works only while the message is `queued` or `scheduled`.
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/emails/$MESSAGE_ID/cancel" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY"
+```
+
+`200 {"status":"cancelled"}`. A second cancel, or a cancel after submission started, is `409 not_cancellable`. A `submitted` message cannot be recalled.

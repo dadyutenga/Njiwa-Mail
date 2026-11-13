@@ -1,0 +1,75 @@
+---
+title: Idempotency
+description: One key per logical event, reused on every retry, so a retry never sends a second email.
+---
+
+`POST /v1/emails` requires an `Idempotency-Key` header: 8 to 128 characters from `A-Za-z0-9._:-`. In a batch it is the `idempotency_key` of each item.
+
+## The rules
+
+1. **One key per logical event.** One OTP issued is one event. A new OTP for the same user is a new event and gets a **new** key.
+2. **Reuse the key on every retry of that event**, after a timeout, a network error, `429` or `5xx`.
+3. Same key and same body returns the **same message id**. You never get two emails.
+4. Same key with a **different** body is `409 idempotency_conflict`. Treat it as a bug in your code.
+5. Do not derive the key from the user's address alone, or a second code for that user would be swallowed as a duplicate.
+
+## Example
+
+Generate the key when you decide to send, store it with your own event record, and reuse it:
+
+```ts check
+import { randomUUID } from "node:crypto";
+import { NjiwaMail } from "./njiwa-mail";
+
+const mail = new NjiwaMail(process.env.NJIWA_MAIL_URL!, process.env.NJIWA_MAIL_API_KEY!);
+
+export async function sendOtp(to: string, code: string) {
+  const key = randomUUID(); // one per OTP issued; keep it for retries of this OTP
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await mail.send(key, {
+        from: "noreply@notify.example.com",
+        to,
+        template: "otp",
+        variables: { code, expires_in_minutes: 5 },
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("retryable")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt));
+    }
+  }
+  throw new Error("could not queue the email; try again later");
+}
+```
+
+The Go client retries for you with the same key:
+
+```go check
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"os"
+
+	mail "github.com/njiwa-tz/mail/njiwamail"
+)
+
+func main() {
+	c := mail.New(os.Getenv("NJIWA_MAIL_URL"), os.Getenv("NJIWA_MAIL_API_KEY"))
+	key := mail.NewIdempotencyKey("reset") // one per logical event
+	_, err := c.Send(context.Background(), key, mail.Email{
+		From: "noreply@notify.example.com", To: "user@example.org", Template: "otp",
+		Variables: map[string]any{"code": "482913", "expires_in_minutes": 5},
+	})
+	var apiErr *mail.APIError
+	if errors.As(err, &apiErr) && apiErr.Retryable() {
+		log.Println("still failing after retries; keep the key and try again later")
+	}
+}
+```
+
+<Callout type="warn" title="Uncertain result">
+If you cannot tell whether a send succeeded, do not send the same event through another provider. Ask Njiwa-Mail with the same key, or read the status once you have the id.
+</Callout>

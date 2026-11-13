@@ -1,0 +1,11 @@
+---
+title: Documentation MCP tools
+description: Optional read-only tools that would let an agent search these docs. Not built.
+status: planned
+---
+
+A read-only Model Context Protocol server over these docs is being considered after the static documentation, `llms.txt` and the agent skill. It would offer: search the docs, fetch a page as Markdown, fetch an OpenAPI operation.
+
+It would never send email, change DNS, read SMTP or DNS secrets, or reach any private data, and it would not need authentication because it would only serve public text.
+
+Until it exists, agents should use [`/llms.txt`](/llms.txt), the `.md` pages and [`/openapi.yaml`](/openapi.yaml).

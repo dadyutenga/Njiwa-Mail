@@ -1,0 +1,32 @@
+---
+title: DNS setup
+description: The records a sending domain needs, how Njiwa-Mail checks them, and the three ways to publish them.
+---
+
+A live sending domain needs DNS records that prove you own it and let receivers trust its mail. The **Domains** page of the dashboard shows the exact records for your delivery mode, built from your real setup, never from a template that names someone else's server.
+
+| Record | Purpose |
+|---|---|
+| Ownership `TXT` (`njiwa-mail-verify=…`) | Proves the domain is yours |
+| `SPF` `TXT` | Authorises the server that sends your mail. One SPF record per name |
+| `DKIM` `TXT` at `<selector>._domainkey` | Publishes the key your mail server signs with |
+| `DMARC` `TXT` at `_dmarc` | Tells receivers what to do with mail that fails. Starts at `p=none` |
+| `MX` for the return-path (bounce) domain | Lets bounces come back to your instance |
+
+Mail hostnames must be **DNS only**, never proxied (the orange cloud on Cloudflare cannot carry SMTP).
+
+## Three ways to publish
+
+1. **Manual.** Copy each record from the Domains page into any DNS provider's panel, then press **Check now**. This always works.
+2. **One-click with Cloudflare.** The Domain page's wizard reads your zone, shows a reviewed change set, and applies it only after you approve the exact changes. It never deletes records, never replaces an MX, never touches your website's A, AAAA or CNAME records, and merges into your one SPF record only when that is safe. Disconnecting never removes records. It is implemented and tested against a simulated Cloudflare; it has **not yet been run against a real Cloudflare account**, so try it on a zone you can afford to experiment on.
+3. **Another DNS provider**: use the manual way. Other providers are not automated.
+
+## What "verified" means
+
+Each record shows **Pending**, **Verified**, **Failed** or **Needs action**. A domain is ready when ownership, SPF, DKIM and DMARC pass (and, for managed delivery, the sending IP has a matching reverse DNS name and outbound port 25 works). Ready means your DNS is correct. It does not guarantee inbox delivery, and a published DKIM key does not prove your mail is signed: send a test message and use **Proof that mail is signed** on the domain page.
+
+DNS changes can take time to spread. The check repeats on its own for a while after you publish.
+
+## Next
+
+[Domain verification](/docs/dns/domain-verification) explains each check and what to do when one fails.

@@ -1,0 +1,44 @@
+{
+  "name": "njiwa-mail-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public developer and AI-agent documentation for Njiwa-Mail (static export).",
+  "scripts": {
+    "dev": "next dev",
+    "generate": "node scripts/generate-assets.mjs",
+    "build": "npm run generate && next build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && node scripts/lint-content.mjs",
+    "test": "vitest run",
+    "check:snippets": "node scripts/check-snippets.mjs",
+    "check:export": "node scripts/check-export.mjs",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "fumadocs-core": "16.19.0",
+    "fumadocs-mdx": "15.6.1",
+    "fumadocs-ui": "16.19.0",
+    "lucide-react": "0.468.0",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "10.1.1",
+    "@axe-core/playwright": "4.10.2",
+    "@playwright/test": "1.65.0",
+    "@tailwindcss/postcss": "4.3.5",
+    "@types/mdx": "2.0.14",
+    "@types/node": "24.0.0",
+    "@types/react": "19.2.0",
+    "@types/react-dom": "19.2.0",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "eslint": "9.17.0",
+    "eslint-config-next": "16.4.6",
+    "tailwindcss": "4.3.5",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4",
+    "yaml": "2.7.0"
+  }
+}

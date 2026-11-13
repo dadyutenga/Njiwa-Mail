@@ -1,0 +1,26 @@
+---
+title: Troubleshooting
+description: The most common problems, in order of how often they happen.
+---
+
+Problems in the dashboard carry a stable code with the fix next to it; the full list is `docs/TROUBLESHOOTING.md` in the repository. These are the usual ones.
+
+| You see | Likely cause | Do this |
+|---|---|---|
+| `401 invalid_api_key` | Wrong, revoked or expired key, or a sandbox key against a live URL | Check the key's prefix and the instance URL; rotate if it leaked |
+| `403 domain_not_ready` | The sending domain's DNS does not pass yet | Open the domain page, fix the records marked Failed or Needs action |
+| `403 sender_not_approved` | `from` is not an approved sender for that environment | Approve it (`njiwa-mail sender add`) |
+| `422 recipient_not_allowed` | Live recipients are restricted to an allowlist | Add the recipient (`env allow`) or turn the restriction off |
+| `422 recipient_suppressed` | An earlier hard bounce or a manual suppression | Fix the address, or remove the suppression on the user's request |
+| Messages stay `queued` | No worker is running, or the mail server is unreachable | Check the worker with `njiwa-mail role-health -role worker` and run the connection test |
+| State `unknown` | A worker died mid-send, or the acknowledgement was lost | Reconcile it in the dashboard against your mail server log. Never resend blindly |
+| Sandbox shows `captured` but nothing arrived | Sandbox never sends | Use a live key and a verified domain |
+| `submitted`, but the user got nothing | Your mail server accepted it; the problem is downstream | Read the mail server log and bounce events; check spam placement |
+| Domain stays Pending | DNS has not spread, or the record is not exactly as shown | Wait, press Check now, compare the record character by character |
+| Managed: `SMTP_SERVER_TEMP_REFUSED` | The DKIM signer is stopped (the listener fails closed) | `systemctl start opendkim`, then test again |
+| Managed: `PTR_MISSING` / `PTR_MISMATCH` | Reverse DNS not set to the mail hostname | Set it in your VPS provider's panel |
+| Managed: `SMTP_EGRESS_BLOCKED` | Outbound port 25 is blocked by the provider | Ask the provider to open it, or use an existing SMTP server |
+
+## Logs
+
+JSON logs contain message ids, states and safe reason codes. They never contain bodies, variables, recipients, tokens, `Authorization` headers or SMTP credentials.

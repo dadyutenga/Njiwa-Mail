@@ -1,0 +1,32 @@
+---
+title: Backups and restore
+description: What a backup contains, what it does not, restore, and rollback.
+---
+
+## Backup
+
+`scripts/backup.sh [OUT_DIR]` (reads `DATABASE_URL` and `DATA_DIR`) writes an owner-only directory with a `MANIFEST.sha256`:
+
+| File | Contents |
+|---|---|
+| `mail.dump` | PostgreSQL (`pg_dump -Fc`) |
+| `data.tgz` | The data directory: inbound attachments and the unparsed spool |
+| `managed.tgz` | Managed host only, as root: Postfix and OpenDKIM configuration, DKIM private keys, the local CA and the worker's certificate, installer receipts |
+| `postfix-queue.tgz` | With `BACKUP_QUEUE=1`: the Postfix queue (Postfix is stopped for the few seconds of the copy) |
+
+<Callout type="warn" title="Keys are separate">
+`ENCRYPTION_KEY` and `HMAC_KEY` are not in the backup. Store them apart and protected. The backup itself contains private keys: keep it encrypted and off the host.
+</Callout>
+
+## Restore
+
+`scripts/restore.sh BACKUP_DIR` verifies the manifest first, then restores the database and data directory. On a managed host, as root, it also restores the files with their owners and permissions, rebuilds the Postfix tables, runs `postfix check` and `opendkim -n`, and restarts the services.
+
+A restore drill was run on 2026-11-12 in a development container (database, queue, DKIM and certificate keys byte-identical afterwards). **Repeat the drill on your own host before relying on it.**
+
+## Rollback [#rollback]
+
+1. Pause acceptance for the affected project (`project disable`), or switch your application's provider flag for new requests.
+2. Preserve `queued`, `submitted` and `unknown` records. Let queued messages drain, or accept their expiry.
+3. Never resend `submitted` or `unknown` events through another provider without reconciling them.
+4. Redeploy the previous image tag. Migrations are forward-only, so restore the pre-upgrade `pg_dump` if the older binary cannot read the newer schema.

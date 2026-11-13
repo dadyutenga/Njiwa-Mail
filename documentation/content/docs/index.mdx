@@ -1,0 +1,35 @@
+---
+title: Introduction
+description: What Njiwa-Mail is, how a message travels, and what it never promises.
+---
+
+Njiwa-Mail is a self-hosted service for transactional email: one-time codes, password resets and account notices. Your application calls a small HTTP API with a server-side key. **Your own instance** queues the message durably and hands it to your mail server. There is no central hosted endpoint: every example in these docs uses `https://mail-api.example.com`, which you replace with the URL of your instance.
+
+## Two ways to send
+
+| | Managed Postfix | Existing SMTP |
+|---|---|---|
+| What sends the mail | Postfix and OpenDKIM that Njiwa-Mail's installer configures on your VPS | An SMTP server you already run or rent (Mailcow is one optional example) |
+| DKIM signing | OpenDKIM on the same host | Your SMTP server |
+| You provide | A VPS with a clean mail setup, a public IP, reverse DNS, port 25 open | SMTP host, port, username and password |
+| The application API | Identical | Identical |
+
+Your application cannot tell the difference. See [Choose how mail leaves](/docs/setup/choose-transport).
+
+## How a message travels
+
+1. Your server calls `POST /v1/emails` with an `Idempotency-Key`.
+2. Njiwa-Mail validates it, stores it encrypted, and answers `202` with an id. Nothing is accepted unless it was stored.
+3. A worker submits it to the active mail server. When that server acknowledges it, the state becomes `submitted`.
+4. Bounces and, in managed mode, mail server log evidence arrive later as [webhook](/docs/webhooks) events.
+
+<Callout type="warn" title="Delivery honesty">
+`submitted` means your mail server accepted the message. It does not mean delivered, inboxed or read, and there is no `delivered` state and never will be. Treat `GET /v1/emails/{id}` and webhooks as evidence about your own pipeline, not about the recipient's inbox.
+</Callout>
+
+## Start here
+
+- [Quickstart](/docs/quickstart): send a sandbox email in one sitting.
+- [Authentication](/docs/authentication): keys, scopes, and what must stay on the server.
+- [API reference](/docs/api/send-email) and the [OpenAPI file](/openapi.yaml).
+- For AI coding agents: [`/llms.txt`](/llms.txt), every page as `.md`, and the [agent skill](/docs/sdks#agent-skill).

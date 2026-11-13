@@ -1,0 +1,39 @@
+---
+title: Domain verification
+description: Each check, why it fails, and how to fix it.
+---
+
+Open the domain on the Domains page and press **Check now**. Every record shows what was expected and what was found.
+
+## Ownership
+
+Publish the `njiwa-mail-verify=<token>` TXT record at the domain. Only one project in an instance can hold a domain: the first project whose check passes holds it, and another project needs an operator transfer (`domain_claimed_elsewhere`). A subdomain such as `notify.example.com` is a separate claim with its own proof.
+
+## SPF
+
+There must be exactly **one** SPF record at the name, and it must authorise the server that sends your mail.
+
+- Managed Postfix: it names your VPS (`v=spf1 mx ip4:<your-ip> -all`).
+- Existing SMTP: Njiwa-Mail cannot see your provider's sending addresses, so the SPF shown starts as a template. Enter the sending IPs or the provider's `include:` under **What your mail server sends from**, and it becomes a real requirement.
+
+If the domain already has an SPF record, add the mechanism to it. Two SPF records is an error.
+
+## DKIM
+
+Publish the public key at `<selector>._domainkey.<domain>`, exactly as shown. Managed Postfix generates a 2048-bit key per domain. With an existing SMTP server, copy the public key from your mail server and enter it on the domain page so the check can compare it. A published key proves only that it is published; it does not prove mail is signed.
+
+## DMARC
+
+A policy at `_dmarc.<domain>` (or the organisational domain). Start at `p=none` to watch reports, then tighten it. Alignment matters: DMARC passes when DKIM signs with your domain, or SPF passes on an aligned return-path domain.
+
+## Managed delivery extras
+
+- The sending IP is a public address on this host.
+- **Reverse DNS (PTR)** of that IP names your mail hostname, and that name resolves back to the same IP.
+- **Outbound port 25** works from the host. Many VPS providers block it by default; ask yours to open it.
+
+Run `njiwa-mail preflight` on the host for the same checks without changing anything.
+
+## When a check stays pending
+
+Wait for DNS to spread, press **Check now** again, and confirm the record at your DNS provider is exactly the one shown, with no extra quotes or line breaks. If a record is wrong, the page says what it found.

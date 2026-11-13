@@ -1,0 +1,78 @@
+---
+title: Rate limits and errors
+description: How limits work, what each error code means, and which ones to retry.
+---
+
+## Error shape
+
+```json
+{ "error": { "code": "recipient_suppressed", "message": "optional detail" } }
+```
+
+`code` is stable and machine-readable; `message` is optional and never contains secrets. `401` adds `WWW-Authenticate: Bearer`; `429` and `503` add `Retry-After` (seconds).
+
+## Limits
+
+Limits are set by the operator of your instance, not fixed by the software:
+
+- Per project: messages per minute and per day, and per recipient per minute and per hour.
+- Per key: an optional per-minute limit.
+- Live, installation-wide and per sending domain: a per-minute and per-hour ceiling.
+- Backlog: when the live queue is full (the mail server has been down), new live mail gets `503 queue_full`.
+
+All of them answer `429 rate_limited` (or `503 queue_full`). Wait `Retry-After` seconds and retry with the **same** idempotency key.
+
+## What to retry
+
+| Retry with the same key | Do not retry, fix the request |
+|---|---|
+| timeouts and network errors, `429`, `503`, other `5xx` | every other `4xx` |
+
+## Codes
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `invalid_api_key` | 401 | Missing, wrong, revoked or expired key |
+| `ip_not_allowed` | 403 | The caller's address is not on the key's allowlist |
+| `missing_scope` | 403 | The key lacks the scope this call needs |
+| `sender_not_approved` | 403 | `from` is not an approved sender for this key's environment |
+| `project_disabled` | 403 | The operator disabled the project or environment |
+| `domain_not_registered` | 403 | Live: the sender's domain is not a sending domain of this project |
+| `domain_claimed_elsewhere` | 403 | Live: another project holds the domain, or it awaits operator review |
+| `domain_not_ready` | 403 | Live: ownership, SPF, DKIM or DMARC does not pass yet |
+| `not_found` | 404 | Unknown id, or one that belongs to another project or environment |
+| `idempotency_conflict` | 409 | Same key, different body |
+| `not_cancellable` | 409 | Submission already started or finished |
+| `body_too_large` | 413 | Request body over the size limit |
+| `invalid_request` | 422 | Unreadable JSON, unknown field, or a missing required field |
+| `idempotency_key_invalid` | 422 | The key is not 8 to 128 characters of `A-Za-z0-9._:-` |
+| `invalid_recipient` | 422 | A recipient is not a valid address |
+| `invalid_sender` | 422 | `from` is not a valid address |
+| `too_many_recipients` | 422 | More than 10 addresses in `to`, `cc` and `bcc` |
+| `unknown_template` | 422 | No such template (or version) for this project |
+| `invalid_locale` | 422 | `locale` is not `en` or `sw` |
+| `invalid_ttl` | 422 | `ttl_seconds` is outside the allowed range |
+| `invalid_metadata` | 422 | `metadata` has a field other than `request_id`, or a bad value |
+| `invalid_priority` | 422 | `priority` is not `high` or `normal` |
+| `invalid_send_at` | 422 | Not RFC 3339, in the past, or more than 7 days ahead |
+| `invalid_header` | 422 | An extra header is not allowed |
+| `invalid_attachment` | 422 | Bad base64, a disallowed type, or content that does not match the type |
+| `too_many_attachments` | 422 | More than 5 attachments |
+| `attachments_too_large` | 422 | A file or the total is over 5 MiB |
+| `unknown_variable` | 422 | `variables` has a name the template does not declare |
+| `missing_variable` | 422 | A variable the template requires is missing |
+| `invalid_variable_type` | 422 | A variable has the wrong JSON type |
+| `invalid_variable_format` | 422 | A variable does not match its format (for example a code with other characters) |
+| `variable_too_long` | 422 | A variable is longer than its limit |
+| `variable_out_of_range` | 422 | A number is outside its allowed range (for example `expires_in_minutes`) |
+| `invalid_characters` | 422 | A variable contains characters that are not allowed (such as line breaks in a title) |
+| `invalid_url` | 422 | A URL variable is not a valid `https` URL |
+| `url_origin_not_approved` | 422 | A URL's origin is not approved for this environment (`njiwa-mail env origins`) |
+| `recipient_suppressed` | 422 | The address is suppressed (for example after a hard bounce) |
+| `recipient_unsubscribed` | 422 | The recipient unsubscribed from this kind of mail |
+| `recipient_not_allowed` | 422 | Live: the recipient is not on the operator's allowlist |
+| `invalid_batch` | 422 | A batch with 0 or more than 100 messages |
+| `reason_required` | 422 | A suppression needs a reason |
+| `rate_limited` | 429 | A limit was reached. See `Retry-After` |
+| `queue_full` | 503 | The live backlog is full. See `Retry-After` |
+| `service_unavailable` | 503 | Storage was unavailable. Nothing was accepted |

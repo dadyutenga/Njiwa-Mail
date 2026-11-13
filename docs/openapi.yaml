@@ -35,7 +35,7 @@ paths:
         Template sends need scope `emails:send`; raw sends (no `template`, a `subject` and `html` and/or `text`) need `emails:send_raw`.
         The request body may be up to 6 MiB as shipped (attachments).
       x-required-scopes: ['emails:send or emails:send_raw']
-      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, rate_limited, queue_full, service_unavailable]
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -336,9 +336,10 @@ components:
         content: { type: string, format: byte, description: Standard base64. At most 5 files and 5 MiB in total. }
     SendRequest:
       type: object
-      additionalProperties: false
       required: [from, to]
-      description: Unknown fields are rejected with 422 invalid_request.
+      description: |
+        Unknown fields are rejected with 422 invalid_request. (Not expressed as additionalProperties:false because a batch
+        item adds idempotency_key to these fields.)
       properties:
         from: { type: string, description: An approved sender identity for the key's project and environment. }
         to: { type: string, description: One recipient (bare address). Together with cc and bcc at most 10 addresses. }

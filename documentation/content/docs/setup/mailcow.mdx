@@ -1,0 +1,18 @@
+---
+title: Mailcow (optional appendix)
+description: Mailcow is one example of an existing SMTP server. Nothing requires it.
+---
+
+Mailcow is not required. It is one SMTP server you may already run. If you choose Mailcow as your provider, you can use the optional API helpers; every step also works by hand and plain SMTP sending never needs the API.
+
+Njiwa-Mail never changes Mailcow's global settings, its database, or your DNS by itself. The full operator checklist, with the screen or command for each step and how to undo it, is in the repository as `docs/MAILCOW_SETUP.md`. In summary:
+
+1. Create a dedicated submission mailbox and enter it as the [existing SMTP](/docs/setup/existing-smtp) account.
+2. Add the sender addresses (and the bounce address) to that mailbox's **Sender ACL**; without it Mailcow answers `553 Sender address rejected` and messages end `failed`.
+3. Add the sending domain and a 2048-bit DKIM key (manually, or with the optional Mailcow API helper), then publish the DNS records.
+4. Set the mailbox rate limit above the sum of your project send limits.
+5. Check TLS from the host: `openssl s_client -starttls smtp -connect mail.example.com:587 -servername mail.example.com`.
+
+<Callout title="Not the managed installer">
+Do not run the managed Postfix installer on a host that runs Mailcow. It refuses on purpose.
+</Callout>
