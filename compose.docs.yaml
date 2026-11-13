@@ -1,0 +1,19 @@
+# The public documentation site, independent of the application stack.
+#   docker compose -f compose.docs.yaml build --build-arg DOCS_BASE_URL=https://docs.example.com --build-arg DOCS_COMMIT=$(git rev-parse --short HEAD)
+#   docker compose -f compose.docs.yaml up -d
+# Put it behind HTTPS with deploy/nginx-docs.conf. It holds no secrets and is never routed to /admin/v1.
+services:
+  docs:
+    build:
+      context: .
+      dockerfile: documentation/Dockerfile
+      args:
+        DOCS_BASE_URL: ${DOCS_BASE_URL:-https://docs.example.com}
+        DOCS_COMMIT: ${DOCS_COMMIT:-dev}
+    image: njiwa-mail-docs:${DOCS_COMMIT:-dev}
+    ports: ["127.0.0.1:8088:8080"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped

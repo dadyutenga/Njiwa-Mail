@@ -1,0 +1,29 @@
+# Builds the documentation image on request and keeps it as an artifact. It does not publish
+# anywhere by itself: pull the artifact onto the docs host (docs/public-portal/DEPLOY.md).
+# Manual only: it never runs for pull requests, so PR content cannot reach it.
+name: Docs image
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Public origin of the docs site, for llms.txt and prompts
+        required: true
+        default: https://docs.example.com
+
+permissions: { contents: read }
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f documentation/Dockerfile --build-arg DOCS_COMMIT=${{ github.sha }} --build-arg DOCS_BASE_URL=${{ inputs.base_url }} -t njiwa-mail-docs:${{ github.sha }} .
+        env: { DOCKER_BUILDKIT: "1" }
+      - run: |
+          docker run -d --name docs -p 127.0.0.1:8088:8080 njiwa-mail-docs:${{ github.sha }}
+          for i in $(seq 1 20); do curl -fsS -o /dev/null http://127.0.0.1:8088/docs && break; sleep 1; done
+          sh documentation/scripts/smoke.sh http://127.0.0.1:8088 "${{ github.sha }}"
+          docker rm -f docs
+      - run: docker save njiwa-mail-docs:${{ github.sha }} | gzip > njiwa-mail-docs.tar.gz
+      - uses: actions/upload-artifact@v4
+        with: { name: "njiwa-mail-docs-${{ github.sha }}", path: njiwa-mail-docs.tar.gz, retention-days: 30 }

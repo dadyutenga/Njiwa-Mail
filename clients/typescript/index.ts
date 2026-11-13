@@ -22,22 +22,38 @@ export interface Accepted {
   status: string;
 }
 
+export interface MessageStatus {
+  id: string;
+  status: string;
+  template: string;
+  template_version: number;
+  attempts: number;
+  smtp_reply?: string;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  submitted_at?: string;
+  completed_at?: string;
+  metadata: Record<string, string>;
+  events: { type: string; reason?: string; at: string }[];
+}
+
 export class NjiwaMail {
   constructor(private readonly baseURL: string, private readonly apiKey: string) {}
 
   async send(idempotencyKey: string, email: EmailRequest): Promise<Accepted> {
-    return this.request("POST", "/v1/emails", idempotencyKey, email);
+    return this.request<Accepted>("POST", "/v1/emails", idempotencyKey, email);
   }
 
   async cancel(id: string): Promise<void> {
-    await this.request("POST", `/v1/emails/${id}/cancel`);
+    await this.request<{ status: string }>("POST", `/v1/emails/${id}/cancel`);
   }
 
-  async status(id: string): Promise<Accepted> {
-    return this.request("GET", `/v1/emails/${id}`);
+  async status(id: string): Promise<MessageStatus> {
+    return this.request<MessageStatus>("GET", `/v1/emails/${id}`);
   }
 
-  private async request(method: string, path: string, idempotencyKey?: string, body?: unknown): Promise<Accepted> {
+  private async request<T>(method: string, path: string, idempotencyKey?: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = { Authorization: `Bearer ${this.apiKey}`, Accept: "application/json" };
     if (body) headers["Content-Type"] = "application/json";
     if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
@@ -52,7 +68,7 @@ export class NjiwaMail {
     if (!response.ok) {
       throw new Error(`njiwa-mail ${response.status}`);
     }
-    return response.json() as Promise<Accepted>;
+    return response.json() as Promise<T>;
   }
 }
 

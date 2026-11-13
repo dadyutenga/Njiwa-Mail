@@ -74,7 +74,9 @@ curl -X POST https://mail-api.example.com/v1/emails \
 ```
 
 Sandbox keys (`dmk_sbx_…`) never contact SMTP; messages end as `captured` (inspect with `njiwa-mail capture show -id ID`).
-Live keys (`dmk_liv_…`) submit to Mailcow, initially only to recipients on the environment allowlist.
+Live keys (`dmk_liv_…`) submit through the active delivery profile (managed Postfix or your existing SMTP server; Mailcow is optional), initially only to recipients on the environment allowlist.
+
+**Public developer documentation** (landing page, quickstart, API reference, webhooks, setup guides, `llms.txt`, per-page Markdown, an agent skill): built from [documentation/](documentation/), deployed with [docs/public-portal/DEPLOY.md](docs/public-portal/DEPLOY.md), contributed to with [docs/public-portal/CONTRIBUTING.md](docs/public-portal/CONTRIBUTING.md). It is a static site you publish yourself; there is no central hosted instance.
 
 Full contract: [docs/openapi.yaml](docs/openapi.yaml) (application API) and [docs/openapi-admin.yaml](docs/openapi-admin.yaml) (admin API); every route and table: [docs/ENDPOINTS.md](docs/ENDPOINTS.md). Client libraries/integration guide: [docs/INTEGRATION.md](docs/INTEGRATION.md), code in curl, Go, Node and Python: [docs/EXAMPLES.md](docs/EXAMPLES.md). Problem and error codes: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 Running it: [docs/OPERATIONS.md](docs/OPERATIONS.md).

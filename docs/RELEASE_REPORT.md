@@ -90,6 +90,43 @@ Back up `ENCRYPTION_KEY`, `HMAC_KEY` and, during a rotation, `ENCRYPTION_KEY_PRE
 
 Kept as the original record; the current status is above.
 
+## Public documentation portal (2026-11-13)
+
+**Decision:** the portal is implemented and verified as far as an automated environment can verify it; it is **not** yet published anywhere (there is no central hosted site, and the operator chooses the host). What a person must still do is listed under "Not done".
+
+What exists: `documentation/` (Next.js 16 + Fumadocs 16 + MDX, static export, 29 pages), generated from one source: per-page `.md`, `llms.txt`, `llms-full.txt`, `openapi.yaml`/`openapi.json` and the skill `skills/njiwa-mail-integration` (`SKILL.md` + 6 playbooks). `docs/openapi.yaml` was rewritten from the handlers (it had described 3 of 14 public operations, with a wrong request schema, missing states and a wrong size limit). The audit, discrepancy list (12 items) and plan are in `docs/public-portal/AUDIT.md`.
+
+### Evidence (commands and real results, run on `rida-server` in throwaway containers; nothing installed on the workstation)
+
+| Check | Command | Result |
+|---|---|---|
+| OpenAPI drift (routes, scopes, states, error codes, request/response fields; documented examples sent to the real handlers) | `go test ./test -run TestPublicOpenAPI` | 5 tests pass. Mutation-checked: a wrong path, a wrong field and an invented error code each fail it |
+| Docs vs code (every `curl-check` snippet replayed against the real handlers: 8; Go snippets compiled with `go vet`: 3; webhook events, scopes, states and error codes equal the source; only real endpoints named in the docs and the skill; no delivery claim, no Mailcow requirement) | `go test ./test -run 'TestDocs\|TestDocumented'` | 6 tests pass. Mutation-checked: a wrong field in a documented request, a fake `email.delivered` event and an invented endpoint in the skill each fail it |
+| Full Go suite with the race detector | `go vet ./... && go test ./... -race -count=1` | `go vet` clean; every package passes, `test` in 238 s (includes the 11 portal tests above) |
+| Typecheck, lint, content lint | `npm run typecheck && npm run lint` (in `documentation/`) | clean (eslint 0 errors; content lint ok on 29 pages) |
+| Unit tests (markdown conversion, 22 content-lint rejection cases, AI-service URL rules, version switching) | `npm test` | 33 pass |
+| Static export | `npm run build` | 33 static routes; search index as a file |
+| Snippets | `npm run check:snippets` | curl 8 validated against the OpenAPI schemas, TypeScript 3 compiled, Python 2 compiled |
+| Export parity | `npm run check:export` | every page's `.md` equals the source, `llms.txt` lists and resolves every page, `openapi.yaml` byte-identical to `docs/openapi.yaml`, `openapi.json` the same document, skill files identical, one version and one commit everywhere, no secret pattern in `out/` |
+| Browser tests (Chromium via Playwright 1.65.0) | `npx playwright test` | 22 pass: landing, sidebar/breadcrumb/TOC, next/previous, code tabs, keyboard search, Copy Markdown (real clipboard, refused-clipboard fallback, failure toast), Open menu (prefill link with a short prompt, copy-and-open, Escape, local origin gets no link), 404, version selector, theme, machine-readable routes, axe WCAG 2 A/AA with no serious or critical violation on six pages, mobile navigation, no horizontal scroll at 375 px |
+| Frontend (dashboard) | `npm run typecheck && npm run lint && npm test` (in `frontend/`) | 0 errors; 81 tests pass (documentation link: shown with `rel="noopener noreferrer"` when configured, an explanation instead of a dead link when not) |
+| Independent deployment | `docker build -f documentation/Dockerfile …`; `documentation/scripts/smoke.sh` | image builds (the build runs the lint, export and parity checks); runs as uid 101, read-only filesystem, all capabilities dropped, no environment secrets; smoke: 41 checks (200 pages, types of `.md`/`llms.txt`/`openapi.*`/search, real 404 page, **404 for `/admin/v1/*`, `/v1/*`, `/console`, `/metrics`, `/health/*`, dotfiles** including a POST with a bearer header, CSP and nosniff headers, no server version, one commit everywhere) |
+| Deploy, upgrade and rollback | image `aaaa111` deployed, `bbbb222` deployed over it, rolled back to `aaaa111`, smoke after each | all passed; asking the smoke for the wrong commit failed, as it must. The run also exposed a typo in `nginx.conf` that made the container exit, fixed |
+
+Screenshots (desktop and mobile) of the landing page, a docs page, search, the Open menu, the 404 page and the mobile navigation were produced by the browser tests (`SHOT_DIR=… npx playwright test`) and reviewed.
+
+### Fixes this work made to existing code and docs
+`docs/openapi.yaml` (above); `docs/INTEGRATION.md` and README said live keys submit to Mailcow (they use the active delivery profile; Mailcow is optional); the TypeScript client typed `status()` as the accepted response (now `MessageStatus`); the dashboard welcome page defaulted to a hard-coded third-party GitHub URL (now the real repository, with the documentation link hidden until `VITE_DOCS_URL` is set); `go.mod` gained `gopkg.in/yaml.v3` for the drift tests.
+
+### Not done, and why
+- **Not published.** No public host, certificate or DNS exists for it; `DOCS_BASE_URL` defaults to the placeholder `https://docs.example.com`. The deployment demonstration used a loopback port on a development server, not a production deployment.
+- **"Open in …" URL formats are not provider-verified.** ChatGPT, Scira AI and T3 Chat use a `q` prefill that appears in community and reference-implementation documentation only; Claude's prefill is reported broken, so it copies the prompt. A person must try each in a real browser (`docs/public-portal/RELEASE_CHECKLIST.md`).
+- **Single version.** Exactly one documentation version (`1.0`) exists, so the version selector has one entry; the switching logic is unit-tested with two versions, and the policy and the steps to add one are in `docs/public-portal/VERSIONING.md`.
+- **`'unsafe-inline'` for scripts** in the docs CSP (the Next.js static export needs it). It is safe only because content is linted so MDX cannot carry script; documented in `DEPLOY.md`.
+- Manual screen-reader and phone checks, a cold read by someone new, a coding-agent run against the skill, and the real-host evidence for managed Postfix and Cloudflare one-click that the pages describe as outstanding.
+- Optional documentation-only MCP tools: deliberately not built (page `planned/documentation-mcp`).
+- The brief's package documents other than `09_` (including `07_IMPLEMENTATION_BACKLOG.md`) were not supplied, so their IDs and dependencies were not followed.
+
 ## Decision: **Working staging build — NOT released for production traffic**
 
 The application is implemented and its automated gates pass. Production/controlled release is blocked on

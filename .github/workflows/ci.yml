@@ -163,6 +163,56 @@ jobs:
       - if: always()
         run: docker compose down -v
 
+  # The public documentation portal. Pull requests may carry untrusted MDX: this job only builds and
+  # lints it with a read-only token and no secrets, and nothing is deployed from here.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - run: npm ci --ignore-scripts
+        working-directory: documentation
+      - run: node node_modules/fumadocs-mdx/bin.js
+        working-directory: documentation
+      - run: npm run typecheck
+        working-directory: documentation
+      - run: npm run lint
+        working-directory: documentation
+      - run: npm test
+        working-directory: documentation
+      - run: npm run build
+        working-directory: documentation
+        env: { NEXT_PUBLIC_DOCS_COMMIT: "${{ github.sha }}" }
+      - run: npm run check:snippets
+        working-directory: documentation
+      - run: npm run check:export
+        working-directory: documentation
+        env: { NEXT_PUBLIC_DOCS_COMMIT: "${{ github.sha }}" }
+      - run: npx playwright install --with-deps chromium
+        working-directory: documentation
+      - run: npx playwright test
+        working-directory: documentation
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: docs-playwright, path: "documentation/test-results", retention-days: 7 }
+
+  # The docs container must start, serve every agent file with the right type, answer 404 for any
+  # API path, and carry the commit it was built from.
+  docs-image:
+    runs-on: ubuntu-latest
+    needs: docs
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f documentation/Dockerfile --build-arg DOCS_COMMIT=${{ github.sha }} -t njiwa-mail-docs:ci .
+        env: { DOCKER_BUILDKIT: "1" }
+      - run: |
+          docker run -d --name docs --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true -p 127.0.0.1:8088:8080 njiwa-mail-docs:ci
+          for i in $(seq 1 20); do curl -fsS -o /dev/null http://127.0.0.1:8088/docs && break; sleep 1; done
+          sh documentation/scripts/smoke.sh http://127.0.0.1:8088 "${{ github.sha }}"
+      - if: always()
+        run: docker rm -f docs || true
+
   # Two builds of the same source from different directories must be identical,
   # and the dependency inventory (SBOM) is kept with every run.
   supply-chain:

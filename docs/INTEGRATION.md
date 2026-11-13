@@ -1,5 +1,7 @@
 # App integration
 
+> The public, versioned developer documentation (with the OpenAPI file, `llms.txt` and an agent skill) is built from `documentation/` and described in [public-portal/DEPLOY.md](public-portal/DEPLOY.md). This page stays as the short integration contract.
+
 Every Njiwa app uses this contract. There is no per-app adapter and no app-specific mail package in this repository. An app is a project with its own API keys.
 
 The application API is `/v1`. The operator API (`/admin/v1`) is not for apps.
@@ -101,7 +103,7 @@ States an app may see: `queued`, `scheduled`, `submitting`, `submitted`, `retry_
 4. If the result is uncertain, do not send the same event through another provider.
 5. The app owns codes, links, expiry, and sessions. This service only carries the message.
 6. Account-recovery responses stay generic. Do not tell the user whether the address exists.
-7. Sandbox keys (`dmk_sbx_…`) never leave the server. Live keys (`dmk_liv_…`) submit to Mailcow.
+7. Sandbox keys (`dmk_sbx_…`) never leave the server and never send mail. Live keys (`dmk_liv_…`) submit through the instance's active delivery profile: managed Postfix or your existing SMTP server (Mailcow is optional).
 
 ## 5. Clients
 

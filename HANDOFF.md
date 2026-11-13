@@ -28,6 +28,8 @@ screen-reader/phone pass and a native-speaker review of the Kiswahili; Fiber was
 setup was added after that (STATUS.md, `docs/DNS_SETUP.md`). **DNS setup has only run against an in-memory DNS host and test servers:** before
 trusting it, a person must run it once against a real Cloudflare zone they own (token connect, analyze, approve, apply, verify, rollback), and
 register a Cloudflare OAuth client (and, if wanted, a Domain Connect template) before enabling "Sign in with Cloudflare".
+The public documentation portal (`documentation/`, `docs/public-portal/`) was added after that; it is built and tested but **not published**: pick a host, set
+`DOCS_BASE_URL`, deploy per `docs/public-portal/DEPLOY.md`, then run `docs/public-portal/RELEASE_CHECKLIST.md` (the "Open in …" URL formats need a real-browser check).
 How the work was verified: Go and frontend suites, Playwright and a Compose smoke stack were run in throwaway Docker containers on
 `rida-server` (nothing installed on the workstation, no production container touched; the throwaway containers, volumes and images were
 removed afterwards), and by GitHub Actions on every push.

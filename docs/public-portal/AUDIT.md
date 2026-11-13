@@ -80,4 +80,4 @@ No repository constraint mandates an alternative. Output is a **static export** 
 
 ## 5. Status
 
-Recorded in `docs/RELEASE_REPORT.md` ("Public documentation portal") as stages complete, with exact commands and results.
+Stages 0 to 7 are done; stage 8 (documentation MCP tools) is deliberately not built. Exact commands, results and what is not done: `docs/RELEASE_REPORT.md` ("Public documentation portal"). Operating it: `CONTRIBUTING.md`, `VERSIONING.md`, `MIGRATION.md`, `DEPLOY.md`, `RELEASE_CHECKLIST.md` in this folder.

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
+import { welcomeLinks } from "@/features/welcome/config";
 import { useWorkspace, useWsKey, useSendingEnvironment, type Env } from "../context";
 import {
   ConfirmButton,
@@ -665,6 +666,29 @@ export function ApiDocs() {
       <div className="mb-4">
         <SendingMode value={env} onChange={setEnv} />
       </div>
+      <Section className="mb-4" title={phrase("Full documentation")}>
+        <p className="text-sm text-muted-foreground">
+          {phrase(
+            "Every endpoint, the webhook signature steps, delivery setup and troubleshooting are in the public developer documentation, including pages written for coding agents (llms.txt).",
+          )}
+        </p>
+        {welcomeLinks.docs ? (
+          <a
+            className="mt-2 inline-block text-sm text-primary underline"
+            href={welcomeLinks.docs.replace(/\/$/, "") + "/docs"}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {phrase("Open the documentation")}
+          </a>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {phrase(
+              "No documentation site is configured for this installation. Publish the one in documentation/ and set VITE_DOCS_URL.",
+            )}
+          </p>
+        )}
+      </Section>
       <Section title={phrase("Quick start")}>
         <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm">
           <li>
