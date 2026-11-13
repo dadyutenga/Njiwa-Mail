@@ -128,7 +128,7 @@ func ctypeIs(p *enmime.Part, types ...string) bool {
 }
 
 // ParseDSN extracts per-recipient reports from a delivery status notification
-// (RFC 3464 multipart/report). A message that is not a parseable DSN yields a
+// (RFC 3464 multipart/report, including the RFC 6533 message/global-delivery-status form). A message that is not a parseable DSN yields a
 // single report with an empty status, which is recorded as type "unknown" for
 // operator review.
 func ParseDSN(raw []byte) []service.BounceReport {
@@ -152,7 +152,9 @@ func ParseDSN(raw []byte) []service.BounceReport {
 
 	// Our id from the returned original (full message or headers only).
 	if ourID == "" {
-		for _, part := range env.Root.DepthMatchAll(func(p *enmime.Part) bool { return ctypeIs(p, "message/rfc822", "text/rfc822-headers") }) {
+		for _, part := range env.Root.DepthMatchAll(func(p *enmime.Part) bool {
+			return ctypeIs(p, "message/rfc822", "text/rfc822-headers", "message/global", "message/global-headers")
+		}) {
 			if m := dmIDRe.FindSubmatch(part.Content); m != nil {
 				ourID = strings.ToLower(string(m[1]))
 				break
@@ -182,7 +184,11 @@ func ParseDSN(raw []byte) []service.BounceReport {
 		return []service.BounceReport{{MessageID: ourID, Recipient: cleanStr(rcpt, 320), DSNID: dsnID, Complaint: true,
 			Diagnostic: cleanStr("complaint: "+strings.ToLower(h.Get("Feedback-Type")), 100)}}
 	}
-	status := env.Root.DepthMatchFirst(func(p *enmime.Part) bool { return ctypeIs(p, "message/delivery-status") })
+	// RFC 6533: Postfix with SMTPUTF8 enabled (the default since 3.0) reports as message/global-delivery-status and returns
+	// the original as message/global. They carry the same fields as the RFC 3464 types.
+	status := env.Root.DepthMatchFirst(func(p *enmime.Part) bool {
+		return ctypeIs(p, "message/delivery-status", "message/global-delivery-status")
+	})
 	if status == nil {
 		return fallback("not_a_dsn", subject)
 	}

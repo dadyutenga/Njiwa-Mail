@@ -823,6 +823,42 @@ X-DM-Message-ID: ` + messageID + `
 `
 }
 
+// Postfix 3.8 on Ubuntu 24.04 (SMTPUTF8 on by default) sends bounce reports as message/global-delivery-status with the
+// returned message as message/global (RFC 6533). The parser only knew the RFC 3464 types, so in the QEMU lab every real
+// managed-mode bounce was stored as type "unknown" ("not_a_dsn"), the message stayed "submitted", nothing was suppressed
+// and no webhook was queued. The fixture below has the structure captured from that Postfix.
+func TestBounceFromPostfixSMTPUTF8IsParsed(t *testing.T) {
+	e := setup(t)
+	k := e.provision("utf8dsn")
+	ctx := context.Background()
+	addr := e.listener("127.0.0.1")
+	bad := "nobody@example.org"
+	r := e.post(k.live, idem("utf8"), otpBody(bad))
+	if r.Code != 202 {
+		t.Fatalf("%s", r.Raw)
+	}
+	e.runWorker()
+	id := str(r.JSON, "id")
+	classic := dsnMail(id, bad, "5.1.1", "failed", "550 5.1.1 <"+bad+">: Recipient address rejected: User unknown")
+	global := strings.NewReplacer(
+		"Content-Type: message/delivery-status", "Content-Type: message/global-delivery-status\nContent-Transfer-Encoding: 8bit",
+		"Content-Type: text/rfc822-headers", "Content-Type: message/global\nContent-Transfer-Encoding: 8bit",
+	).Replace(classic)
+	if global == classic || !strings.Contains(global, "message/global-delivery-status") || !strings.Contains(global, "message/global\n") {
+		t.Fatal("fixture was not converted to the RFC 6533 types")
+	}
+	e.must(smtpSend(addr, "", []string{bounceAddr}, global))
+	e.process()
+	var typ, status string
+	e.must(e.pool.QueryRow(ctx, `SELECT type, status_code FROM bounces WHERE message_id=$1`, id).Scan(&typ, &status))
+	if typ != "hard" || status != "5.1.1" {
+		t.Fatalf("RFC 6533 bounce stored as %q %q, want hard 5.1.1", typ, status)
+	}
+	if e.count(`SELECT count(*) FROM suppressions WHERE source='hard_bounce'`) != 1 {
+		t.Fatal("recipient was not suppressed")
+	}
+}
+
 func TestBounceHardPolicyDuplicate(t *testing.T) {
 	e := setup(t)
 	k := e.provision("sacas")

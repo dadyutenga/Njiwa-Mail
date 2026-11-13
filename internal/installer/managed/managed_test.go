@@ -550,3 +550,57 @@ func TestSeveralBounceDomains(t *testing.T) {
 		t.Fatal("an invalid bounce domain was accepted")
 	}
 }
+
+// A listener on the Docker bridge address cannot bind at boot until Docker has created the network. The plan must order
+// Postfix after Docker and wait for the address; a loopback listener needs neither. (QEMU lab: Postfix was down after
+// every reboot with "bind 172.30.0.1 port 10587: Cannot assign requested address".)
+func TestPostfixBootOrderingWhenSubmissionIsOnTheDockerBridge(t *testing.T) {
+	p := params(t)
+	p.SubmissionBind = "172.30.0.1:10587"
+	pl, err := BuildPlan(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var drop *File
+	for i := range pl.Files {
+		if pl.Files[i].Path == postfixBootDropIn {
+			drop = &pl.Files[i]
+		}
+	}
+	if drop == nil {
+		t.Fatal("no boot-ordering drop-in for a bridge address")
+	}
+	c := string(drop.Content)
+	for _, want := range []string{"After=docker.service", "Wants=docker.service", "inet 172\\.30\\.0\\.1/", "$$(seq 1 90)", "TimeoutStartSec=180"} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("drop-in lacks %q:\n%s", want, c)
+		}
+	}
+	if !strings.HasPrefix(c, Marker) {
+		t.Fatal("drop-in must carry the installer marker")
+	}
+	loop, err := BuildPlan(params(t)) // 127.0.0.1
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range loop.Files {
+		if f.Path == postfixBootDropIn {
+			t.Fatal("a loopback listener needs no boot ordering")
+		}
+	}
+	// It is applied, backed up and rolled back like every other managed file.
+	run := &fakeRun{}
+	rc, err := Apply(p, pl.Digest, run, now)
+	if err != nil || rc.Result != "ok" {
+		t.Fatalf("%v %+v", err, rc)
+	}
+	if !strings.Contains(read(t, p, postfixBootDropIn), "After=docker.service") {
+		t.Fatal("drop-in not written")
+	}
+	if _, err := Rollback(p, rc.ID, run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p.path(postfixBootDropIn)); !os.IsNotExist(err) {
+		t.Fatal("rollback must remove the drop-in")
+	}
+}

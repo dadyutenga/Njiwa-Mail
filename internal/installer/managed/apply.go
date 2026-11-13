@@ -237,6 +237,7 @@ func reload(p Params, run Runner) error {
 		_, _ = run.Run("nft", "delete", "table", "inet", "njiwa_mail") // absent is fine
 	}
 	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		_, _ = run.Run("systemctl", "daemon-reload") // picks up the Postfix boot-ordering drop-in
 		if out, err := run.Run("systemctl", "enable", "--now", "opendkim"); err != nil {
 			return fmt.Errorf("opendkim: %s %w", out, err)
 		}

@@ -208,7 +208,9 @@ const (
 	// FirewallFile is the nftables ruleset the installer owns.
 	FirewallFile = "/etc/njiwa-mail/firewall.nft"
 	firewallUnit = "/etc/systemd/system/njiwa-mail-firewall.service"
-	milterSocket = "inet:127.0.0.1:8891"
+	// postfixBootDropIn orders Postfix after Docker when its submission listener is on the Docker bridge address.
+	postfixBootDropIn = "/etc/systemd/system/postfix@.service.d/njiwa-mail.conf"
+	milterSocket      = "inet:127.0.0.1:8891"
 )
 
 func (p Params) path(abs string) string { return filepath.Join(p.Root, abs) }
@@ -248,6 +250,12 @@ func BuildPlan(p Params) (*Plan, error) {
 		want = append(want,
 			File{Path: FirewallFile, Mode: 0644, Content: firewallRules(p, host, port)},
 			File{Path: firewallUnit, Mode: 0644, Content: firewallService()})
+	}
+	// With the worker in Docker the listener is on the bridge address (for example 172.30.0.1). That address only exists once
+	// Docker has created the Compose network, so at boot Postfix failed with "bind: Cannot assign requested address" and
+	// stayed down until someone restarted it (found on a clean Ubuntu 24.04 VM after the first reboot).
+	if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+		want = append(want, File{Path: postfixBootDropIn, Mode: 0644, Content: postfixBootOrdering(host)})
 	}
 	for i := range want {
 		cur, err := os.ReadFile(p.path(want[i].Path))
@@ -540,6 +548,20 @@ table inet njiwa_mail {
 ` + allow + `		tcp dport { ` + submissionPort + `, ` + strings.Join(privatePorts, ", ") + ` } counter drop
 	}
 }
+`)
+}
+
+// postfixBootOrdering makes Postfix start after Docker and wait (up to 90 s) for the submission address to exist.
+// "$$" is systemd's escape for a literal "$".
+func postfixBootOrdering(host string) []byte {
+	return []byte(Marker + `
+[Unit]
+After=docker.service
+Wants=docker.service
+
+[Service]
+TimeoutStartSec=180
+ExecStartPre=/bin/sh -c 'for i in $$(seq 1 90); do ip -4 -o addr show | grep -q "inet ` + strings.ReplaceAll(host, ".", `\.`) + `/" && exit 0; sleep 1; done; echo "submission address ` + host + ` is not up after 90 s; Postfix will fail to bind it" >&2; exit 0'
 `)
 }
 
