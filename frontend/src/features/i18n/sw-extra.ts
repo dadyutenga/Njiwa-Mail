@@ -1,3 +1,4 @@
+import { swDns } from "./sw-dns";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
   "(no HTML part)": "(hakuna sehemu ya HTML)",
@@ -914,3 +915,5 @@ export const swExtra: Record<string, string> = {
   "“submitted” means the mail server accepted the message. Njiwa-Mail does not claim delivery to the inbox.":
     "“submitted” inamaanisha seva ya barua ilikubali ujumbe. Njiwa-Mail haidai kuwa umefika kwenye sanduku la barua.",
 };
+
+Object.assign(swExtra, swDns);

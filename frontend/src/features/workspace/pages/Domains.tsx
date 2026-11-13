@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
+import { DnsSetup } from "./DnsSetup";
 import { useWorkspace, useWsKey } from "../context";
 import {
   ConfirmButton,
@@ -447,6 +448,11 @@ export function DomainDetail() {
                   </ConfirmButton>
                 </>
               }
+            />
+            <DnsSetup
+              domainId={id}
+              domain={s(d.name)}
+              onChanged={() => client.invalidateQueries({ queryKey: key("domain", id) })}
             />
             <Section
               title={phrase("DNS records")}
