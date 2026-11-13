@@ -131,6 +131,14 @@ jobs:
         run: |
           chmod +x bin/*
           dnf install -y postfix nftables python3 >/dev/null
+          # Fedora's package creates /var/spool/postfix with systemd-tmpfiles,
+          # which runs at boot on a real host but never in a container.
+          if [ ! -d /var/spool/postfix ]; then
+            command -v systemd-tmpfiles >/dev/null || dnf install -y systemd >/dev/null
+            conf=$(rpm -ql postfix | grep '^/usr/lib/tmpfiles.d/' || true)
+            systemd-tmpfiles --create $conf || true
+          fi
+          ls -ld /var/spool/postfix
           cat /etc/os-release
           echo "Postfix $(postconf -d -h mail_version); map types: $(postconf -m | tr '\n' ' ')"
           postconf -n

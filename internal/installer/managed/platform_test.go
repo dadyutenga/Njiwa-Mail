@@ -69,7 +69,8 @@ func TestPlanOnEnterpriseLinux9(t *testing.T) {
 	if !strings.Contains(main, "compatibility_level = 2\n") || !strings.Contains(main, "relay_clientcerts = hash:") || !dropIn {
 		t.Fatalf("dropIn=%v\n%s", dropIn, main)
 	}
-	if !strings.Contains(pl.Summary(), "install   packages epel-release opendkim postfix (dnf; nothing is removed)") {
+	if !strings.Contains(pl.Summary(), "install   packages epel-release opendkim postfix (dnf; nothing is removed)") ||
+		!strings.Contains(pl.Summary(), "enable    repository crb") || strings.Join(pl.EnableRepos, " ") != "crb" {
 		t.Fatal(pl.Summary())
 	}
 	// Apply: EPEL first, a dnf dry run, then the install; postmap with hash.
@@ -79,12 +80,12 @@ func TestPlanOnEnterpriseLinux9(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := strings.Join(run.calls, "\n")
-	for _, want := range []string{"dnf install -y epel-release", "dnf install --assumeno opendkim postfix", "dnf install -y opendkim postfix", "postmap hash:"} {
-		if !strings.Contains(calls, want) {
-			t.Errorf("missing %q in\n%s", want, calls)
-		}
+	// In this order: EPEL, then CRB (OpenDKIM's libraries), then the dry run.
+	if !strings.Contains(calls, "dnf install -y epel-release\ndnf config-manager --set-enabled crb\ndnf install --assumeno opendkim postfix\ndnf install -y opendkim postfix") ||
+		!strings.Contains(calls, "postmap hash:") {
+		t.Errorf("unexpected calls:\n%s", calls)
 	}
-	if rc.PackageManager != "dnf" || strings.Join(rc.InstalledPackages, " ") != "epel-release opendkim postfix" {
+	if rc.PackageManager != "dnf" || strings.Join(rc.InstalledPackages, " ") != "epel-release opendkim postfix" || strings.Join(rc.EnabledRepos, " ") != "crb" {
 		t.Fatalf("%+v", rc)
 	}
 	p.RemovePackages = true
@@ -92,8 +93,54 @@ func TestPlanOnEnterpriseLinux9(t *testing.T) {
 	if _, err := Rollback(p, "", run); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(run.calls, "\n"), "dnf remove -y epel-release opendkim postfix") {
+	// CRB is disabled before epel-release (which brought config-manager) goes.
+	if !strings.Contains(strings.Join(run.calls, "\n"), "dnf config-manager --set-disabled crb\ndnf remove -y epel-release opendkim postfix") {
 		t.Fatalf("%v", run.calls)
+	}
+}
+
+// CRB already enabled (or EPEL and CRB set up by the operator): no repository
+// step. Enterprise Linux 10 never needs it.
+func TestCRBOnlyWhenNeeded(t *testing.T) {
+	p := rhelParams(t, "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"9.8\"\n")
+	os.Remove(filepath.Join(p.Root, "/usr/sbin/opendkim"))
+	writeFileAtomic(filepath.Join(p.Root, "/etc/yum.repos.d/rocky.repo"), []byte("[baseos]\nenabled=1\n[crb]\nname=Rocky Linux $releasever - CRB\nenabled=1\n[devel]\nenabled=0\n"), 0o644)
+	if pl, _ := BuildPlan(p); len(pl.EnableRepos) != 0 || strings.Join(pl.MissingPackages, " ") != "epel-release opendkim" {
+		t.Fatalf("%v %v", pl.EnableRepos, pl.MissingPackages)
+	}
+	// A disabled [crb] section is not enabled.
+	writeFileAtomic(filepath.Join(p.Root, "/etc/yum.repos.d/rocky.repo"), []byte("[crb]\nenabled=0\n[devel]\nenabled=1\n"), 0o644)
+	if pl, _ := BuildPlan(p); strings.Join(pl.EnableRepos, " ") != "crb" {
+		t.Fatalf("%v", pl.EnableRepos)
+	}
+	p10 := rhelParams(t, "ID=\"almalinux\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"10.0\"\n")
+	os.Remove(filepath.Join(p10.Root, "/usr/sbin/opendkim"))
+	if pl, _ := BuildPlan(p10); len(pl.EnableRepos) != 0 {
+		t.Fatalf("EL10: %v", pl.EnableRepos)
+	}
+}
+
+// Unresolvable dependencies (the failure CRB fixes) stop before the install,
+// and the failed apply puts the repositories and packages back: dnf 5 hosts
+// get setopt when --set-enabled is not understood.
+func TestDNFUnresolvableDependenciesRollBack(t *testing.T) {
+	p := rhelParams(t, "ID=\"almalinux\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"9.6\"\n")
+	os.Remove(filepath.Join(p.Root, "/usr/sbin/opendkim"))
+	pl, _ := BuildPlan(p)
+	run := &fakeRun{fail: "dnf config-manager --set-", out: map[string]string{
+		"dnf install --assumeno": "Error:\n Problem: conflicting requests\n  - nothing provides libmemcached.so.11()(64bit) needed by opendkim",
+	}}
+	rc, err := Apply(p, pl.Digest, run, now)
+	if err == nil || !strings.Contains(err.Error(), "cannot resolve") {
+		t.Fatalf("%v", err)
+	}
+	calls := strings.Join(run.calls, "\n")
+	if strings.Contains(calls, "dnf install -y opendkim") || !strings.Contains(calls, "dnf config-manager setopt crb.enabled=1") ||
+		!strings.Contains(calls, "dnf config-manager setopt crb.enabled=0\ndnf remove -y epel-release") {
+		t.Fatalf("%s", calls)
+	}
+	if rc.Result != "failed_rolled_back" || len(rc.EnabledRepos) != 0 || len(rc.InstalledPackages) != 0 {
+		t.Fatalf("%+v", rc)
 	}
 }
 

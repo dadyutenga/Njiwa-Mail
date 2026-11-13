@@ -2,6 +2,7 @@ package managed
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -21,6 +22,9 @@ type Platform struct {
 	SELinux        bool   `json:"selinux,omitempty"`
 	Firewalld      bool   `json:"firewalld,omitempty"`
 	EPELEnabled    bool   `json:"epel_enabled,omitempty"`
+	// CRBEnabled: the CodeReady Builder repository (crb) is enabled. EPEL's
+	// OpenDKIM on Enterprise Linux 9 needs libraries from it.
+	CRBEnabled bool `json:"crb_enabled,omitempty"`
 }
 
 // Runner-like read-only query used during detection; nil skips queries.
@@ -59,6 +63,7 @@ func DetectPlatform(root string, query queryFunc) Platform {
 			pl.EPELEnabled = true
 		}
 	}
+	pl.CRBEnabled = repoEnabled(p, "crb", "codeready-builder-for-rhel-")
 	if query != nil && root == "/" {
 		if v, err := query("postconf", "-d", "-h", "mail_version"); err == nil {
 			pl.PostfixVersion = strings.TrimSpace(v)
@@ -74,6 +79,31 @@ func DetectPlatform(root string, query queryFunc) Platform {
 		}
 	}
 	return pl
+}
+
+// repoEnabled reports whether a dnf repository whose id is name, or starts
+// with prefix, is enabled in /etc/yum.repos.d.
+func repoEnabled(p Params, name, prefix string) bool {
+	files, _ := filepath.Glob(p.path("/etc/yum.repos.d/*.repo"))
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		in := false
+		for _, l := range strings.Split(string(b), "\n") {
+			l = strings.TrimSpace(l)
+			if strings.HasPrefix(l, "[") && strings.HasSuffix(l, "]") {
+				id := strings.TrimSpace(l[1 : len(l)-1])
+				in = id == name || (prefix != "" && strings.HasPrefix(id, prefix) && !strings.Contains(id, "debug") && !strings.Contains(id, "source"))
+				continue
+			}
+			if k, v, ok := strings.Cut(l, "="); in && ok && strings.TrimSpace(k) == "enabled" && strings.TrimSpace(v) == "1" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (pl Platform) major() int {
@@ -140,6 +170,12 @@ func (pl Platform) packageManager() string {
 
 // needsEPEL: OpenDKIM comes from EPEL on Enterprise Linux.
 func (pl Platform) needsEPEL() bool { return pl.enterpriseLinux() && !pl.EPELEnabled }
+
+// needsCRB: on Enterprise Linux 9, EPEL's OpenDKIM needs libmemcached and
+// libmilter from the CodeReady Builder repository (in AppStream on EL 10).
+func (pl Platform) needsCRB() bool {
+	return pl.enterpriseLinux() && pl.major() == 9 && !pl.CRBEnabled
+}
 
 // postfixDropIn is the systemd drop-in that orders Postfix after Docker:
 // Debian runs Postfix as postfix@-.service, the RHEL family as postfix.service.

@@ -206,6 +206,10 @@ type Plan struct {
 	// step; PackageManager is "apt" when that is possible.
 	MissingPackages []string `json:"missing_packages,omitempty"`
 	PackageManager  string   `json:"package_manager,omitempty"`
+	// EnableRepos are dnf repositories apply enables before installing
+	// (crb on Enterprise Linux 9); a failed apply or a package rollback
+	// disables them again.
+	EnableRepos []string `json:"enable_repos,omitempty"`
 	// Warnings need the operator's attention but do not block apply.
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -258,6 +262,9 @@ func BuildPlan(p Params) (*Plan, error) {
 		// OpenDKIM is in EPEL on Enterprise Linux: enabling it is its own,
 		// visible step (epel-release is then removed again by -remove-packages).
 		pl.MissingPackages = append([]string{"epel-release"}, pl.MissingPackages...)
+	}
+	if pl.PackageManager == "dnf" && p.Platform.needsCRB() && contains(pl.MissingPackages, "opendkim") {
+		pl.EnableRepos = []string{"crb"}
 	}
 	if p.Platform.SELinux {
 		// SELinux: Postfix may listen only on ports labelled smtp_port_t, and
@@ -330,7 +337,7 @@ func BuildPlan(p Params) (*Plan, error) {
 	}
 
 	h := sha256.New()
-	fmt.Fprintf(h, "conflict=%s\nadopt=%v\npackages=%v %s\n", pl.Conflict, p.Adopt, pl.MissingPackages, pl.PackageManager)
+	fmt.Fprintf(h, "conflict=%s\nadopt=%v\npackages=%v %s repos=%v\n", pl.Conflict, p.Adopt, pl.MissingPackages, pl.PackageManager, pl.EnableRepos)
 	for _, b := range pl.Blockers {
 		fmt.Fprintf(h, "blocker=%s %s\n", b.Code, b.Detail)
 	}
@@ -370,6 +377,9 @@ func (pl *Plan) Summary() string {
 		case "apt":
 			fmt.Fprintf(&b, "  %-9s packages %s (apt-get, Postfix with \"No configuration\"; nothing is removed)\n", "install", strings.Join(pl.MissingPackages, " "))
 		case "dnf":
+			for _, r := range pl.EnableRepos {
+				fmt.Fprintf(&b, "  %-9s repository %s (dnf config-manager; OpenDKIM's libraries come from it)\n", "enable", r)
+			}
 			fmt.Fprintf(&b, "  %-9s packages %s (dnf; nothing is removed)\n", "install", strings.Join(pl.MissingPackages, " "))
 		default:
 			fmt.Fprintf(&b, "\nMISSING PACKAGES: install %s with your package manager first.\n", strings.Join(pl.MissingPackages, " "))
@@ -697,7 +707,7 @@ func missingPackages(p Params) ([]string, string) {
 	pm := p.Platform.packageManager()
 	// RHEL itself has no epel-release package in its own repositories; the
 	// operator enables EPEL (a subscription matter) first.
-	if pm == "dnf" && p.Platform.ID == "rhel" && p.Platform.needsEPEL() && contains(miss, "opendkim") {
+	if pm == "dnf" && p.Platform.ID == "rhel" && (p.Platform.needsEPEL() || p.Platform.needsCRB()) && contains(miss, "opendkim") {
 		return miss, ""
 	}
 	return miss, pm

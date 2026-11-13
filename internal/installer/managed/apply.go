@@ -56,6 +56,9 @@ type Receipt struct {
 	// SELinuxPort is the port this apply labelled smtp_port_t (rollback
 	// removes the label again).
 	SELinuxPort string `json:"selinux_port,omitempty"`
+	// EnabledRepos are dnf repositories this apply enabled (crb); they are
+	// disabled again with the packages.
+	EnabledRepos []string `json:"enabled_repos,omitempty"`
 }
 
 // ErrBlocked means the host runs a mail service the installer must not touch.
@@ -149,8 +152,9 @@ func Apply(p Params, approved string, run Runner, now time.Time) (*Receipt, erro
 	// /etc/opendkim.conf) are backed up and restored like any other file.
 	if len(pl.MissingPackages) > 0 {
 		rc.PackageManager = pl.PackageManager
-		out, ran, err := installPackages(run, pl.PackageManager, pl.MissingPackages)
-		if ran {
+		out, ran, enabled, err := installPackages(run, pl.PackageManager, pl.MissingPackages, pl.EnableRepos)
+		rc.EnabledRepos = enabled
+		if ran || len(enabled) > 0 {
 			rc.InstalledPackages = pl.MissingPackages
 		}
 		if !step("install packages "+strings.Join(pl.MissingPackages, " "), err, out) {
@@ -546,17 +550,17 @@ func Rollback(p Params, id string, run Runner) (*Receipt, error) {
 // would remove any package (for example another mail server), and Postfix is
 // preseeded to "No configuration" so the package changes nothing before the
 // installer writes its own configuration.
-func installPackages(run Runner, pm string, pkgs []string) (out string, ran bool, err error) {
+func installPackages(run Runner, pm string, pkgs, repos []string) (out string, ran bool, enabled []string, err error) {
 	if pm == "dnf" {
-		return installPackagesDNF(run, pkgs)
+		return installPackagesDNF(run, pkgs, repos)
 	}
 	// A fresh cloud image often has empty package lists.
 	if out, err := run.Run("env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "update"); err != nil {
-		return out, false, fmt.Errorf("apt-get update failed")
+		return out, false, nil, fmt.Errorf("apt-get update failed")
 	}
 	sim, err := run.Run("apt-get", append([]string{"-s", "install", "-y", "--no-install-recommends"}, pkgs...)...)
 	if err != nil {
-		return sim, false, fmt.Errorf("apt-get could not plan the installation")
+		return sim, false, nil, fmt.Errorf("apt-get could not plan the installation")
 	}
 	var removes []string
 	for _, l := range strings.Split(sim, "\n") {
@@ -565,38 +569,69 @@ func installPackages(run Runner, pm string, pkgs []string) (out string, ran bool
 		}
 	}
 	if len(removes) > 0 {
-		return sim, false, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removes, ", "))
+		return sim, false, nil, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removes, ", "))
 	}
 	if out, err := run.Run("sh", "-c", "echo 'postfix postfix/main_mailer_type select No configuration' | debconf-set-selections"); err != nil {
-		return out, false, err
+		return out, false, nil, err
 	}
 	out, err = run.Run("env", append([]string{"DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends"}, pkgs...)...)
-	return out, true, err
+	return out, true, nil, err
 }
 
 // installPackagesDNF installs with dnf on the RHEL family. epel-release, when
-// listed, is installed first (OpenDKIM comes from EPEL on Enterprise Linux).
-// Like apt, it refuses when the transaction would remove any package.
-func installPackagesDNF(run Runner, pkgs []string) (string, bool, error) {
+// listed, is installed first (OpenDKIM comes from EPEL on Enterprise Linux),
+// then the repositories in repos are enabled (crb on Enterprise Linux 9; the
+// config-manager command comes with epel-release). Like apt, it refuses when
+// the transaction would remove any package.
+func installPackagesDNF(run Runner, pkgs, repos []string) (string, bool, []string, error) {
 	rest := pkgs
 	ran := false
+	var log []string
 	if len(pkgs) > 0 && pkgs[0] == "epel-release" {
 		out, err := run.Run("dnf", "install", "-y", "epel-release")
+		log = append(log, out)
 		if err != nil {
-			return out, false, fmt.Errorf("enabling EPEL (dnf install epel-release) failed")
+			return strings.Join(log, "\n"), false, nil, fmt.Errorf("enabling EPEL (dnf install epel-release) failed")
 		}
 		ran, rest = true, pkgs[1:]
+	}
+	var enabled []string
+	for _, r := range repos {
+		out, err := setRepo(run, r, true)
+		log = append(log, out)
+		if err != nil {
+			return strings.Join(log, "\n"), ran, enabled, fmt.Errorf("enabling the %s repository failed", r)
+		}
+		enabled = append(enabled, r)
 	}
 	// --assumeno shows the transaction and stops (it exits non-zero by design).
 	sim, _ := run.Run("dnf", append([]string{"install", "--assumeno"}, rest...)...)
 	if strings.Contains(sim, "No match for argument") || strings.Contains(sim, "Unable to find a match") {
-		return sim, ran, fmt.Errorf("dnf cannot find %s", strings.Join(rest, " "))
+		return sim, ran, enabled, fmt.Errorf("dnf cannot find %s", strings.Join(rest, " "))
+	}
+	if strings.Contains(sim, "nothing provides") {
+		return sim, ran, enabled, fmt.Errorf("dnf cannot resolve the dependencies of %s", strings.Join(rest, " "))
 	}
 	if removing := dnfRemovals(sim); len(removing) > 0 {
-		return sim, ran, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removing, ", "))
+		return sim, ran, enabled, fmt.Errorf("installing would remove %s; nothing was installed", strings.Join(removing, ", "))
 	}
 	out, err := run.Run("dnf", append([]string{"install", "-y"}, rest...)...)
-	return out, true, err
+	return out, true, enabled, err
+}
+
+// setRepo enables or disables a dnf repository: dnf 4 (Enterprise Linux 9)
+// takes --set-enabled, dnf 5 (Fedora, Enterprise Linux 10+) setopt.
+func setRepo(run Runner, repo string, on bool) (string, error) {
+	flag, val := "--set-disabled", "0"
+	if on {
+		flag, val = "--set-enabled", "1"
+	}
+	out, err := run.Run("dnf", "config-manager", flag, repo)
+	if err == nil {
+		return out, nil
+	}
+	out2, err2 := run.Run("dnf", "config-manager", "setopt", repo+".enabled="+val)
+	return strings.TrimSpace(out + "\n" + out2), err2
 }
 
 // dnfRemovals lists the packages in the "Removing:" section of a dnf
@@ -623,6 +658,16 @@ func dnfRemovals(out string) []string {
 // removePackages purges the packages a receipt records as installed by its
 // apply, and records the step. It does nothing when there are none.
 func removePackages(run Runner, rc *Receipt) {
+	// Repositories first: dnf config-manager may leave with epel-release.
+	for len(rc.EnabledRepos) > 0 {
+		r := rc.EnabledRepos[0]
+		out, err := setRepo(run, r, false)
+		rc.Steps = append(rc.Steps, Step{Name: "disable repository " + r, OK: err == nil, Detail: strings.TrimSpace(out)})
+		if err != nil {
+			break
+		}
+		rc.EnabledRepos = rc.EnabledRepos[1:]
+	}
 	if len(rc.InstalledPackages) == 0 {
 		return
 	}
