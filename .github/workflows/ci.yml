@@ -126,6 +126,8 @@ jobs:
         run: |
           sh scripts/discover.sh | tee /tmp/discover.txt
           grep -q "Recommended delivery mode" /tmp/discover.txt
+          # Njiwa's own published ports must be recognised as Njiwa's, not as a conflict.
+          if grep -q "NJIWA_PORT_IN_USE" /tmp/discover.txt; then echo "discovery reported Njiwa's own ports as taken"; exit 1; fi
           sh scripts/discover.sh -record
           rec=$(docker compose exec -T postgres psql -U mail -d mail -tAc "SELECT discovered_at IS NOT NULL FROM installation_settings")
           [ "$rec" = t ] || { echo "discovery was not recorded"; exit 1; }
@@ -138,7 +140,8 @@ jobs:
           for i in $(seq 1 30); do docker compose exec -T postgres pg_isready -U mail -d mail && break; sleep 2; done
           sh scripts/restore.sh /tmp/njiwa-backup
           docker volume inspect njiwa-mail_maildata >/dev/null
-          docker compose up -d
+          docker compose up -d 2>&1 | tee /tmp/up.txt
+          if grep -q "not created by Docker Compose" /tmp/up.txt; then echo "the restored volume is not adopted by Compose"; exit 1; fi
           ok=""
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8080/health/ready && ok=1 && break; sleep 2; done
           [ -n "$ok" ] || { docker compose logs; exit 1; }

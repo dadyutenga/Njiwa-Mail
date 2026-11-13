@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 	"net"
 	"os"
 	"strconv"
@@ -58,7 +59,8 @@ type Check struct {
 
 // Supported lists the distributions the installer is tested on. Anything else
 // is refused rather than half-supported.
-var Supported = map[string][]string{"debian": {"12"}, "ubuntu": {"22.04", "24.04"}}
+// One list for the preflight and discovery (see discover.Supported).
+var Supported = discover.Supported
 
 type Resolver interface {
 	LookupAddr(ctx context.Context, addr string) ([]string, error)

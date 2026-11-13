@@ -30,7 +30,7 @@ Only how mail leaves the server differs:
 
 ### Managed mode, in addition
 
-- Debian 12, Ubuntu 22.04 or Ubuntu 24.04 with systemd, run as root for the installer.
+- Debian 12, Ubuntu 22.04, 24.04 or 26.04 with systemd (26.04 is checked on every change by CI), run as root for the installer.
 - A public IPv4 with a PTR record to your mail host name, and outbound port 25 (many providers block it; ask them).
 - No other mail service on the host. If one exists, the installer refuses and changes nothing (see section 4).
 
