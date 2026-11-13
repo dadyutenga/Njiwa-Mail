@@ -350,3 +350,102 @@ func TestRunningPostfixWorkersAreNotOpenSMTPD(t *testing.T) {
 		t.Fatal("an installed OpenSMTPD was not detected")
 	}
 }
+
+// Review finding (PR #11): a production Postfix on a journald-only host
+// (no mail.log) with an empty queue must still count as in use.
+func TestProductionPostfixWithoutLogOrQueueIsInUse(t *testing.T) {
+	cases := map[string]string{
+		"relays for a LAN":      "myhostname = mx.example.org\nmydestination = $myhostname, localhost\nmynetworks = 127.0.0.0/8 10.0.0.0/8\n",
+		"receives for a domain": "myhostname = mx.example.org\nmydestination = $myhostname, example.org, localhost\n",
+		"unknown setting":       "myhostname = mx.example.org\nvirtual_transport = lmtp:unix:private/dovecot-lmtp\n",
+		"real TLS certificate":  "myhostname = mx.example.org\nsmtpd_tls_cert_file = /etc/letsencrypt/live/mx.example.org/fullchain.pem\n",
+		"continuation line":     "myhostname = mx.example.org\nmynetworks = 127.0.0.0/8\n    192.168.1.0/24\n",
+	}
+	for name, cf := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHost(t, "debian", "12")
+			h.file("/usr/sbin/postfix", "")
+			h.file("/etc/postfix/main.cf", cf)
+			h.listen("master", []string{"/usr/lib/postfix/sbin/master", "-w"}, "00000000", 25)
+			if !codes(h.scan().Recommendation.ManagedBlockers)[CodePostfixInUse] {
+				t.Fatal("production Postfix judged unused: -adopt would replace it")
+			}
+		})
+	}
+	h := newHost(t, "debian", "12")
+	h.file("/usr/sbin/postfix", "")
+	h.file("/etc/postfix/main.cf", "myhostname = mx.example.org\n")
+	h.file("/etc/postfix/master.cf", "smtp      inet  n       -       y       -       -       smtpd\nsubmission inet n       -       y       -       -       smtpd\n")
+	if !codes(h.scan().Recommendation.ManagedBlockers)[CodePostfixInUse] {
+		t.Fatal("a submission service in master.cf must count as in use")
+	}
+}
+
+// The configuration the Ubuntu 24.04 postfix package writes ("Internet Site")
+// stays adoptable.
+func TestUbuntuPackageDefaultPostfixIsAdoptable(t *testing.T) {
+	h := newHost(t, "ubuntu", "24.04")
+	h.file("/usr/sbin/postfix", "")
+	h.file("/etc/hostname", "vps1.example.net\n")
+	h.file("/etc/postfix/main.cf", `# See /usr/share/postfix/main.cf.dist for a commented, more complete version
+smtpd_banner = $myhostname ESMTP $mail_name (Ubuntu)
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+compatibility_level = 3.6
+smtpd_tls_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+smtpd_tls_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+smtpd_tls_security_level=may
+smtp_tls_CApath=/etc/ssl/certs
+smtp_tls_security_level=may
+smtp_tls_session_cache_database = btree:${data_directory}/smtp_scache
+smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination
+myhostname = vps1.example.net
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+myorigin = /etc/mailname
+mydestination = $myhostname, vps1.example.net, vps1, localhost.localdomain, localhost
+relayhost =
+mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
+mailbox_size_limit = 0
+recipient_delimiter = +
+inet_interfaces = all
+inet_protocols = all
+`)
+	h.listen("master", []string{"/usr/lib/postfix/sbin/master", "-w"}, "00000000", 25)
+	r := h.scan()
+	if !r.Recommendation.ManagedAllowed() {
+		t.Fatalf("package default blocked: %+v", r.Recommendation.ManagedBlockers)
+	}
+}
+
+// Review finding (PR #11): attribution must not depend on the lowest PID,
+// and a process merely named "master" is not Postfix.
+func TestSocketOwnerIsTheParentEvenAfterPIDWraparound(t *testing.T) {
+	h := newHost(t, "debian", "12")
+	h.file("/usr/sbin/postfix", "")
+	h.file("/etc/postfix/main.cf", Marker+" Manual changes are replaced on the next apply.\n")
+	h.listen("master", []string{"/usr/lib/postfix/sbin/master", "-w"}, "00000000", 25)
+	masterPID, inode := h.pid, h.inode
+	h.file(fmt.Sprintf("/proc/%d/stat", masterPID), fmt.Sprintf("%d (master) S 1 0 0", masterPID))
+	// A worker with a LOWER pid (wrapped around), child of master.
+	base := "/proc/7"
+	h.file(base+"/comm", "smtpd\n")
+	h.file(base+"/cmdline", "smtpd\x00-n\x00smtp\x00")
+	h.file(base+"/stat", fmt.Sprintf("7 (smtpd) S %d 0 0", masterPID))
+	os.MkdirAll(filepath.Join(h.root, base, "fd"), 0o755)
+	os.Symlink(fmt.Sprintf("socket:[%d]", inode), filepath.Join(h.root, base, "fd", "6"))
+	r := h.scan()
+	if p := r.PortsIn(25); len(p) != 1 || p[0].Process != "master" || !r.Recommendation.ManagedAllowed() {
+		t.Fatalf("ports %+v, blockers %+v", r.Ports, r.Recommendation.ManagedBlockers)
+	}
+
+	// An unrelated program called "master" on port 25 is not excused.
+	h2 := newHost(t, "debian", "12")
+	h2.file("/usr/sbin/postfix", "")
+	h2.file("/etc/postfix/main.cf", Marker+" Manual changes are replaced on the next apply.\n")
+	h2.listen("master", []string{"/opt/app/bin/master", "--listen", "25"}, "00000000", 25)
+	if !codes(h2.scan().Recommendation.ManagedBlockers)[CodeMailPortInUse] {
+		t.Fatal("a non-Postfix 'master' on port 25 was excused")
+	}
+}

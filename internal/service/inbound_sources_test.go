@@ -19,6 +19,8 @@ func TestInboundSourcesProblem(t *testing.T) {
 		{"", "", false, "is empty"},
 		{"172.22.1.253", "", false, "does not include 172.30.0.1"},
 		{"172.30.0.1", "172.31.250.0/24", false, "INBOUND_ALLOWED_SOURCES=172.31.250.1"},
+		// An entry the listener rejects (it would not start) is reported.
+		{"172.30.0.1, mailcow-host", "", false, "is invalid"},
 	} {
 		got := inboundSourcesProblem(c.sources, c.subnet)
 		if (got == "") != c.ok || !strings.Contains(got, c.want) {

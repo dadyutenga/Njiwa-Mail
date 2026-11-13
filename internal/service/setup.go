@@ -34,7 +34,10 @@ type SetupJourney struct {
 	Steps   []SetupStep `json:"steps"`
 }
 
-func (s *Service) SetupJourney(ctx context.Context) (*SetupJourney, error) {
+// SetupJourney describes the installation steps and, for steps 5-9, the
+// named project (the workspace being viewed). With no or an unknown name it
+// uses the project furthest along.
+func (s *Service) SetupJourney(ctx context.Context, project string) (*SetupJourney, error) {
 	st, err := s.InstallationState(ctx)
 	if err != nil {
 		return nil, err
@@ -103,7 +106,7 @@ func (s *Service) SetupJourney(ctx context.Context) (*SetupJourney, error) {
 	// working on), else the first one.
 	var pid string
 	_ = s.Pool.QueryRow(ctx, `SELECT p.id::text, p.name FROM projects p WHERE p.enabled
-ORDER BY EXISTS (SELECT 1 FROM domains d WHERE d.project_id=p.id AND d.verified_at IS NOT NULL) DESC, p.created_at LIMIT 1`).Scan(&pid, &j.Project)
+ORDER BY (p.name = $1) DESC, EXISTS (SELECT 1 FROM domains d WHERE d.project_id=p.id AND d.verified_at IS NOT NULL) DESC, p.created_at LIMIT 1`, project).Scan(&pid, &j.Project)
 	var verified, dnsOK, viaProvider, sender, key, sent bool
 	if pid != "" {
 		_ = s.Pool.QueryRow(ctx, `SELECT
@@ -135,8 +138,21 @@ ORDER BY EXISTS (SELECT 1 FROM domains d WHERE d.project_id=p.id AND d.verified_
 		dnsDone, "domains", dnsOK)
 	// Managed mode: a domain verified after the install has no DKIM key on
 	// the host until the installer runs again (task T7.2).
-	if w.SelectedMode == installation.ModeManaged {
-		if missing, err := s.DomainsMissingKey(ctx); err == nil && len(missing) > 0 {
+	// Only this project's domains, and only once the mail service is
+	// installed (before that, step 4 asks for the installer anyway).
+	installed := false
+	for _, x := range rd.Steps {
+		if x.ID == "install" && x.Status == installation.Ready {
+			installed = true
+		}
+	}
+	if w.SelectedMode == installation.ModeManaged && installed && pid != "" {
+		var own []string
+		if all, err := s.DomainsMissingKey(ctx); err == nil && len(all) > 0 {
+			_ = s.Pool.QueryRow(ctx, `SELECT COALESCE(array_agg(name ORDER BY name), '{}') FROM domains
+WHERE project_id=$1 AND purpose IN ('sending','both') AND name = ANY($2)`, pid, all).Scan(&own)
+		}
+		if missing := own; len(missing) > 0 {
 			x := &j.Steps[len(j.Steps)-1]
 			if x.Status == "ready" {
 				x.Status = "needs_action"

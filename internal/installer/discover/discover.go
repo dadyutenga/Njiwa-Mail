@@ -278,9 +278,18 @@ func parseKV(s string) map[string]string {
 
 type process struct {
 	pid     int
+	ppid    int
 	comm    string
+	exe     string // resolved executable path ("" when not readable)
 	cmdline []string
 	sockets map[string]bool // socket inode numbers
+}
+
+// isPostfix reports a process that belongs to Postfix (master, smtpd and
+// the other daemons), by executable path or command line, not by its name:
+// "master" and "smtpd" are common names.
+func (p process) isPostfix() bool {
+	return strings.Contains(p.exe, "/postfix/") || strings.Contains(strings.Join(p.cmdline, " "), "postfix")
 }
 
 func scanProcesses(e Env) ([]process, bool) {
@@ -303,6 +312,17 @@ func scanProcesses(e Env) ([]process, bool) {
 		p := process{pid: pid, comm: strings.TrimSpace(string(comm)), sockets: map[string]bool{}}
 		if cl, err := e.read(base + "/cmdline"); err == nil {
 			p.cmdline = strings.Split(strings.TrimRight(string(cl), "\x00"), "\x00")
+		}
+		if st, err := e.read(base + "/stat"); err == nil {
+			// "pid (comm) state ppid ...": comm may contain spaces and ")".
+			if i := strings.LastIndexByte(string(st), ')'); i > 0 {
+				if f := strings.Fields(string(st)[i+1:]); len(f) > 1 {
+					p.ppid, _ = strconv.Atoi(f[1])
+				}
+			}
+		}
+		if x, err := os.Readlink(e.path(base + "/exe")); err == nil {
+			p.exe = x
 		}
 		fds, err := os.ReadDir(e.path(base + "/fd"))
 		if err != nil {
@@ -332,15 +352,35 @@ func hasProc(ps []process, comm string) bool {
 
 func scanPorts(e Env, procs []process, r *Report) []Port {
 	// A listening socket is shared by a daemon and its workers (Postfix's
-	// master and its smtpd processes): attribute it to the parent, the
-	// lowest pid. Postfix's workers are named "smtpd", like OpenSMTPD.
-	byInode := map[string]process{}
+	// master and its smtpd processes). It belongs to the holder whose parent
+	// does not hold it too: the daemon that opened it. PIDs wrap around, so
+	// the lowest PID is only the fallback when the parents are unknown.
+	holders := map[string][]process{}
 	for _, p := range procs {
 		for s := range p.sockets {
-			if cur, ok := byInode[s]; !ok || p.pid < cur.pid {
-				byInode[s] = p
+			holders[s] = append(holders[s], p)
+		}
+	}
+	byInode := map[string]process{}
+	for inode, hs := range holders {
+		pids := map[int]bool{}
+		for _, h := range hs {
+			pids[h.pid] = true
+		}
+		var root, lowest *process
+		for i := range hs {
+			h := &hs[i]
+			if lowest == nil || h.pid < lowest.pid {
+				lowest = h
+			}
+			if h.ppid != 0 && !pids[h.ppid] && (root == nil || h.pid < root.pid) {
+				root = h
 			}
 		}
+		if root == nil {
+			root = lowest
+		}
+		byInode[inode] = *root
 	}
 	// docker-proxy publishes a container port: -host-port 25 -container-ip 172.22.1.253 -container-port 25
 	proxyTarget := map[int]string{}
@@ -389,6 +429,9 @@ func scanPorts(e Env, procs []process, r *Report) []Port {
 			pt := Port{Port: port, Address: ip.String(), Public: ip.IsUnspecified() || (!ip.IsLoopback() && !ip.IsPrivate())}
 			if p, ok := byInode[fs[9]]; ok {
 				pt.Process = p.comm
+				if p.comm == "master" && !p.isPostfix() {
+					pt.Process = "master (not Postfix)"
+				}
 				if p.comm == "docker-proxy" {
 					pt.Container = proxyTarget[port]
 				}
@@ -546,11 +589,10 @@ func scanMailServices(e Env, procs []process, r *Report) []Service {
 			for _, c := range d.comms {
 				switch {
 				case p.comm != c:
-				case d.name == "postfix" && !strings.Contains(strings.Join(p.cmdline, " "), "postfix"):
+				case d.name == "postfix" && !p.isPostfix():
 					// "master" is a common name: only Postfix's counts.
-				case d.name == "opensmtpd" && !s.Installed:
-					// Postfix's workers are also called "smtpd": OpenSMTPD
-					// counts only when its own binary is installed.
+				case d.name == "opensmtpd" && (p.isPostfix() || (!s.Installed && p.exe != "/usr/sbin/smtpd")):
+					// Postfix's workers are also called "smtpd".
 				default:
 					s.Running = true
 				}
@@ -566,7 +608,7 @@ func scanMailServices(e Env, procs []process, r *Report) []Service {
 			if b, err := e.read("/etc/opendkim.conf"); err == nil {
 				if strings.HasPrefix(string(b), Marker) {
 					s.Ours = true
-				} else if signing := activeKeys(string(b), "KeyTable", "SigningTable", "KeyFile", "Domain"); len(signing) > 0 {
+				} else if signing := OpenDKIMSigning(string(b)); len(signing) > 0 {
 					s.InUse = true
 					s.Evidence = append(s.Evidence, "/etc/opendkim.conf signs mail ("+strings.Join(signing, ", ")+")")
 				}
@@ -583,6 +625,13 @@ func scanMailServices(e Env, procs []process, r *Report) []Service {
 		out = append(out, s)
 	}
 	return out
+}
+
+// OpenDKIMSigning lists the signing settings an opendkim.conf contains.
+// None means the package default, which signs nothing; the managed installer
+// uses the same rule for what -adopt may replace.
+func OpenDKIMSigning(conf string) []string {
+	return activeKeys(conf, "KeyTable", "SigningTable", "KeyFile", "Domain", "Selector")
 }
 
 func activeKeys(conf string, keys ...string) []string {
@@ -614,32 +663,131 @@ func postfixUse(e Env, s *Service, r *Report) {
 		s.Ours = true
 		return
 	}
-	kv := map[string]string{}
-	for _, l := range strings.Split(cf, "\n") {
-		if k, v, ok := strings.Cut(l, "="); ok && !strings.HasPrefix(strings.TrimSpace(k), "#") {
-			kv[strings.TrimSpace(k)] = strings.TrimSpace(v)
-		}
-	}
+	kv := parsePostfixConf(cf)
 	s.Hostname = kv["myhostname"]
-	for _, k := range []string{"relayhost", "relay_domains", "virtual_mailbox_domains", "virtual_alias_domains", "smtpd_sasl_auth_enable", "smtpd_milters"} {
-		if v := kv[k]; v != "" && v != "no" {
-			s.Evidence = append(s.Evidence, k+" is set in /etc/postfix/main.cf")
-		}
+	s.Evidence = append(s.Evidence, postfixConfigEvidence(e, kv)...)
+	if ev := masterServices(e); ev != "" {
+		s.Evidence = append(s.Evidence, ev)
 	}
 	if n, ok := countQueue(e); ok && n > 0 {
 		s.Evidence = append(s.Evidence, fmt.Sprintf("%d message(s) in the Postfix queue", n))
 	} else if !ok {
-		r.Limits = append(r.Limits, "the Postfix queue could not be read (run as root)")
+		// Unknown is treated as in use: never adopt what could not be checked.
+		s.Evidence = append(s.Evidence, "the Postfix queue could not be read (run as root)")
 	}
 	if sentRemote(e) {
 		s.Evidence = append(s.Evidence, "/var/log/mail.log shows mail sent to other servers")
 	}
-	// A configuration Njiwa did not write is in use as soon as there is any
-	// sign of real traffic or configuration beyond the package default.
-	// Running alone is not: "apt install postfix" (Internet Site) starts it
-	// with the default configuration, which the installer may replace with
-	// -adopt after backing it up.
+	// Conservative: a configuration Njiwa did not write is in use unless it is
+	// exactly what the distribution package writes (only the keys and values
+	// below). Running alone is not evidence: "apt install postfix" (Internet
+	// Site) starts it with the package configuration, which the installer may
+	// replace with -adopt after backing it up.
 	s.InUse = len(s.Evidence) > 0
+}
+
+// packageDefaultKeys are the main.cf settings the Debian/Ubuntu postfix
+// package writes for "Internet Site" or "Local only". Any other key with a
+// value is site configuration, so the server is treated as in use.
+var packageDefaultKeys = map[string]bool{
+	"smtpd_banner": true, "biff": true, "append_dot_mydomain": true, "readme_directory": true, "compatibility_level": true,
+	"smtpd_tls_cert_file": true, "smtpd_tls_key_file": true, "smtpd_tls_security_level": true, "smtpd_use_tls": true,
+	"smtpd_tls_session_cache_database": true, "smtp_tls_CApath": true, "smtp_tls_CAfile": true, "smtp_tls_security_level": true,
+	"smtp_tls_session_cache_database": true, "smtpd_relay_restrictions": true, "myhostname": true, "alias_maps": true,
+	"alias_database": true, "myorigin": true, "mydestination": true, "relayhost": true, "mynetworks": true,
+	"mailbox_size_limit": true, "recipient_delimiter": true, "inet_interfaces": true, "inet_protocols": true,
+	"delay_warning_time": true, "mailbox_command": true, "maillog_file": true,
+}
+
+func parsePostfixConf(cf string) map[string]string {
+	kv := map[string]string{}
+	key := ""
+	for _, l := range strings.Split(cf, "\n") {
+		t := strings.TrimSpace(l)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if (l[0] == ' ' || l[0] == '\t') && key != "" { // continuation line
+			kv[key] += " " + t
+			continue
+		}
+		if k, v, ok := strings.Cut(l, "="); ok {
+			key = strings.TrimSpace(k)
+			kv[key] = strings.TrimSpace(v)
+		}
+	}
+	return kv
+}
+
+func postfixConfigEvidence(e Env, kv map[string]string) []string {
+	var ev []string
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if kv[k] != "" && !packageDefaultKeys[k] {
+			ev = append(ev, k+" is configured in /etc/postfix/main.cf")
+		}
+	}
+	if v := kv["relayhost"]; v != "" {
+		ev = append(ev, "relayhost is set in /etc/postfix/main.cf")
+	}
+	for _, n := range listItems(kv["mynetworks"]) {
+		if !loopbackNet(n) {
+			ev = append(ev, "Postfix relays mail for "+n+" (mynetworks)")
+			break
+		}
+	}
+	local := map[string]bool{"$myhostname": true, "localhost": true, "localhost.localdomain": true, "localhost.$mydomain": true}
+	local[strings.ToLower(kv["myhostname"])] = true
+	if h, err := e.read("/etc/hostname"); err == nil {
+		name := strings.ToLower(strings.TrimSpace(string(h)))
+		local[name] = true
+		if short, _, ok := strings.Cut(name, "."); ok {
+			local[short] = true
+		}
+	}
+	for _, d := range listItems(kv["mydestination"]) {
+		if !local[strings.ToLower(d)] {
+			ev = append(ev, "Postfix receives mail for "+d+" (mydestination)")
+			break
+		}
+	}
+	if c := kv["smtpd_tls_cert_file"]; c != "" && !strings.Contains(c, "snakeoil") {
+		ev = append(ev, "Postfix uses its own TLS certificate ("+c+")")
+	}
+	return ev
+}
+
+func listItems(v string) []string {
+	return strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
+}
+
+func loopbackNet(n string) bool {
+	n = strings.Trim(n, "[]")
+	switch n {
+	case "127.0.0.0/8", "::1/128", "::ffff:127.0.0.0/104", "[::ffff:127.0.0.0]/104", "[::1]/128", "127.0.0.1", "::1":
+		return true
+	}
+	return strings.HasPrefix(n, "::ffff:127.0.0.0]/") || strings.HasPrefix(n, "::1]/")
+}
+
+// masterServices reports a submission or smtps service enabled in
+// master.cf: the server takes mail from users.
+func masterServices(e Env) string {
+	b, err := e.read("/etc/postfix/master.cf")
+	if err != nil {
+		return ""
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 2 && (f[0] == "submission" || f[0] == "smtps" || f[0] == "submissions" || f[0] == "465" || f[0] == "587") && f[1] == "inet" {
+			return "master.cf enables the " + f[0] + " service (users submit mail here)"
+		}
+	}
+	return ""
 }
 
 // sentRemote reads the end of the mail log for mail relayed to another

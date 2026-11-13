@@ -29,25 +29,23 @@ type StoredTransport struct {
 	smtp    *mailer.SMTP
 	pin     service.TransportPin
 	mode    transport.Mode
-}
-
-// changed reports a profile switch or edit since the settings were loaded.
-// It is checked before every send, so a switch applies to the very next
-// message instead of after the 30 s cache (task T3.3). Legacy settings (no
-// profile) are re-read on the 30 s cache only. On a database error the
-// cached settings are kept.
-func (t *StoredTransport) changed(ctx context.Context) bool {
-	pin, updated, found, err := t.Svc.ActiveProfileVersion(ctx)
-	if err != nil {
-		return false
-	}
-	return pin != t.pin || (found && !updated.Equal(t.updated))
+	// seenPin/seenUpdated are the profile version last loaded, also when it
+	// was unusable, so an unusable profile is not re-read on every send.
+	seenPin     service.TransportPin
+	seenUpdated time.Time
 }
 
 func (t *StoredTransport) load(ctx context.Context) (*mailer.SMTP, service.TransportPin) {
+	// Before every send: is the active profile still the one loaded (task
+	// T3.3)? One indexed query, no secret read, run outside the lock so
+	// parallel sends do not queue behind it. A switch or edit then applies
+	// to the very next message; otherwise the decrypted settings are reused
+	// for up to 30 s. On a database error the cached settings are kept.
+	pin, updated, found, verr := t.Svc.ActiveProfileVersion(ctx)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if time.Since(t.checked) < 30*time.Second && !t.changed(ctx) {
+	unchanged := verr != nil || (pin == t.seenPin && (!found || updated.Equal(t.seenUpdated)))
+	if time.Since(t.checked) < 30*time.Second && unchanged {
 		return t.smtp, t.pin
 	}
 	t.checked = time.Now()
@@ -55,6 +53,7 @@ func (t *StoredTransport) load(ctx context.Context) (*mailer.SMTP, service.Trans
 	if err != nil {
 		return t.smtp, t.pin // keep the last good settings through a database blip
 	}
+	t.seenPin, t.seenUpdated = a.Pin(), a.Updated
 	if !a.OK {
 		t.smtp, t.pin = nil, service.TransportPin{}
 		return nil, t.pin

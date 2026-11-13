@@ -126,20 +126,44 @@ func TestSetupJourneyResumesFromServerState(t *testing.T) {
 	}
 }
 
-// T7.2: in managed mode, a claimed domain the mail host has no DKIM key for
-// reopens the DNS step with the installer command.
+// T7.2 and review of PR #11: in managed mode, once the mail service is
+// installed, a domain of THIS project without a DKIM key on the host reopens
+// the DNS step; another project's domain does not.
 func TestSetupJourneyAsksForTheInstallerAfterANewDomain(t *testing.T) {
 	e := setup(t)
+	ctx := context.Background()
 	owner := e.user("owner@njiwa.co.tz", "owner")
 	e.admOK(owner, "PUT", "/admin/v1/installation/wizard", map[string]any{"selected_mode": "managed_mta"})
-	e.provision("acme")
-	var dns map[string]any
-	for _, s := range e.admOK(owner, "GET", "/admin/v1/installation/setup", nil).JSON["steps"].([]any) {
-		if m := s.(map[string]any); m["id"] == "dns" {
-			dns = m
+	e.provision("acme") // notify.example.com (liveFrom's domain)
+	e.must(e.svc.CreateProject(ctx, "other"))
+	e.ownDomain("other", "other.example.org")
+	dnsStep := func(project string) map[string]any {
+		for _, s := range e.admOK(owner, "GET", "/admin/v1/installation/setup?project="+project, nil).JSON["steps"].([]any) {
+			if m := s.(map[string]any); m["id"] == "dns" {
+				return m
+			}
 		}
+		return nil
 	}
-	if dns["status"] != "needs_action" || dns["command"] != "njiwa-mail installer plan" || !strings.Contains(dns["detail"].(string), "no DKIM key yet") {
-		t.Fatalf("%v", dns)
+	// Before the install, step 4 asks for the installer; no DKIM hint yet.
+	if d := dnsStep("acme"); strings.Contains(d["detail"].(string), "no DKIM key") {
+		t.Fatalf("hint before the install: %v", d)
+	}
+	// Installed with a key for acme's domain only.
+	cert, key := pemPair(t, "njiwa-worker")
+	ca, _ := pemPair(t, "ca")
+	acmeDomain := liveFrom[strings.LastIndexByte(liveFrom, '@')+1:]
+	e.must(e.svc.RecordManagedInstall(ctx, service.CLIActor, service.ManagedInstall{ReceiptID: "r", PlanDigest: "d", ApprovedBy: "cli",
+		PostfixVersion: "3.8.6", SubmissionHost: "127.0.0.1", SubmissionPort: 10587, ServerName: "mailout.example.com", Selector: "njiwa",
+		DKIMRecords: map[string]string{acmeDomain: dkimRecord(t)}, ClientCertPEM: cert, ClientKeyPEM: key, CAPEM: ca}))
+	if d := dnsStep("acme"); strings.Contains(d["detail"].(string), "no DKIM key") {
+		t.Fatalf("another project's domain reopened acme's step: %v", d)
+	}
+	d := dnsStep("other")
+	if d["status"] != "needs_action" || d["command"] != "njiwa-mail installer plan" || !strings.Contains(d["detail"].(string), "other.example.org") {
+		t.Fatalf("other: %v", d)
+	}
+	if r := e.admOK(owner, "GET", "/admin/v1/installation/setup?project=other", nil); r.JSON["project"] != "other" {
+		t.Fatalf("journey not for the requested project: %s", r.Raw)
 	}
 }

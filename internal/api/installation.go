@@ -59,7 +59,7 @@ func (s *Server) installationRoutes(app *fiber.App) {
 	})
 	// The ten-step setup journey, derived from server state (resumable).
 	h("GET", "/setup", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
-		return svc.SetupJourney(reqCtx(c))
+		return svc.SetupJourney(reqCtx(c), c.Query("project"))
 	})
 	// What the latest read-only host discovery found (njiwa-mail discover -record).
 	h("GET", "/discovery", func(c fiber.Ctx, u *service.AdminUser) (any, error) {

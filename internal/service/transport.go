@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/njiwa-tz/mail/internal/netlist"
 	"net"
 	"strings"
 	"time"
@@ -659,17 +660,14 @@ func inboundSourcesProblem(sources, subnet string) string {
 	if strings.TrimSpace(sources) == "" {
 		return "INBOUND_ALLOWED_SOURCES is empty, so the inbound listener refuses the bounces Postfix relays from this host. " + fix
 	}
-	for _, f := range strings.Split(sources, ",") {
-		f = strings.TrimSpace(f)
-		if !strings.Contains(f, "/") {
-			if ip := net.ParseIP(f); ip != nil && ip.Equal(gw) {
-				return ""
-			}
-			continue
-		}
-		if _, c, err := net.ParseCIDR(f); err == nil && c.Contains(gw) {
-			return ""
-		}
+	// The same parser the listener uses: an entry it rejects stops the
+	// inbound role at start-up, so it is reported here too.
+	nets, err := netlist.Parse(sources)
+	if err != nil {
+		return "INBOUND_ALLOWED_SOURCES is invalid (" + err.Error() + "), so the inbound role cannot start. " + fix
+	}
+	if netlist.Contains(nets, gw) {
+		return ""
 	}
 	return "INBOUND_ALLOWED_SOURCES (" + sources + ") does not include " + gw.String() + ", the address host Postfix relays bounces from, so bounces are refused. " + fix
 }
