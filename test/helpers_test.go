@@ -234,7 +234,7 @@ func (e *env) do(method, path, token, idem string, body any) resp {
 
 func (e *env) roundTrip(r *http.Request) resp {
 	e.t.Helper()
-	res, err := e.h.Test(r, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
+	res, err := e.h.Test(r, fiber.TestConfig{Timeout: testTimeout, FailOnTimeout: true})
 	if err != nil && strings.Contains(err.Error(), "body size exceeds the given limit") {
 		return resp{Code: 413, Hdr: http.Header{"Content-Type": []string{"application/json"}}, Raw: `{"error":{"code":"body_too_large"}}` + "\n", JSON: map[string]any{"error": map[string]any{"code": "body_too_large"}}}
 	}
@@ -346,3 +346,7 @@ func setup2(t *testing.T, old *env) *env {
 	e.w = &worker.Worker{Svc: svc, SMTP: tr, ID: "test2", Lease: 30 * time.Second, SendTimeout: 5 * time.Second}
 	return e
 }
+
+// testTimeout bounds one in-process request. A handler that hangs fails the
+// test instead of stalling CI; the slowest legitimate request takes seconds.
+const testTimeout = 60 * time.Second

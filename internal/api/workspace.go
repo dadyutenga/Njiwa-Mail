@@ -46,7 +46,7 @@ func boolQuery(c fiber.Ctx, k string) bool {
 func (s *Server) workspaceRoutes(app *fiber.App) {
 	svc := s.Svc
 	base := "/admin/v1/w/:project/:mode"
-	h := func(method, path string, fn wsFn) { app.Add([]string{method}, base+path, s.ws(fn)) }
+	h := func(method, path string, fn wsFn) { route(app, method, base+path, s.ws(fn)) }
 	ctx := reqCtx
 
 	// ---- context, checklist, search, overview
@@ -949,7 +949,7 @@ func decodeLarge(c fiber.Ctx, v any) error {
 
 func (s *Server) mailServerRoutes(app *fiber.App) {
 	svc := s.Svc
-	h := func(method, path string, fn adminFn) { app.Add([]string{method}, "/admin/v1"+path, s.adm(s.op(fn))) }
+	h := func(method, path string, fn adminFn) { route(app, method, "/admin/v1"+path, s.adm(s.op(fn))) }
 
 	h("GET", "/mail-server", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		m, err := svc.GetMailServer(reqCtx(c))

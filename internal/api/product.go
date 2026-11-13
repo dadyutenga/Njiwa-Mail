@@ -10,7 +10,7 @@ import (
 func (s *Server) productRoutes(app *fiber.App) {
 	svc := s.Svc
 	h := func(method, path string, fn adminFn) {
-		app.Add([]string{method}, path, s.adm(fn))
+		route(app, method, path, s.adm(fn))
 	}
 	h(fiber.MethodGet, "/admin/v1/analytics", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, err := svc.Analytics(reqCtx(c), c.Query("project"), c.Query("mode"), c.Query("template"), c.Query("domain"))

@@ -14,18 +14,18 @@ import (
 func (s *Server) installationRoutes(app *fiber.App) {
 	svc := s.Svc
 	h := func(method, path string, fn adminFn) {
-		app.Add([]string{method}, "/admin/v1/installation"+path, s.adm(s.op(fn)))
+		route(app, method, "/admin/v1/installation"+path, s.adm(s.op(fn)))
 	}
 
 	// Installation-wide domain claims (operator only).
-	app.Add([]string{"GET"}, "/admin/v1/domain-claims", s.adm(s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+	route(app, "GET", "/admin/v1/domain-claims", s.adm(s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		l, err := svc.DomainClaims(reqCtx(c))
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"items": l}, nil
 	})))
-	app.Add([]string{"POST"}, "/admin/v1/domain-claims/transfer", s.adm(s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+	route(app, "POST", "/admin/v1/domain-claims/transfer", s.adm(s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Name    string `json:"name"`
 			Project string `json:"project"`

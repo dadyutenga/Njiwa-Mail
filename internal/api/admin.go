@@ -20,7 +20,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	h := func(pattern string, fn adminFn) {
 		method, path, _ := strings.Cut(pattern, " ")
 		path = strings.ReplaceAll(strings.ReplaceAll(path, "{", ":"), "}", "")
-		app.Add([]string{method}, "/admin/v1"+path, s.adm(fn))
+		route(app, method, "/admin/v1"+path, s.adm(fn))
 	}
 
 	// ---- auth

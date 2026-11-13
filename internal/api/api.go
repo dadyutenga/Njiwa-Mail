@@ -122,6 +122,17 @@ func (s *Server) middleware(c fiber.Ctx) error {
 	return err
 }
 
+// route registers one handler for one method. Every route in this package goes
+// through it so a change to registration (HEAD handling, extra middleware) is
+// made in one place.
+func route(app *fiber.App, method, path string, h fiber.Handler) {
+	app.Add([]string{method}, path, h)
+}
+
+// reqCtx returns the request's context. It is the server's context, so it is
+// cancelled on shutdown, and it is backed by a pooled fasthttp context: use it
+// only while the handler runs and never hand it to a goroutine that outlives
+// the request (derive context.WithoutCancel or a fresh context for that).
 func reqCtx(c fiber.Ctx) context.Context {
 	if ctx := c.Context(); ctx != nil {
 		return ctx

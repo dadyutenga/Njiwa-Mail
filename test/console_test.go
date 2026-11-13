@@ -33,7 +33,7 @@ func consoleDo(h *fiber.App, method, path, cookie string, body any) *httptest.Re
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}
-	res, err := h.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
+	res, err := h.Test(req, fiber.TestConfig{Timeout: testTimeout, FailOnTimeout: true})
 	w := httptest.NewRecorder()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

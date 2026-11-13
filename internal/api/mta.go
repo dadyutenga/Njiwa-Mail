@@ -40,7 +40,7 @@ func mtaErr(err error) error {
 func (s *Server) mtaRoutes(app *fiber.App) {
 	svc := s.Svc
 	h := func(method, path string, fn adminFn) {
-		app.Add([]string{method}, "/admin/v1/mta"+path, s.adm(s.op(fn)))
+		route(app, method, "/admin/v1/mta"+path, s.adm(s.op(fn)))
 	}
 	agent := func() (MTAAgent, error) {
 		if s.MTA == nil {
