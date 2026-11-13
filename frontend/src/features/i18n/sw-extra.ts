@@ -1,4 +1,5 @@
 import { swDns } from "./sw-dns";
+import { swSetup } from "./sw-setup";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
   "(no HTML part)": "(hakuna sehemu ya HTML)",
@@ -917,3 +918,4 @@ export const swExtra: Record<string, string> = {
 };
 
 Object.assign(swExtra, swDns);
+Object.assign(swExtra, swSetup);

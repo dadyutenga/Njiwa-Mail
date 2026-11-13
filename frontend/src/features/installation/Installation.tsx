@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Circle, Clock, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useDiscovery } from "./Setup";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
 import { DataState, run, Section, Time } from "@/features/workspace/ui";
@@ -243,6 +244,12 @@ export const problemFixes: Record<string, string> = {
   PTR_MISMATCH:
     "The reverse DNS names another host. Change the PTR of the sending IP to the mail hostname.",
   FCRDNS_FAILED: "The mail hostname must resolve back to the sending IP. Fix its A record.",
+  MAILCOW_PRESENT:
+    "Mailcow runs on this server. Connect it as an existing mail server; Njiwa-Mail changes nothing in Mailcow.",
+  POSTFIX_IN_USE:
+    "Postfix on this server already handles mail. Connect it as an existing mail server instead of installing another.",
+  MAIL_PORT_IN_USE:
+    "Another program owns a mail port. Njiwa-Mail never takes it over: connect an existing mail server instead.",
   MTA_CONFLICT:
     "Another mail server runs on this host. Remove it, or connect it as an existing mail server instead.",
   PREFLIGHT_PARAMETERS_MISSING: "Set MAIL_HOSTNAME and OUTBOUND_IP, then run the preflight again.",
@@ -268,10 +275,14 @@ export function DeliveryModeCard({
   value,
   onChange,
   disabled,
+  recommended,
+  managedBlocked,
 }: {
   value: DeliveryMode | "";
   onChange: (m: DeliveryMode) => void;
   disabled?: boolean;
+  recommended?: DeliveryMode;
+  managedBlocked?: boolean;
 }) {
   const phrase = usePhrase();
   const options: { mode: DeliveryMode; title: string; body: string }[] = [
@@ -306,7 +317,21 @@ export function DeliveryModeCard({
             className="mt-1"
           />
           <span>
-            <span className="block font-semibold">{phrase(o.title)}</span>
+            <span className="block font-semibold">
+              {phrase(o.title)}
+              {recommended === o.mode && (
+                <span className="ml-2 rounded bg-success/15 px-1.5 text-xs font-medium text-success">
+                  {phrase("Recommended for this server")}
+                </span>
+              )}
+            </span>
+            {o.mode === "managed_mta" && managedBlocked && (
+              <span className="mt-1 block text-xs text-destructive">
+                {phrase(
+                  "Not possible on this server: it already runs a mail service or cannot run one. The installer will refuse and change nothing.",
+                )}
+              </span>
+            )}
             <span className="mt-1 block text-sm text-muted-foreground">{phrase(o.body)}</span>
           </span>
         </label>
@@ -430,6 +455,8 @@ export function DeliveryInfrastructure({
   const phrase = usePhrase();
   const client = useQueryClient();
   const q = useInstallation();
+  const disc = useDiscovery();
+  const rec = disc.data?.report?.recommendation;
   const [choice, setChoice] = useState<DeliveryMode | "">("");
   const [saving, setSaving] = useState(false);
   const confirm = async (mode: DeliveryMode) => {
@@ -472,7 +499,13 @@ export function DeliveryInfrastructure({
             )}
             {canChoose && (
               <div className="mb-4 space-y-3">
-                <DeliveryModeCard value={chosen} onChange={setChoice} disabled={saving} />
+                <DeliveryModeCard
+                  value={chosen}
+                  onChange={setChoice}
+                  disabled={saving}
+                  recommended={rec?.mode}
+                  managedBlocked={(rec?.managed_blockers.length ?? 0) > 0}
+                />
                 <Button
                   disabled={saving || !chosen || chosen === st.wizard.selected_mode}
                   onClick={() => chosen && confirm(chosen)}

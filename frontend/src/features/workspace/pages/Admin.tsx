@@ -14,6 +14,7 @@ import {
   SendingFactsForm,
   useInstallation,
 } from "@/features/installation/Installation";
+import { DiscoveryPanel, SetupJourneyPanel } from "@/features/installation/Setup";
 import { TransportProfiles } from "@/features/installation/Profiles";
 import { useWorkspace, useWsKey, type ProjectRow } from "../context";
 import { NewProjectDialog } from "../Layout";
@@ -570,6 +571,19 @@ export function MailServer() {
         }
       />
       <div className="mb-4 space-y-4">
+        <SetupJourneyPanel />
+        <DiscoveryPanel
+          onUseCandidate={(c) => {
+            setF((x) => ({
+              ...x,
+              smtp_host: c.host.startsWith("<") ? "" : c.host,
+              smtp_port: String(c.port),
+              smtp_tls_mode: c.tls_mode,
+              provider_type: c.kind === "mailcow" ? "mailcow" : "generic",
+            }));
+            toast.success(phrase("Settings filled in. Enter the mailbox login, save, then test."));
+          }}
+        />
         <DeliveryInfrastructure onRecheck={runTest} rechecking={testing} />
         <TransportProfiles />
       </div>
