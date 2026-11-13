@@ -1,0 +1,9 @@
+# Lab only: lets the API and worker verify the lab SMTP server's certificate (signed by "Njiwa Lab CA") the way an operator
+# with a private CA would, by pointing Go at a bundle (system roots + the lab CA).
+services:
+  api:
+    environment: { SSL_CERT_FILE: /lab/ca-bundle.pem }
+    volumes: ["/opt/njiwa-mail/lab-ca-bundle.pem:/lab/ca-bundle.pem:ro"]
+  worker:
+    environment: { SSL_CERT_FILE: /lab/ca-bundle.pem }
+    volumes: ["/opt/njiwa-mail/lab-ca-bundle.pem:/lab/ca-bundle.pem:ro"]

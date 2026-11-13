@@ -328,6 +328,18 @@ versions and any differences in a compatibility table (also needed for G10).
 - [ ] `scripts/backup.sh` (with `BACKUP_QUEUE=1`), copy off the host, restore on a fresh VPS with `scripts/restore.sh`, run e2e.
 - [ ] From another machine: port 25 open; 2525, 5432, 8080, 3000, 8891, 10587 not reachable (`nmap -p …`).
 
+### 3.10 QEMU/KVM lab (simulated) and what still needs the real world
+
+Run in a throwaway lab (`lab/qemu/`, evidence in `docs/evidence/lab/`; **simulated network, not production validation**). It found seven defects, all fixed
+with tests (list in `docs/evidence/lab/README.md`). Classification of the items above:
+
+- **Done in the lab (simulated):** G05 steps 1-8, 10, 11, 13 and 14 (verdicts from a lab verifier, not Gmail/Outlook); E06 queue durability across reboot and power
+  loss; E07/F06 real Postfix bounce (webhook HTTP delivery not verifiable offline); E05 HELO equals PTR; E10 queue controls; G03/G02 restore on a fresh host and the
+  closed-port scan; rollback; generic existing SMTP and the G06 mode switch (last full run predates the final fix, re-run needed).
+- **Testable in a lab but not yet run:** E12 (Debian 12, Ubuntu 22.04), D04 per-domain return path, the 0010 legacy upgrade, Mailcow (needs its own instance), a G06 re-run.
+- **Genuinely needs external infrastructure:** real Gmail/Outlook headers (G05 step 12), public port 25 and a real PTR, three or more real providers (E06), a publicly
+  trusted certificate (E05) and HTTPS with certbot (G05 step 15), real Cloudflare DNS, real Mailcow, G09 (a person who did not write the code), and the external penetration test.
+
 ### 3.9 CI and supply chain (G07)
 
 - [x] `govulncheck` and `managed-mta` are green on GitHub Actions and blocking (2026-11-12); the advisories found were fixed.
