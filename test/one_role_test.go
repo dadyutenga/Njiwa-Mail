@@ -54,8 +54,12 @@ func TestLastEnabledAdminCannotBeDisabledConcurrently(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 	var ids []string
+	// Both are operators: the race is about the last enabled user. (Since
+	// f08eff8 CreateUser makes non-operators except the first user, so the
+	// first one's disable could be refused as last_operator instead, and the
+	// result depended on goroutine order.)
 	for _, email := range []string{"first@example.com", "second@example.com"} {
-		id, err := e.svc.CreateUser(ctx, email, adminPass, "")
+		id, err := e.svc.CreateUserWith(ctx, email, adminPass, "", true)
 		e.must(err)
 		ids = append(ids, id)
 	}

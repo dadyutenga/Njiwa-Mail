@@ -37,8 +37,10 @@ const (
 	ModeExisting = "existing_smtp"
 )
 
-// Supported distributions for the managed installer (same as preflight).
-var Supported = map[string][]string{"debian": {"12"}, "ubuntu": {"22.04", "24.04"}}
+// Supported distributions for the managed installer (the preflight uses the
+// same list). Ubuntu 26.04 is what the CI runners use: the managed-mta job
+// installs and runs the end-to-end checks on it for every change.
+var Supported = map[string][]string{"debian": {"12"}, "ubuntu": {"22.04", "24.04", "26.04"}}
 
 // Needs are the host resources Njiwa-Mail itself uses.
 type Needs struct {
@@ -171,7 +173,7 @@ func Recommend(r *Report, n Needs) Recommendation {
 		if os == "" {
 			os = "This operating system"
 		}
-		block(CodeOSUnsupported, os+" is not one the managed installer is tested on (Debian 12, Ubuntu 22.04, Ubuntu 24.04).", offerExisting)
+		block(CodeOSUnsupported, os+" is not one the managed installer is tested on (Debian 12, Ubuntu 22.04, 24.04 or 26.04).", offerExisting)
 	}
 	if !r.Host.Systemd {
 		block(CodeNoSystemd, "systemd is not running; the managed installer runs Postfix and OpenDKIM as systemd services.", offerExisting)

@@ -24,7 +24,13 @@ if [ -n "${DATA_VOLUME:-}" ] && [ -f "$src/data.tgz" ]; then
   # Compose installs: the named volume may not exist yet on a fresh host; it
   # is created (empty) and filled through a throwaway container. Owner 10001
   # is the user the Njiwa-Mail image runs as.
-  docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1 || docker volume create "$DATA_VOLUME" >/dev/null
+  # Created with Compose's labels (<project>_<volume>), so a later
+  # "docker compose up" adopts it instead of warning that it is foreign.
+  if ! docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1; then
+    project=${DATA_VOLUME%%_*} volname=${DATA_VOLUME#*_}
+    docker volume create --label "com.docker.compose.project=$project" --label "com.docker.compose.volume=$volname" \
+      "$DATA_VOLUME" >/dev/null
+  fi
   docker run --rm -i -v "$DATA_VOLUME:/data" "${PG_IMAGE:-postgres:16.4-alpine}" \
     sh -c 'tar -C /data -xzf - && chown -R 10001:10001 /data' < "$src/data.tgz"
 elif [ -n "${DATA_DIR:-}" ] && [ -f "$src/data.tgz" ]; then
