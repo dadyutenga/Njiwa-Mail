@@ -30,10 +30,14 @@ type Server struct {
 	EnvSMTP         *mailer.SMTPConfig // SMTP from the environment (nil when unset); used by the Mail server test
 
 	// Admin API (/admin/v1).
-	TrustProxy      bool             // take the client IP from X-Forwarded-For (set by our own reverse proxy)
-	InsecureCookies bool             // local HTTP development only: drop the Secure cookie attribute
-	MetricsToken    string           // bearer token for /metrics; empty disables the endpoint
-	Resolver        service.Resolver // DNS resolver override for tests; nil = system resolver
+	TrustProxy      bool   // take the client IP from X-Forwarded-For (set by our own reverse proxy)
+	InsecureCookies bool   // local HTTP development only: drop the Secure cookie attribute
+	MetricsToken    string // bearer token for /metrics; empty disables the endpoint
+	// StreamMax ends a live event stream (the browser reconnects with
+	// Last-Event-ID); 0 means 25 minutes. StreamPoll is how often it looks
+	// for new events; 0 means 2 seconds.
+	StreamMax, StreamPoll time.Duration
+	Resolver              service.Resolver // DNS resolver override for tests; nil = system resolver
 
 	// MTA is the host agent behind the mail queue controls (E10); nil when none is configured.
 	MTA MTAAgent
@@ -338,6 +342,8 @@ func writeOut(c fiber.Ctx, out any) error {
 		return writeJSON(c, 200, map[string]bool{"ok": true})
 	case rawResponse:
 		return v.write(c)
+	case streamResponse:
+		return v(c)
 	default:
 		return writeJSON(c, 200, out)
 	}
@@ -346,6 +352,9 @@ func writeOut(c fiber.Ctx, out any) error {
 func subtleMismatch(got, want string) bool {
 	return subtleCompare(got, want) != 1
 }
+
+// streamResponse writes its own response (server-sent events).
+type streamResponse func(c fiber.Ctx) error
 
 // rawResponse is a non-JSON response (attachment download, HTML view, cookie write).
 type rawResponse struct {
