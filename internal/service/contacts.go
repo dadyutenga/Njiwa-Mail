@@ -203,7 +203,7 @@ func (s *Service) GetContact(ctx context.Context, sc *Scope, id string) (map[str
   (SELECT count(*) FROM messages g WHERE g.environment_id=c.environment_id AND g.recipient_hash=c.email_hash) AS messages,
   (SELECT count(*) FROM messages g WHERE g.environment_id=c.environment_id AND g.recipient_hash=c.email_hash AND g.state='submitted') AS submitted,
   (SELECT count(*) FROM messages g WHERE g.environment_id=c.environment_id AND g.recipient_hash=c.email_hash AND g.state IN ('failed','expired')) AS failed,
-  (SELECT count(*) FROM messages g WHERE g.environment_id=c.environment_id AND g.recipient_hash=c.email_hash AND g.bounce_state IS NOT NULL) AS bounced,
+  (SELECT count(*) FROM messages g WHERE g.environment_id=c.environment_id AND g.recipient_hash=c.email_hash AND g.bounce_state<>'none') AS bounced,
   (SELECT max(g.created_at) FROM messages g WHERE g.environment_id=c.environment_id AND g.recipient_hash=c.email_hash) AS last_message_at
 FROM contacts c WHERE c.id=$1 AND c.environment_id=$2`, id, sc.EnvID)
 	if err != nil {

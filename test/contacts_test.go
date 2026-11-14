@@ -51,6 +51,16 @@ func TestContactsListsAndImport(t *testing.T) {
 	if str(ada.JSON, "email") != "ada@example.org" || str(ada.JSON, "name") != "Ada" || str(ada.JSON, "status") != "active" {
 		t.Fatalf("contact: %s", ada.Raw)
 	}
+	// Sending history comes from messages to the address: one submitted, not bounced.
+	var pid, eid string
+	e.must(e.pool.QueryRow(ctx, `SELECT e.project_id::text, e.id::text FROM environments e JOIN projects p ON p.id=e.project_id WHERE p.name='sacas' AND e.mode='sandbox'`).Scan(&pid, &eid))
+	_, err := e.pool.Exec(ctx, `INSERT INTO messages (id, project_id, environment_id, template, template_version, state, recipient_hash, request_hmac, idempotency_key, expires_at)
+VALUES (gen_random_uuid(),$1,$2,'otp',1,'submitted',$3,'x','contact-history-1', now()+interval '1 day')`, pid, eid, e.box.MAC("recipient", []byte("ada@example.org")))
+	e.must(err)
+	ada = e.admOK(admin, "GET", wsBase+"/contacts/"+adaID, nil)
+	if ada.JSON["messages"] != float64(1) || ada.JSON["submitted"] != float64(1) || ada.JSON["bounced"] != float64(0) {
+		t.Fatalf("history: %s", ada.Raw)
+	}
 	// Re-import with update: the name changes, attributes merge, no duplicate.
 	in["data"] = "E-mail,Full name,Plan,City\nada@example.org,Ada Lovelace,team,\n"
 	in["update_existing"] = true
