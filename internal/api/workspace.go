@@ -1043,6 +1043,28 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "sandbox.view_capture", "message", c.Params("id"), scoped(sc, nil))
 		return out, nil
 	})
+	// Analytics for a period, compared with the period before it; CSV per table.
+	h("GET", "/report", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		from, to, err := service.ParseReportRange(c.Query("from"), c.Query("to"))
+		if err != nil {
+			return nil, err
+		}
+		rep, err := svc.Report(ctx(c), sc, service.ReportQuery{From: from, To: to, Template: c.Query("template"), Domain: c.Query("domain")})
+		if err != nil {
+			return nil, err
+		}
+		if c.Query("format") == "csv" {
+			table := c.Query("table", "daily")
+			b, err := service.ReportCSV(rep, table)
+			if err != nil {
+				return nil, err
+			}
+			name := fmt.Sprintf("njiwa-%s-%s-%s-%s.csv", sc.Project, sc.Mode, table, from.Format("20060102"))
+			return rawResponse{header: map[string]string{"Content-Type": "text/csv; charset=utf-8",
+				"Content-Disposition": `attachment; filename="` + name + `"`}, body: b}, nil
+		}
+		return rep, nil
+	})
 	h("GET", "/analytics", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.Analytics(ctx(c), sc.Project, sc.Mode, c.Query("template"), c.Query("domain"))
 		return map[string]any{"items": items}, err

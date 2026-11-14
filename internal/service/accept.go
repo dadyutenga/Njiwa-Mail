@@ -594,6 +594,12 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 			return nil, false, &Error{Status: 429, Code: "rate_limited", RetryAfter: wait}
 		}
 	}
+	// The plan's monthly quota counts every Live message, bulk included.
+	if p.Mode == "live" {
+		if err := chargeMonthly(ctx, tx, p.ProjectID); err != nil {
+			return nil, false, err
+		}
+	}
 	// The Live backlog is bounded: when the mail server has been down long
 	// enough to fill it, refuse new work with a retryable answer rather than
 	// let the queue grow without limit. Nothing is stored for a refused request.

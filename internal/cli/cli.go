@@ -518,13 +518,14 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 	})
 	every(time.Hour, "dns_oauth_states", func() error { return svc.PurgeDNSOAuthStates(ctx) })
 	every(5*time.Minute, "bounce_rate_alerts", func() error { return svc.CheckBounceRates(ctx) })
-	every(24*time.Hour, "daily_summary", func() error {
-		body, recipients, err := svc.DailySummary(ctx)
-		if err != nil {
-			return err
+	// The daily report for yesterday (UTC) goes into every user's inbox.
+	// Checked hourly; made once per day, so a restart never repeats it.
+	every(time.Hour, "daily_report", func() error {
+		made, err := svc.GenerateDailyReport(ctx, time.Now().UTC().Add(-24*time.Hour))
+		if made {
+			slog.Info("daily report recorded")
 		}
-		slog.Info("daily summary", "recipients", len(recipients), "bytes", len(body))
-		return nil
+		return err
 	})
 	every(time.Hour, "dns_checks", func() error { // runs the check when the last one is a day old
 		due, err := svc.DNSCheckDue(ctx, 24*time.Hour)

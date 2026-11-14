@@ -35,6 +35,8 @@ import {
   Projects,
   System,
   Users,
+  Announcements,
+  Plans,
 } from "@/features/workspace/pages/Admin";
 import ProjectDetail from "@/features/mail/ProjectDetail";
 import SettingsPage from "@/features/mail/Settings";
@@ -100,6 +102,8 @@ const workspacePages: [string, ReactNode][] = [
   ["mta-queue", <MtaQueue />],
   ["mail-host", <MailHost />],
   ["analytics", <Analytics />],
+  ["announcements", <Announcements />],
+  ["plans", <Plans />],
   ["alerts", <Alerts />],
   ["system", <System />],
   ["audit", <Audit />],
