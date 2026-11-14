@@ -16,7 +16,8 @@ import {
 } from "@/features/installation/Installation";
 import { DiscoveryPanel, SetupJourneyPanel } from "@/features/installation/Setup";
 import { TransportProfiles } from "@/features/installation/Profiles";
-import { useWorkspace, useWsKey, type ProjectRow } from "../context";
+import { useSendingEnvironment, useWorkspace, useWsKey, type ProjectRow } from "../context";
+import { SendingMode, useSendingModeParam } from "../SendingMode";
 import { NewProjectDialog } from "../Layout";
 import {
   ConfirmButton,
@@ -946,35 +947,161 @@ export function MailServer() {
 
 export function Analytics() {
   const phrase = usePhrase();
-  const { api, env, project } = useWorkspace();
-  const key = useWsKey();
+  const { project } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const { api, key } = useSendingEnvironment(env);
+  const [days, setDays] = useParam("days", "30");
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  end.setUTCDate(end.getUTCDate() + 1);
+  const start = new Date(end.getTime() - Number(days) * 86400000);
+  const range = `from=${start.toISOString().slice(0, 10)}&to=${end.toISOString().slice(0, 10)}`;
   const q = useQuery({
-    queryKey: key("analytics"),
-    queryFn: () => api.get<{ items: Row[] }>("/analytics"),
+    queryKey: key("report", range),
+    queryFn: () => api.get<Row>(`/report?${range}`),
   });
+  const csv = (table: string) => `/admin/v1${api.base}/report?format=csv&table=${table}&${range}`;
+  const metrics: [string, string][] = [
+    ["messages", "Messages"],
+    ["submitted", "Accepted by the mail server"],
+    ["remote_accepted", "Accepted by the recipient's server"],
+    ["failed", "Failed"],
+    ["hard_bounces", "Hard bounces"],
+    ["complaints", "Complaints"],
+  ];
+  const secs = (v: unknown) => {
+    const n = Number(v);
+    if (v === null || v === undefined || Number.isNaN(n)) return "—";
+    return n < 60 ? `${n.toFixed(1)} s` : `${(n / 60).toFixed(1)} min`;
+  };
   return (
     <>
       <PageHeader
         title={phrase("Analytics")}
-        description={`${phrase("Daily totals for")} ${project} (${env}).`}
+        description={`${project}: ${phrase("this period compared with the one before it.")}`}
       />
-      <DataState
-        q={q}
-        isEmpty={(d) => d.items.length === 0}
-        empty={<Empty title={phrase("No activity recorded yet")} />}
-      >
-        {(d) => {
-          const cols = Object.keys(d.items[0] ?? {});
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <SendingMode value={env} onChange={setEnv} />
+        <Field label={phrase("Period")}>
+          <select className={selectClass} value={days} onChange={(e) => setDays(e.target.value)}>
+            <option value="7">{phrase("Last 7 days")}</option>
+            <option value="30">{phrase("Last 30 days")}</option>
+            <option value="90">{phrase("Last 90 days")}</option>
+          </select>
+        </Field>
+      </div>
+      <DataState q={q}>
+        {(r) => {
+          const tot = (r.totals as Row) ?? {};
+          const ch = (r.change_percent as Row) ?? {};
+          const tm = (r.timing_seconds as Row) ?? {};
           return (
-            <Table
-              rows={d.items}
-              rowKey={(r) => JSON.stringify(r)}
-              columns={cols.map((c) => ({
-                key: c,
-                label: phrase(c.replace(/_/g, " ")),
-                render: (r) => (/_at$/.test(c) ? <Time value={r[c]} /> : s(r[c])),
-              }))}
-            />
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {metrics.map(([k, label]) => {
+                  const c = ch[k];
+                  return (
+                    <div key={k} className="rounded-xl border bg-card p-3">
+                      <p className="text-xs text-muted-foreground">{phrase(label)}</p>
+                      <p className="mt-1 text-2xl font-bold">{s(tot[k]) || "0"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {c === null || c === undefined
+                          ? phrase("no earlier data")
+                          : `${Number(c) > 0 ? "+" : ""}${Number(c).toFixed(0)}% ${phrase("vs previous period")}`}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+              <Section className="mt-4" title={phrase("How long it took")}>
+                <Table
+                  rows={[
+                    {
+                      k: "submit",
+                      label: phrase("Until the mail server accepted it"),
+                      p50: tm.submit_p50,
+                      p90: tm.submit_p90,
+                      p99: tm.submit_p99,
+                      n: tm.submit_samples,
+                    },
+                    {
+                      k: "remote",
+                      label: phrase("Until the recipient's server accepted it"),
+                      p50: tm.remote_p50,
+                      p90: tm.remote_p90,
+                      p99: tm.remote_p99,
+                      n: tm.remote_samples,
+                    },
+                  ]}
+                  rowKey={(x) => s(x.k)}
+                  columns={[
+                    { key: "label", label: "" },
+                    { key: "p50", label: phrase("Median"), render: (x) => secs(x.p50) },
+                    { key: "p90", label: "p90", render: (x) => secs(x.p90) },
+                    { key: "p99", label: "p99", render: (x) => secs(x.p99) },
+                    { key: "n", label: phrase("Messages measured") },
+                  ]}
+                />
+              </Section>
+              <Section
+                className="mt-4"
+                title={phrase("By mailbox provider")}
+                action={
+                  <a className="text-sm text-primary" href={csv("providers")}>
+                    {phrase("Download CSV")}
+                  </a>
+                }
+              >
+                <Table
+                  rows={(r.providers as Row[]) ?? []}
+                  rowKey={(x) => s(x.provider)}
+                  columns={[
+                    { key: "provider", label: phrase("Provider") },
+                    { key: "messages", label: phrase("Messages") },
+                    { key: "submitted", label: phrase("Submitted") },
+                    { key: "remote_accepted", label: phrase("Remote accepted") },
+                    { key: "hard_bounces", label: phrase("Hard bounces") },
+                    { key: "complaints", label: phrase("Complaints") },
+                  ]}
+                />
+              </Section>
+              <Section
+                className="mt-4"
+                title={phrase("Per day")}
+                action={
+                  <span className="flex gap-3 text-sm">
+                    <a className="text-primary" href={csv("daily")}>
+                      {phrase("Download CSV")}
+                    </a>
+                    <a className="text-primary" href={csv("totals")}>
+                      {phrase("Totals CSV")}
+                    </a>
+                  </span>
+                }
+              >
+                {((r.daily as Row[]) ?? []).length === 0 ? (
+                  <Empty title={phrase("No activity in this period")} />
+                ) : (
+                  <Table
+                    rows={r.daily as Row[]}
+                    rowKey={(x) => s(x.day)}
+                    columns={[
+                      { key: "day", label: phrase("Day") },
+                      { key: "messages", label: phrase("Messages") },
+                      { key: "submitted", label: phrase("Submitted") },
+                      { key: "failed", label: phrase("Failed") },
+                      { key: "hard_bounces", label: phrase("Hard bounces") },
+                      { key: "soft_bounces", label: phrase("Soft bounces") },
+                    ]}
+                  />
+                )}
+              </Section>
+              <ul className="mt-3 list-disc pl-5 text-xs text-muted-foreground">
+                {((r.notes as string[]) ?? []).map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            </>
           );
         }}
       </DataState>

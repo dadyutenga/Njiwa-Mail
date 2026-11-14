@@ -2,6 +2,29 @@ import { swDns } from "./sw-dns";
 import { swSetup } from "./sw-setup";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "By mailbox provider": "Kwa mtoa huduma wa barua",
+  Day: "Siku",
+  "Download CSV": "Pakua CSV",
+  "How long it took": "Ilichukua muda gani",
+  "Last 30 days": "Siku 30 zilizopita",
+  "Last 7 days": "Siku 7 zilizopita",
+  "Last 90 days": "Siku 90 zilizopita",
+  Median: "Wastani wa kati",
+  "Messages measured": "Ujumbe uliopimwa",
+  "No activity in this period": "Hakuna shughuli katika kipindi hiki",
+  "Per day": "Kwa siku",
+  Period: "Kipindi",
+  Provider: "Mtoa huduma",
+  "Remote accepted": "Umekubaliwa na seva ya mpokeaji",
+  "Totals CSV": "CSV ya jumla",
+  "Until the mail server accepted it": "Hadi seva ya barua iliukubali",
+  "Until the recipient's server accepted it": "Hadi seva ya mpokeaji iliukubali",
+  "no earlier data": "hakuna data ya awali",
+  "this period compared with the one before it.":
+    "kipindi hiki kikilinganishwa na kilichotangulia.",
+  "vs previous period": "ukilinganisha na kipindi kilichopita",
+  "Accepted by the mail server": "Umekubaliwa na seva ya barua",
+  "Accepted by the recipient's server": "Umekubaliwa na seva ya mpokeaji",
   "A CSV with a header row, or a JSON array of objects. Check first: nothing is saved until you import.":
     "CSV yenye safu ya vichwa, au JSON yenye orodha ya vitu. Kagua kwanza: hakuna kinachohifadhiwa hadi uingize.",
   "Add condition": "Ongeza sharti",
