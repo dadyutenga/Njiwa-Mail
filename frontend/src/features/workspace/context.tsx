@@ -23,6 +23,7 @@ export type WorkspaceInfo = {
   bulk_max_per_day: number;
   temp_inbox_limit: number;
   forms_enabled?: boolean;
+  chat_enabled?: boolean;
 };
 
 export type ProjectRow = {

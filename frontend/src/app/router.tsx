@@ -25,6 +25,7 @@ import { Templates } from "@/features/workspace/pages/Templates";
 import { Automations } from "@/features/workspace/pages/Automations";
 import { Bulk, CampaignDetail, NewCampaign } from "@/features/workspace/pages/Bulk";
 import { ContactDetail, Contacts, Lists, Segments } from "@/features/workspace/pages/Audience";
+import { ChatConversations, ChatWidgets } from "@/features/workspace/pages/Chat";
 import { FormFilters, FormInbox, Forms } from "@/features/workspace/pages/Forms";
 import { ApiDocs, ApiKeys, WebhookDetail, Webhooks } from "@/features/workspace/pages/Developers";
 import {
@@ -69,6 +70,8 @@ const workspacePages: [string, ReactNode][] = [
   ["scheduled", <Scheduled />],
   ["contacts", <Contacts />],
   ["contacts/:id", <ContactDetail />],
+  ["chat", <ChatWidgets />],
+  ["chat/conversations", <ChatConversations />],
   ["forms", <Forms />],
   ["forms/submissions", <FormInbox />],
   ["forms/filters", <FormFilters />],

@@ -21,7 +21,9 @@ import {
   ListPlus,
   Mailbox,
   Megaphone,
+  MessageCircle,
   MessageSquareText,
+  MessagesSquare,
   ScrollText,
   Send,
   Server,
@@ -45,7 +47,7 @@ export type NavItem = {
   /** Only installation operators see this entry. */
   operator?: boolean;
   /** Hidden unless the server turned this feature on. */
-  feature?: "forms";
+  feature?: "forms" | "chat";
 };
 export type NavGroup = { label: string; items: NavItem[] };
 
@@ -82,6 +84,13 @@ export const navGroups: NavGroup[] = [
       { path: "forms", label: "Forms", icon: ClipboardList, feature: "forms" },
       { path: "forms/submissions", label: "Form inbox", icon: MessageSquareText, feature: "forms" },
       { path: "forms/filters", label: "Spam filters", icon: ShieldAlert, feature: "forms" },
+    ],
+  },
+  {
+    label: "Chat",
+    items: [
+      { path: "chat", label: "Live chat", icon: MessagesSquare, feature: "chat" },
+      { path: "chat/conversations", label: "Conversations", icon: MessageCircle, feature: "chat" },
     ],
   },
   {
