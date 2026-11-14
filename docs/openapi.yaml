@@ -144,6 +144,39 @@ paths:
         '200': { description: A page of inbound messages, content: { application/json: { schema: { $ref: '#/components/schemas/InboundPage' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Error' }
+  /v1/inbound/ingest/{env}:
+    post:
+      tags: [Inbound]
+      operationId: ingestInbound
+      summary: Deliver one inbound message over HTTP (signed)
+      description: |
+        For a mail provider or a server of yours that receives mail and should pass it on over HTTP instead of SMTP.
+        The body is the raw message (RFC 5322). It is signed with the environment's ingest secret (dashboard: Inbound, HTTP
+        ingest): `X-Njiwa-Timestamp` is the Unix time in seconds, within 5 minutes of the server's, and
+        `X-Njiwa-Signature` is `v1=` followed by the hex HMAC-SHA256 of `<timestamp>.<body>`. Every signature problem is
+        the same `401 invalid_signature`.
+        Envelope recipients come from `X-Njiwa-Recipients` (comma-separated), otherwise from `To` and `Cc`; only enabled
+        inbound addresses of this environment are kept. The message is then parsed, stored, forwarded and reported
+        (`inbound.received`) exactly like mail received over SMTP. Sending the same signed request again returns
+        `duplicate: true` and stores nothing.
+      security: []
+      x-required-scopes: ['none: signed with the environment ingest secret']
+      x-error-codes: [invalid_signature, invalid_message, no_inbound_recipient, service_unavailable]
+      parameters:
+        - { name: env, in: path, required: true, schema: { type: string, format: uuid }, description: The environment id shown with the secret }
+        - { name: X-Njiwa-Timestamp, in: header, required: true, schema: { type: string } }
+        - { name: X-Njiwa-Signature, in: header, required: true, schema: { type: string } }
+        - { name: X-Njiwa-Recipients, in: header, required: false, schema: { type: string } }
+        - { name: X-Njiwa-Envelope-From, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          message/rfc822: { schema: { type: string, format: binary } }
+      responses:
+        '202': { description: Spooled, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, recipients: { type: integer } } } } } }
+        '200': { description: Already received, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, duplicate: { type: boolean } } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /v1/inbound/{id}:
     get:
       tags: [Inbound]

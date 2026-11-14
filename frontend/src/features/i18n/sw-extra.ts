@@ -2,6 +2,20 @@ import { swDns } from "./sw-dns";
 import { swSetup } from "./sw-setup";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "Receive over HTTP": "Pokea kupitia HTTP",
+  "New secret": "Siri mpya",
+  "New secret created.": "Siri mpya imeundwa.",
+  "Turn off HTTP ingest?": "Zima upokeaji kupitia HTTP?",
+  "Signed requests are refused until you create a new secret.":
+    "Maombi yaliyosainiwa yatakataliwa hadi uunde siri mpya.",
+  "Turn off": "Zima",
+  "HTTP ingest turned off.": "Upokeaji kupitia HTTP umezimwa.",
+  "Turn on HTTP ingest": "Washa upokeaji kupitia HTTP",
+  "A server or provider of yours can pass each received message to these mailboxes over HTTP, signed with a secret.":
+    "Seva au mtoa huduma wako anaweza kuleta kila ujumbe uliopokelewa kwenye masanduku haya kupitia HTTP, ukiwa umesainiwa kwa siri.",
+  Endpoint: "Anwani ya kupokea",
+  "Last used": "Ilitumika mwisho",
+  "Copy this secret now. It is not shown again.": "Nakili siri hii sasa. Haitaonyeshwa tena.",
   "(no HTML part)": "(hakuna sehemu ya HTML)",
   "(no subject)": "(hakuna mada)",
   "(no text part)": "(hakuna sehemu ya maandishi)",

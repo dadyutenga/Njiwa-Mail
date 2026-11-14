@@ -19,6 +19,7 @@ assets → tests → deployment).
 | GET | `/v1/emails/{id}` | `api.go getEmail` | Bearer key | `emails:read` | 200 status object | `test/api_test.go` |
 | POST | `/v1/emails/{id}/cancel` | `product.go cancelEmail` | Bearer key | `emails:send` or `emails:send_raw` | 200 `{status:"cancelled"}`; 409 `not_cancellable` | `test/complete_test.go`, `test/authz_test.go` |
 | GET | `/v1/inbound` | `app.go` | Bearer key | `inbound:read` | 200 page | `test/v2_test.go` |
+| POST | `/v1/inbound/ingest/{env}` | `api.go ingestInbound` | HMAC signature (environment ingest secret) | | 202 `{id,recipients}`; 200 `{duplicate:true}`; 401 `invalid_signature` | `test/ingest_test.go` |
 | GET | `/v1/inbound/{id}` | `app.go` | Bearer key | `inbound:read` | 200 message | `complete_test.go`, `lifecycle_test.go`, `v2_test.go` |
 | GET | `/v1/inbound/{id}/attachments/{aid}` | `app.go` | Bearer key | `inbound:read` | 200 bytes, always `application/octet-stream` | `rekey_test.go`, `lifecycle_test.go`, `complete_test.go` |
 | POST | `/v1/addresses/verify` | `api.go verifyAddresses` | Bearer key | `addresses:verify`, `emails:send` or `emails:send_raw` | 200 `{results:[AddressCheck]}`; 422 over 100 | `test/verify_test.go` |

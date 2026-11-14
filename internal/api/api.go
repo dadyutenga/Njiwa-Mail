@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/njiwa-tz/mail/internal/inbound"
 	"log/slog"
 	"mime"
 	"net"
 	"net/http"
+	"net/mail"
 	"os"
 	"strconv"
 	"strings"
@@ -259,6 +261,58 @@ func (s *Server) verifyAddresses(c fiber.Ctx) error {
 		return writeErr(c, err)
 	}
 	return writeJSON(c, 200, map[string]any{"results": res})
+}
+
+// IngestMaxBytes is the largest message HTTP ingest accepts (the SMTP
+// listener's default).
+const IngestMaxBytes = 10 << 20
+
+// ingestInbound takes one raw message (RFC 5322) signed with the
+// environment's ingest secret and spools it like mail received over SMTP.
+// Envelope recipients come from X-Njiwa-Recipients, else from To and Cc;
+// only this environment's inbound addresses are kept.
+func (s *Server) ingestInbound(c fiber.Ctx) error {
+	ctx := reqCtx(c)
+	raw := append([]byte(nil), c.Body()...)
+	if len(raw) > IngestMaxBytes {
+		return writeErr(c, &service.Error{Status: 413, Code: "body_too_large"})
+	}
+	env := c.Params("env")
+	id, err := s.Svc.VerifyIngest(ctx, env, c.Get("X-Njiwa-Timestamp"), c.Get("X-Njiwa-Signature"), raw)
+	if err != nil {
+		if e, ok := service.IsError(err); ok && e.Status == 401 {
+			c.Set("WWW-Authenticate", `Signature realm="njiwa-mail"`)
+		}
+		return writeErr(c, err)
+	}
+	if dup, err := s.Svc.SpoolExists(ctx, id); err != nil {
+		return writeErr(c, &service.Error{Status: 503, Code: "service_unavailable"})
+	} else if dup {
+		return writeJSON(c, 200, map[string]any{"id": id, "duplicate": true})
+	}
+	var rcpts []string
+	if h := c.Get("X-Njiwa-Recipients"); h != "" {
+		rcpts = strings.Split(h, ",")
+	} else if msg, err := mail.ReadMessage(bytes.NewReader(raw)); err == nil {
+		for _, k := range []string{"To", "Cc"} {
+			if list, err := msg.Header.AddressList(k); err == nil {
+				for _, a := range list {
+					rcpts = append(rcpts, a.Address)
+				}
+			}
+		}
+	} else {
+		return writeErr(c, &service.Error{Status: 422, Code: "invalid_message"})
+	}
+	to, err := s.Svc.IngestRecipients(ctx, env, rcpts)
+	if err != nil {
+		return writeErr(c, err)
+	}
+	from := c.Get("X-Njiwa-Envelope-From")
+	if err := inbound.SpoolRaw(ctx, s.Svc, id, from, to, raw); err != nil {
+		return writeErr(c, &service.Error{Status: 503, Code: "service_unavailable"})
+	}
+	return writeJSON(c, 202, map[string]any{"id": id, "recipients": len(to)})
 }
 
 func (s *Server) ready(c fiber.Ctx) error {

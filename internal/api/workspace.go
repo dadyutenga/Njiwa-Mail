@@ -268,6 +268,30 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 			return out, err
 		}), nil
 	})
+	// ---- HTTP ingest of inbound mail (signed with a per-environment secret)
+	h("GET", "/inbound-ingest", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return svc.IngestStatus(ctx(c), sc.EnvID)
+	})
+	h("POST", "/inbound-ingest/secret", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		secret, err := svc.RotateIngestSecret(ctx(c), sc.EnvID)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "inbound_ingest.secret_rotated", "environment", sc.EnvID, scoped(sc, nil))
+		st, err := svc.IngestStatus(ctx(c), sc.EnvID)
+		if err != nil {
+			return nil, err
+		}
+		st["secret"] = secret // shown once
+		return st, nil
+	})
+	h("DELETE", "/inbound-ingest", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DisableIngest(ctx(c), sc.EnvID); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "inbound_ingest.disabled", "environment", sc.EnvID, scoped(sc, nil))
+		return nil, nil
+	})
 	h("GET", "/inbox/unread", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.UnreadCounts(ctx(c), sc)
 	})

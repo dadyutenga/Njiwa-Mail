@@ -40,6 +40,7 @@ var tableDocs = map[string]string{
 	"environments":          "Sandbox and Live environment of a project: enabled flag, approved origins, recipient allowlist.",
 	"inbound_addresses":     "Addresses that receive mail into a project (mailboxes, temporary inboxes, catch-all).",
 	"inbound_attachments":   "Metadata of inbound attachments; the files are sealed on disk.",
+	"inbound_ingest":        "Per-environment secret (encrypted) for signed HTTP ingest of inbound mail.",
 	"inbound_messages":      "Parsed inbound mail (text and HTML sealed) with retention timestamps.",
 	"inbound_spool":         "Raw inbound mail accepted by the listener, waiting to be parsed or correlated as bounces.",
 	"installation_checks":   "Connection and readiness check results bound to a transport profile revision.",
