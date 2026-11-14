@@ -50,6 +50,8 @@ var sealedColumns = []sealedSpec{
 	{"contacts.data_enc", "contacts", "data_enc", "id::text", "'contact:'||id::text"},
 	{"web_views.html_enc", "web_views", "html_enc", "message_id::text", "'web-view:'||message_id::text"},
 	{"inbound_ingest.secret_enc", "inbound_ingest", "secret_enc", "environment_id::text", "'ingest:'||environment_id::text"},
+	{"sso_providers.client_secret_enc", "sso_providers", "client_secret_enc", "id::text", "'sso:'||id::text"},
+	{"sso_states.verifier_enc", "sso_states", "verifier_enc", "encode(state_hash,'hex')", "'sso-state:'||encode(state_hash,'hex')"},
 	{"dns_oauth_states.verifier_enc", "dns_oauth_states", "verifier_enc", "encode(state_hash,'hex')", "'dns-oauth:'||encode(state_hash,'hex')"},
 }
 

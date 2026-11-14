@@ -293,6 +293,24 @@ the `Message-ID` and recipient, so a client's retry is not sent twice. Settings:
 `127.0.0.1` (`NJIWA_RELAY_BIND`), so it never takes 587 from a mail server on the same host. Guide: the docs portal's
 "SMTP relay" page.
 
+## Single sign-on (OpenID Connect)
+
+Operators add providers under "Single sign-on" in the dashboard (Google, Keycloak, authentik, any OpenID Connect provider).
+`PUBLIC_URL` must be set. Register `PUBLIC_URL/admin/v1/auth/sso/callback` as the return address at the provider, then enter
+its issuer address (https only; the discovery document must name the same issuer), client id and client secret (stored
+encrypted, covered by `rekey`).
+
+- Sign-in uses the authorization code flow with PKCE and a one-time state and nonce. The ID token must be signed with a key the
+  provider publishes (RS256 of 2048 bits or more, or ES256) and match issuer, audience, expiry and nonce, and carry a
+  **verified** email address.
+- An existing account is found by the provider's subject after the first sign-in (linked then by its email), so a later email
+  change at the provider cannot take over another account. A disabled account never signs in.
+- "Allowed email domains" limits who may use the provider. "Create an account on first sign-in" needs at least one allowed
+  domain; such accounts are never operators and have no known password.
+- An account with an authenticator still enters its code (or a recovery code) after the provider; five wrong codes end that
+  sign-in. Sessions, the throttle and the audit log (`auth.login`, `method: sso`) are the same as for passwords.
+- Every failure shows the same message to the person; the reason is in the server log (`sso sign-in refused`).
+
 ## Inbound mail and bounces
 
 Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to `DATA_DIR/spool` and records it before answering `250`; the parser runs afterwards.

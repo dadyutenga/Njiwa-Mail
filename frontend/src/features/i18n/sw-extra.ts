@@ -2,6 +2,42 @@ import { swDns } from "./sw-dns";
 import { swSetup } from "./sw-setup";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "Add provider": "Ongeza mtoa huduma",
+  "Allowed email domains": "Vikoa vya barua pepe vinavyoruhusiwa",
+  "Client id": "Kitambulisho cha mteja",
+  "Client secret": "Siri ya mteja",
+  "Create an account on first sign-in (never an operator; needs allowed domains)":
+    "Unda akaunti anapoingia mara ya kwanza (kamwe si operator; inahitaji vikoa vinavyoruhusiwa)",
+  "Edit provider": "Hariri mtoa huduma",
+  "Issuer address": "Anwani ya mtoaji",
+  "Leave empty to keep the saved one.": "Acha wazi kubaki na iliyohifadhiwa.",
+  "Let people sign in with Google, Keycloak, authentik or any OpenID Connect provider. An account with an authenticator still enters its code.":
+    "Waruhusu watu kuingia kwa Google, Keycloak, authentik au mtoa huduma yeyote wa OpenID Connect. Akaunti yenye authenticator bado inaingiza msimbo wake.",
+  "Linked users": "Watumiaji walioungwa",
+  "No providers yet": "Bado hakuna watoa huduma",
+  "Nobody can sign in with it any more. Accounts stay; their link to the provider is removed.":
+    "Hakuna anayeweza kuingia nao tena. Akaunti zinabaki; uhusiano wao na mtoa huduma unaondolewa.",
+  "Provider deleted.": "Mtoa huduma amefutwa.",
+  "Register this return address with the provider:": "Sajili anwani hii ya kurudi kwa mtoa huduma:",
+  "Save provider": "Hifadhi mtoa huduma",
+  "Separate with spaces or commas. Empty: any domain, for existing accounts only.":
+    "Tenganisha kwa nafasi au koma. Tupu: kikoa chochote, kwa akaunti zilizopo tu.",
+  "Shown on the sign-in button.": "Inaonekana kwenye kitufe cha kuingia.",
+  "Sign in with": "Ingia kwa",
+  "Single sign-on": "Kuingia kwa akaunti moja (SSO)",
+  "This sign-in expired. Start again from the sign-in page. Request failed":
+    "Kuingia huku kumeisha muda. Anza tena kutoka ukurasa wa kuingia. Request failed",
+  "Your provider accepted you. Enter the code from your authenticator app, or a recovery code.":
+    "Mtoa huduma wako amekukubali. Weka msimbo kutoka programu yako ya authenticator, au msimbo wa kurejesha.",
+  or: "au",
+  "The provider's sign-in was not accepted. Ask an operator if your account may use it. Request failed":
+    "Kuingia kwa mtoa huduma hakukubaliwa. Muulize operator kama akaunti yako inaruhusiwa. Request failed",
+  "Too many sign-in attempts. Try again in a few minutes. Request failed":
+    "Majaribio mengi ya kuingia. Jaribu tena baada ya dakika chache. Request failed",
+  "The provider is not available right now. Request failed":
+    "Mtoa huduma hapatikani kwa sasa. Request failed",
+  "Single sign-on is not set up completely on this server. Request failed":
+    "Kuingia kwa SSO hakujakamilika kwenye seva hii. Request failed",
   "A CSV with a header row, or a JSON array of objects. Check first: nothing is saved until you import.":
     "CSV yenye safu ya vichwa, au JSON yenye orodha ya vitu. Kagua kwanza: hakuna kinachohifadhiwa hadi uingize.",
   "Add condition": "Ongeza sharti",

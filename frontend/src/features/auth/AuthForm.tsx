@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,13 +23,52 @@ export function AuthForm({ mode }: { mode: string }) {
       return false;
     }
   });
-  const { login } = useAuth();
+  const { login, refresh } = useAuth();
+  const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const phrase = usePhrase();
   const navigate = useNavigate();
   const location = useLocation();
   const [params] = useSearchParams();
   const forgot = mode === "forgot-password",
     reset = mode === "reset-password";
+  const ssoPending = mode === "login" ? params.get("sso_pending") || "" : "";
+  const ssoError = mode === "login" ? params.get("sso_error") || "" : "";
+  useEffect(() => {
+    if (mode !== "login") return;
+    let active = true;
+    admin
+      .ssoProviders()
+      .then((r) => active && setProviders(r.items))
+      .catch(() => undefined); // no provider list: the password form still works
+    return () => {
+      active = false;
+    };
+  }, [mode]);
+  const finishSSO = async (e: FormEvent) => {
+    e.preventDefault();
+    setFeedback("");
+    setBusy(true);
+    try {
+      await admin.ssoComplete(ssoPending, code);
+      await refresh();
+      navigate("/app", { replace: true });
+    } catch (err) {
+      setFeedback(
+        err instanceof AdminError && err.code === "sso_failed"
+          ? phrase("This sign-in expired. Start again from the sign-in page. Request failed")
+          : phrase("That code was not accepted. Request failed"),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const ssoMessage: Record<string, string> = {
+    sso_failed:
+      "The provider's sign-in was not accepted. Ask an operator if your account may use it. Request failed",
+    too_many_attempts: "Too many sign-in attempts. Try again in a few minutes. Request failed",
+    sso_unavailable: "The provider is not available right now. Request failed",
+    public_url_missing: "Single sign-on is not set up completely on this server. Request failed",
+  };
   const title = phrase(forgot ? "Forgot password" : reset ? "Reset password" : "Welcome back");
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -90,31 +129,16 @@ export function AuthForm({ mode }: { mode: string }) {
           )}
         </p>
       )}
-      <form onSubmit={submit} className="mt-8 space-y-4">
-        {!reset && (
-          <label className="block space-y-2 text-sm font-medium">
-            {phrase("Email")}
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-            />
-          </label>
-        )}
-        {!forgot && (
-          <label className="block space-y-2 text-sm font-medium">
-            {phrase("Password")}
-            <PasswordInput
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete={reset ? "new-password" : "current-password"}
-            />
-          </label>
-        )}
-        {needCode && !forgot && !reset && (
+      {ssoError && mode === "login" && (
+        <p role="alert" className="mt-4 rounded-lg border p-3 text-sm">
+          {phrase(
+            ssoMessage[ssoError] ??
+              "The provider's sign-in was not accepted. Ask an operator if your account may use it. Request failed",
+          )}
+        </p>
+      )}
+      {ssoPending ? (
+        <form onSubmit={finishSSO} className="mt-8 space-y-4">
           <label className="block space-y-2 text-sm font-medium">
             {phrase("Authentication code")}
             <Input
@@ -124,31 +148,97 @@ export function AuthForm({ mode }: { mode: string }) {
               autoFocus
               autoComplete="one-time-code"
               inputMode="text"
-              aria-describedby="mfa-help"
             />
-            <span id="mfa-help" className="block text-xs font-normal text-muted-foreground">
-              {phrase("6 digits from the app, or a recovery code such as ABCDE-FGHIJ.")}
+            <span className="block text-xs font-normal text-muted-foreground">
+              {phrase(
+                "Your provider accepted you. Enter the code from your authenticator app, or a recovery code.",
+              )}
             </span>
           </label>
-        )}
-        {feedback && (
-          <p
-            role={
-              feedback.includes("must") ||
-              feedback.includes("failed") ||
-              feedback.includes("missing")
-                ? "alert"
-                : "status"
-            }
-            className="rounded-lg border p-3 text-sm"
-          >
-            {feedback}
-          </p>
-        )}
-        <Button type="submit" disabled={busy} className="w-full">
-          {phrase(forgot ? "Send Instructions" : reset ? "Reset password" : "Sign in")}
-        </Button>
-      </form>
+          {feedback && (
+            <p role="alert" className="rounded-lg border p-3 text-sm">
+              {feedback}
+            </p>
+          )}
+          <Button type="submit" disabled={busy} className="w-full">
+            {phrase("Sign in")}
+          </Button>
+        </form>
+      ) : (
+        <>
+          <form onSubmit={submit} className="mt-8 space-y-4">
+            {!reset && (
+              <label className="block space-y-2 text-sm font-medium">
+                {phrase("Email")}
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                />
+              </label>
+            )}
+            {!forgot && (
+              <label className="block space-y-2 text-sm font-medium">
+                {phrase("Password")}
+                <PasswordInput
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete={reset ? "new-password" : "current-password"}
+                />
+              </label>
+            )}
+            {needCode && !forgot && !reset && (
+              <label className="block space-y-2 text-sm font-medium">
+                {phrase("Authentication code")}
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                  autoFocus
+                  autoComplete="one-time-code"
+                  inputMode="text"
+                  aria-describedby="mfa-help"
+                />
+                <span id="mfa-help" className="block text-xs font-normal text-muted-foreground">
+                  {phrase("6 digits from the app, or a recovery code such as ABCDE-FGHIJ.")}
+                </span>
+              </label>
+            )}
+            {feedback && (
+              <p
+                role={
+                  feedback.includes("must") ||
+                  feedback.includes("failed") ||
+                  feedback.includes("missing")
+                    ? "alert"
+                    : "status"
+                }
+                className="rounded-lg border p-3 text-sm"
+              >
+                {feedback}
+              </p>
+            )}
+            <Button type="submit" disabled={busy} className="w-full">
+              {phrase(forgot ? "Send Instructions" : reset ? "Reset password" : "Sign in")}
+            </Button>
+          </form>
+          {mode === "login" && providers.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <p className="text-center text-xs text-muted-foreground">{phrase("or")}</p>
+              {providers.map((p) => (
+                <Button key={p.id} asChild variant="outline" className="w-full">
+                  <a href={`/admin/v1/auth/sso/${encodeURIComponent(p.id)}/start`}>
+                    {phrase("Sign in with")} {p.name}
+                  </a>
+                </Button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
       <div className="mt-6 flex gap-4 text-sm text-primary">
         {(forgot || reset) && <Link to="/login">{phrase("Sign in")}</Link>}
         {!forgot && !reset && <Link to="/forgot-password">{phrase("Forgot password?")}</Link>}

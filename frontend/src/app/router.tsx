@@ -35,6 +35,7 @@ import {
   Projects,
   System,
   Users,
+  SingleSignOn,
 } from "@/features/workspace/pages/Admin";
 import ProjectDetail from "@/features/mail/ProjectDetail";
 import SettingsPage from "@/features/mail/Settings";
@@ -99,6 +100,7 @@ const workspacePages: [string, ReactNode][] = [
   ["domain-claims", <DomainClaims />],
   ["mta-queue", <MtaQueue />],
   ["mail-host", <MailHost />],
+  ["sso", <SingleSignOn />],
   ["analytics", <Analytics />],
   ["alerts", <Alerts />],
   ["system", <System />],

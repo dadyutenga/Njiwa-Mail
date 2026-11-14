@@ -17,6 +17,7 @@ import {
   KeyRound,
   LayoutDashboard,
   ListChecks,
+  LogIn,
   ListPlus,
   Mailbox,
   Megaphone,
@@ -99,6 +100,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { path: "projects", label: "Projects", icon: FolderKanban },
       { path: "users", label: "Users", icon: Users, operator: true },
+      { path: "sso", label: "Single sign-on", icon: LogIn, operator: true },
       { path: "mail-server", label: "Delivery infrastructure", icon: Server, operator: true },
       { path: "domain-claims", label: "Domain ownership", icon: Globe, operator: true },
       { path: "mta-queue", label: "Mail queue", icon: ListChecks, operator: true },

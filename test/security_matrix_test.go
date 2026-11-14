@@ -15,18 +15,22 @@ import (
 
 // publicRoutes are reachable without a session or key by design.
 var publicRoutes = map[string]string{
-	"POST /admin/v1/auth/login":   "login",
-	"POST /admin/v1/auth/forgot":  "password reset request (always answers the same)",
-	"POST /admin/v1/auth/reset":   "password reset with a single-use token",
-	"POST /console/login":         "console login",
-	"GET /health/live":            "liveness probe",
-	"GET /health/ready":           "readiness probe",
-	"GET /metrics":                "bearer-token protected (TestMetricsOverviewAndHealth)",
-	"GET /v1/unsubscribe/:token":  "signed unsubscribe link",
-	"POST /v1/unsubscribe/:token": "signed one-click unsubscribe (RFC 8058)",
-	"GET /v1/t/o/:token":          "signed open pixel of an opt-in tracked campaign (TestCampaignToListTrackingAndScopedUnsubscribe)",
-	"GET /v1/t/c/:token":          "signed click redirect, only to the campaign's stored links (TestCampaignToListTrackingAndScopedUnsubscribe)",
-	"GET /v1/view/:token":         "signed, expiring \"view in browser\" link (TestWebView)",
+	"POST /admin/v1/auth/login":        "login",
+	"POST /admin/v1/auth/forgot":       "password reset request (always answers the same)",
+	"GET /admin/v1/auth/sso/providers": "names of enabled sign-in providers, nothing else",
+	"GET /admin/v1/auth/sso/:id/start": "redirects to the provider (TestSSOSignIn)",
+	"GET /admin/v1/auth/sso/callback":  "needs a one-time state and the provider's code (TestSSOSignIn)",
+	"POST /admin/v1/auth/sso/complete": "needs a pending token and the authenticator code (TestSSOCreationMFAAndRefusals)",
+	"POST /admin/v1/auth/reset":        "password reset with a single-use token",
+	"POST /console/login":              "console login",
+	"GET /health/live":                 "liveness probe",
+	"GET /health/ready":                "readiness probe",
+	"GET /metrics":                     "bearer-token protected (TestMetricsOverviewAndHealth)",
+	"GET /v1/unsubscribe/:token":       "signed unsubscribe link",
+	"POST /v1/unsubscribe/:token":      "signed one-click unsubscribe (RFC 8058)",
+	"GET /v1/t/o/:token":               "signed open pixel of an opt-in tracked campaign (TestCampaignToListTrackingAndScopedUnsubscribe)",
+	"GET /v1/t/c/:token":               "signed click redirect, only to the campaign's stored links (TestCampaignToListTrackingAndScopedUnsubscribe)",
+	"GET /v1/view/:token":              "signed, expiring \"view in browser\" link (TestWebView)",
 }
 
 var paramRe = regexp.MustCompile(`:[a-z]+`)
