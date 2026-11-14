@@ -50,6 +50,10 @@ var sealedColumns = []sealedSpec{
 	{"contacts.data_enc", "contacts", "data_enc", "id::text", "'contact:'||id::text"},
 	{"web_views.html_enc", "web_views", "html_enc", "message_id::text", "'web-view:'||message_id::text"},
 	{"inbound_ingest.secret_enc", "inbound_ingest", "secret_enc", "environment_id::text", "'ingest:'||environment_id::text"},
+	{"form_submissions.data_enc", "form_submissions", "data_enc", "id::text", "'form-sub:'||id::text"},
+	{"form_files.data_enc", "form_files", "data_enc", "id::text", "'form-file:'||id::text"},
+	{"chat_conversations.visitor_enc", "chat_conversations", "visitor_enc", "id::text", "'chat-visitor:'||id::text"},
+	{"chat_messages.body_enc", "chat_messages", "body_enc", "id::text", "'chat-msg:'||id::text"},
 	{"dns_oauth_states.verifier_enc", "dns_oauth_states", "verifier_enc", "encode(state_hash,'hex')", "'dns-oauth:'||encode(state_hash,'hex')"},
 }
 

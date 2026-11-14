@@ -303,6 +303,41 @@ Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to
 - A hard bounce suppresses only when the DSN matches one of our message ids **and** names that message's own recipient.
 - To lift a suppression after the user fixed their mailbox: Suppressions → remove (a reason is required and audited).
 
+## Website forms (off by default)
+
+Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer
+`404 forms_disabled`, the dashboard hides the Forms entries and the digest job does nothing. Public docs: [Website
+forms](../documentation/content/docs/api/forms.mdx).
+
+- `POST /v1/forms/{id}` is public. It is guarded by the form's origin allowlist, a hidden honeypot, an optional single-use
+  nonce, per-IP / per-form / per-sender / per-workspace limits and a spam score (flag 30, quarantine 60, reject 90) plus
+  the workspace's own filters. If the service sits behind a proxy, make sure `X-Forwarded-For` carries the visitor's address
+  (`TRUST_PROXY=true`): all visitors behind one proxy address would otherwise share one rate limit.
+- Field values and files are encrypted (`form_submissions`, `form_files`); both are covered by `ENCRYPTION_KEY` rotation.
+  The visitor IP is stored only as a keyed hash. Submissions are deleted with the retention job.
+- Replies go through the normal sending path from the form's "reply from" address, which must be a verified sender; they
+  are "submitted", never "delivered", until the delivery evidence says so.
+- Digest notifications (hourly / daily) are sent by the scheduler once a minute; quarantined messages never notify.
+
+## Live chat (off by default)
+
+Set `CHAT_ENABLED=true` and restart to let projects add a chat widget to their websites. Until then the public chat routes
+answer `404 chat_disabled`, the dashboard hides the Chat entries and the email follow-up job does nothing. Public docs:
+[Live chat](../documentation/content/docs/api/chat.mdx).
+
+- Public routes under `/v1/chat/{id}/…` are guarded by the chat's origin allowlist, per-address / per-chat / per-workspace
+  limits, the spam score and the workspace's form filters, and (after the first message) a per-conversation session token
+  kept only as a hash. With a proxy in front, set `TRUST_PROXY=true` so each visitor has their own limit.
+- Each open visitor page holds one event stream (polled every 2 s on the server, at most 20 opens a minute per address) and
+  the dashboard holds one per open Conversations page. The proxy must not buffer `text/event-stream` (the service sets
+  `X-Accel-Buffering: no`) and should allow responses of about 25 minutes; the widget reconnects by itself.
+- Messages and visitor details are encrypted (`chat_messages`, `chat_conversations`) and covered by `ENCRYPTION_KEY`
+  rotation. The visitor IP is stored only as a keyed hash. Conversations are deleted by the retention job.
+- Answers a visitor's page never received are emailed by the scheduler (once a minute) to the address the visitor left,
+  through the normal sending path; they are "submitted", never "delivered", until the delivery evidence says so. The
+  sender is the chat's reply sender or the environment's default sender; without one the answer stays pending and the
+  job logs `chat email failed`.
+
 ## Message states
 
 | State | Meaning | Operator action |

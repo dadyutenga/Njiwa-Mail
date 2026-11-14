@@ -221,7 +221,7 @@ function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
 function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () => void }) {
   const { user } = useAuth();
   const phrase = usePhrase();
-  const { to, api } = useWorkspace();
+  const { to, api, info } = useWorkspace();
   const key = useWsKey();
   const compose = useCompose();
   const unread = useQuery({
@@ -247,18 +247,22 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
         <PenSquare size={16} /> {!compact && phrase("Compose")}
       </Button>
       <nav aria-label={phrase("Main navigation")} className="space-y-4">
-        {navGroups.map((g) => (
-          <div key={g.label}>
-            {!compact && (
-              <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {phrase(g.label)}
-              </p>
-            )}
-            <ul className="space-y-0.5">
-              {g.items
-                .filter((i) => !(i.path === "setup" && checklist.data?.complete))
-                .filter((i) => !i.operator || user?.installation_operator !== false)
-                .map(({ path, label, icon: Icon, badge }) => (
+        {navGroups.map((g) => {
+          const items = g.items
+            .filter((i) => !(i.path === "setup" && checklist.data?.complete))
+            .filter((i) => !i.operator || user?.installation_operator !== false)
+            .filter((i) => i.feature !== "forms" || info?.forms_enabled)
+            .filter((i) => i.feature !== "chat" || info?.chat_enabled);
+          if (items.length === 0) return null;
+          return (
+            <div key={g.label}>
+              {!compact && (
+                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {phrase(g.label)}
+                </p>
+              )}
+              <ul className="space-y-0.5">
+                {items.map(({ path, label, icon: Icon, badge }) => (
                   <li key={path}>
                     <NavLink
                       to={to(path)}
@@ -287,9 +291,10 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
                     </NavLink>
                   </li>
                 ))}
-            </ul>
-          </div>
-        ))}
+              </ul>
+            </div>
+          );
+        })}
       </nav>
     </div>
   );
