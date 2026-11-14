@@ -225,11 +225,12 @@ is React).
 - [x] Signed HTTP ingest of inbound mail `POST /v1/inbound/ingest/{env}` (per-environment HMAC secret, replay-safe).
 
 ### 12.2 Contacts and marketing (PR 2)
-- [ ] Contacts with per-recipient send/failure stats; subscriber lists (static) and segments (dynamic).
-- [ ] CSV/JSON import with column mapping; subscriber lifecycle (active, bounced, unsubscribed, complained).
-- [ ] Per-list unsubscribe (RFC 8058, scoped: receipts and resets keep flowing), resubscribe, `email.unsubscribed` webhook.
-- [ ] Campaigns sent to lists and segments (on top of the existing bulk pipeline).
-- [ ] Open and click tracking, off by default, marketing mail only, never in high-priority mail; opens labelled estimates.
+- [x] Contacts with per-recipient send/failure stats; subscriber lists (static) and segments (dynamic).
+- [x] CSV/JSON import with column mapping and a dry run; lifecycle (active, bounced, unsubscribed, complained) read from the sending tables.
+- [x] Per-list unsubscribe (RFC 8058, scoped: receipts and resets keep flowing), resubscribe, `email.unsubscribed` webhook.
+- [x] Campaigns sent to lists and segments (on top of the existing bulk pipeline).
+- [x] Open and click tracking, off by default, written campaigns only; opens labelled estimates; no IP or user agent kept.
+- [x] Public API `POST /v1/contacts`, `DELETE /v1/contacts/{ref}`, `GET /v1/lists` (scope `contacts:manage`).
 
 ### 12.3 Analytics and admin (PR 3)
 - [ ] Period comparison, time-to-submit percentiles, deliverability by mailbox provider, CSV export of every report, daily report.

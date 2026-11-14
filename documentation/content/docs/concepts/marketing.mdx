@@ -1,0 +1,43 @@
+---
+title: Marketing mail
+description: Contacts, lists, segments, campaigns, unsubscribes and tracking, and how they stay apart from transactional mail.
+---
+
+Njiwa Mail sends transactional mail (codes, receipts, resets) and marketing mail (newsletters, announcements) from
+the same installation, but keeps them apart so a marketing problem never stops a password reset.
+
+## Audience
+
+- **Contacts** are people who agreed to receive your marketing mail. Their address and name are encrypted; the
+  dashboard shows a masked address. **Attributes** (such as `plan` or `city`) are plain values used for segments and
+  as merge fields, so do not put secrets in them.
+- **Lists** are static audiences. Import a CSV or JSON file (check it first; nothing is saved until you import), add
+  people one by one, or let your application add sign-ups with [`POST /v1/contacts`](/docs/api/contacts).
+- **Segments** are rules (status, list, domain, attribute, date added), worked out again when a campaign is created.
+- A contact's **status** comes from what sending already knows: `bounced` and `complained` (a suppression),
+  `unsubscribed`, or `active`. Only active contacts receive campaigns.
+
+## Campaigns
+
+A campaign (Bulk send) goes to pasted addresses, a list or a segment. It must come from a sender on a verified
+**bulk domain** (for example `news.yourdomain`), is paced at its own rate behind transactional mail, never uses the
+transactional quota, and pauses itself on a spam complaint or a hard-bounce rate above 5%.
+
+## Unsubscribes
+
+Every campaign message has a `List-Unsubscribe` header with one-click unsubscribe (RFC 8058) and a link in the body.
+
+| From | The link | Also offered |
+|---|---|---|
+| A list campaign | Leaves that list | "All marketing mail" |
+| Any other campaign | Leaves all marketing mail of the environment | |
+
+Each unsubscribe sends an `email.unsubscribed` [webhook](/docs/webhooks). Transactional mail is never affected, and
+resubscribing someone (dashboard only) never lifts a bounce, a complaint or a block.
+
+## Tracking
+
+Open and click tracking is **off** unless a campaign turns it on, and only for written messages (a template is sent as
+it is). Clicks go through a redirect that only leads to the links stored with the campaign. No IP address or user agent
+is kept. Opens are an estimate: some mail apps load images on their own (for example Apple Mail Privacy Protection) and
+others block them, so use clicks and replies to judge a campaign.
