@@ -21,6 +21,7 @@ description: POST /v1/emails queues one template or raw email.
 | `reply_to`, `cc`, `bcc` | string, arrays | Optional |
 | `priority` | `high` or `normal` | `otp` and `password-reset` default to `high` |
 | `send_at` | RFC 3339 | Optional, at most 7 days ahead. The message is then `scheduled` |
+| `web_view` | boolean | Optional. Adds a "View this email in your browser" link; the copy expires after 30 days. Not with priority `high` |
 | `attachments` | array | Up to 5 files, 5 MiB in total; `application/pdf`, `image/png`, `image/jpeg`, `text/plain`; content is standard base64 |
 | `headers` | object | Optional extra headers |
 

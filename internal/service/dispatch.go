@@ -326,6 +326,7 @@ type RetentionResult struct {
 	Sessions, Deliveries, DNSChecks, Inbound, Spool   int64
 	// F10
 	DeliveryEvents, Receipts, AttachmentsSealed int64
+	WebViews                                    int64
 }
 
 // RunRetention deletes expired captures, stale rate buckets, old terminal
@@ -358,6 +359,9 @@ func (s *Service) RunRetention(ctx context.Context) (RetentionResult, error) {
 		return r, err
 	}
 	if err := run(&r.Heartbeats, `DELETE FROM worker_heartbeats WHERE last_seen < now() - interval '1 day'`); err != nil {
+		return r, err
+	}
+	if err := run(&r.WebViews, `DELETE FROM web_views WHERE expires_at < now()`); err != nil {
 		return r, err
 	}
 	if err := run(&r.Sessions, `DELETE FROM sessions WHERE expires_at < now()`); err != nil {

@@ -65,6 +65,7 @@ var tableDocs = map[string]string{
 	"transport_profiles":    "Ways of getting mail out: managed Postfix or an existing SMTP server (secrets sealed), one active.",
 	"users":                 "Admin users: password hash, installation-operator flag, TOTP state (secret sealed), recovery code hashes.",
 	"webhook_deliveries":    "Outbox of webhook events with retry state and schema version.",
+	"web_views":             "Encrypted \"view in browser\" copies of sent HTML, deleted with the message or after 30 days.",
 	"webhook_endpoints":     "Webhook endpoints per environment (signing secret sealed, schema version).",
 	"worker_heartbeats":     "Liveness of worker, scheduler and inbound processes.",
 }

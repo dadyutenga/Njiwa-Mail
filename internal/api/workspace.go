@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -905,6 +906,32 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	s.mailServerRoutes(app)
 	s.installationRoutes(app)
 	s.mtaRoutes(app)
+
+	// ---- public "view in browser" copy (signed, expiring link). The sender's
+	// HTML runs in a CSP sandbox: no script, no forms, no same-origin access.
+	app.Get("/v1/view/:token", func(c fiber.Ctx) error {
+		subject, body, err := s.Svc.OpenWebView(reqCtx(c), c.Params("token"))
+		c.Set("Cache-Control", "private, no-store")
+		c.Set("X-Robots-Tag", "noindex, nofollow")
+		c.Set("Referrer-Policy", "no-referrer")
+		if err != nil {
+			if e, ok := service.IsError(err); ok && e.Status == 404 {
+				c.Status(404)
+				c.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
+				c.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+				return c.SendString(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Link expired</title></head><body style="font:16px system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>This link has expired</h1><p>The message is no longer available in the browser. Your inbox still has it.</p></body></html>`)
+			}
+			return writeErr(c, err)
+		}
+		c.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
+		c.Set("Content-Security-Policy", "sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation; "+
+			"default-src 'none'; img-src https: data:; style-src 'unsafe-inline' https:; font-src https: data:")
+		if !strings.Contains(strings.ToLower(body), "<html") {
+			body = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>` +
+				html.EscapeString(subject) + `</title></head><body>` + body + `</body></html>`
+		}
+		return c.SendString(body)
+	})
 
 	// ---- public one-click unsubscribe (RFC 8058). Bulk mail only.
 	app.Get("/v1/unsubscribe/:token", func(c fiber.Ctx) error {

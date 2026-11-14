@@ -24,6 +24,7 @@ tags:
   - { name: Suppressions, description: Addresses that must not receive mail }
   - { name: Addresses, description: Check addresses before sending to them }
   - { name: Unsubscribe, description: Public one-click unsubscribe for bulk mail }
+  - { name: Web view, description: Public "view in browser" copies of sent messages }
   - { name: Health, description: Liveness and readiness }
 paths:
   /v1/emails:
@@ -36,7 +37,7 @@ paths:
         Template sends need scope `emails:send`; raw sends (no `template`, a `subject` and `html` and/or `text`) need `emails:send_raw`.
         The request body may be up to 6 MiB as shipped (attachments).
       x-required-scopes: ['emails:send or emails:send_raw']
-      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, web_view_not_allowed, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -285,6 +286,21 @@ paths:
       responses:
         '200': { description: Unsubscribed (HTML), content: { text/html: { schema: { type: string } } } }
         '404': { description: Unknown token (HTML), content: { text/html: { schema: { type: string } } } }
+  /v1/view/{token}:
+    get:
+      tags: [Web view]
+      operationId: webView
+      summary: View a message in the browser (HTML)
+      description: |
+        Opened by the recipient from the link at the top of a message sent with `web_view: true`. The page is the HTML as
+        sent, under a sandboxing Content-Security-Policy (no scripts, forms or same-origin access), not indexed by search
+        engines. Links expire after 30 days, or earlier when the message's metadata is deleted.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: The message HTML, content: { text/html: { schema: { type: string } } } }
+        '404': { description: Unknown, altered or expired link (HTML), content: { text/html: { schema: { type: string } } } }
   /health/live:
     get:
       tags: [Health]
@@ -402,6 +418,7 @@ components:
         bcc: { type: array, items: { type: string } }
         priority: { type: string, enum: [high, normal], description: otp and password-reset default to high. }
         send_at: { type: string, format: date-time, description: RFC 3339, at most 7 days ahead. }
+        web_view: { type: boolean, description: 'Adds a "view in browser" link at the top of the message, backed by a signed copy of the HTML that expires after 30 days. Not allowed with priority high (one-time codes, password resets).' }
         attachments: { type: array, maxItems: 5, items: { $ref: '#/components/schemas/Attachment' } }
         headers: { type: object, additionalProperties: { type: string } }
     Accepted:

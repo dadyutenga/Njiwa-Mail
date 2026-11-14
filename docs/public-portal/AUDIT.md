@@ -27,6 +27,7 @@ assets → tests → deployment).
 | DELETE | `/v1/suppressions/{id}` | `app.go` | Bearer key | `suppressions:manage` | 200 `{ok:true}`; `{id}` may be the address | `v2_test.go` |
 | GET | `/v1/unsubscribe/{token}` | `workspace.go` | none (token in URL) | | 200 HTML confirm page | `workspace_test.go`, `security_matrix_test.go` |
 | POST | `/v1/unsubscribe/{token}` | `workspace.go` | none (token in URL) | | 200 / 404 HTML | `workspace_test.go` |
+| GET | `/v1/view/{token}` | `workspace.go` | none (signed token in URL) | | 200 sandboxed HTML; 404 HTML when altered or expired | `webview_test.go`, `security_matrix_test.go` |
 | GET | `/health/live` | `api.go` | none | | 200 `{status:"ok"}` | `api_test.go`, CI smoke |
 | GET | `/health/ready` | `api.go` | none | | 200 `{status:"ready"}` / 503 `{status:"unavailable"}` | `api_test.go`, CI smoke |
 
