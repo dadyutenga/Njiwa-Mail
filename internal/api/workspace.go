@@ -362,6 +362,40 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		return map[string]any{"changed": n}, nil
 	})
 
+	h("GET", "/segments", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, err := svc.ListSegments(ctx(c), sc)
+		return map[string]any{"items": items}, err
+	})
+	h("POST", "/segments/preview", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.SegmentRules
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		return svc.SegmentPreview(ctx(c), sc, in)
+	})
+	h("POST", "/segments", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Name  string               `json:"name"`
+			Rules service.SegmentRules `json:"rules"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateSegment(ctx(c), sc, in.Name, in.Rules)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "segment.created", "segment", id, scoped(sc, nil))
+		return map[string]any{"id": id}, nil
+	})
+	h("DELETE", "/segments/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteSegment(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "segment.deleted", "segment", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+
 	// ---- HTTP ingest of inbound mail (signed with a per-environment secret)
 	h("GET", "/inbound-ingest", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.IngestStatus(ctx(c), sc.EnvID)
