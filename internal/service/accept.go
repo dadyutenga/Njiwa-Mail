@@ -42,6 +42,9 @@ type SendRequest struct {
 	SendAt      string            `json:"send_at"`  // RFC3339, at most 7 days ahead
 	Attachments []AttachmentIn    `json:"attachments"`
 	Headers     map[string]string `json:"headers"`
+	// WebView adds a "view in browser" link backed by a signed, expiring copy
+	// of the HTML. Not allowed for high-priority mail (one-time codes, resets).
+	WebView bool `json:"web_view"`
 }
 
 // AttachmentIn is one outbound file. Content is standard base64.
@@ -83,6 +86,8 @@ type Payload struct {
 	System map[string]string `json:"system,omitempty"`
 	// Personal marks mail an operator wrote by hand: no Auto-Submitted header.
 	Personal bool `json:"personal,omitempty"`
+	// WebView: the worker stores the rendered HTML for a signed browser link.
+	WebView bool `json:"web_view,omitempty"`
 }
 
 type storedAttachment struct {
@@ -116,6 +121,7 @@ type validated struct {
 	attachments                  []storedAttachment
 	recipients                   []string
 	headers                      map[string]string
+	webView                      bool
 
 	// Set by workspace callers (compose, bulk, automations), never by API input.
 	source         string
@@ -248,6 +254,7 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 		RawSubject         string   `json:",omitempty"`
 		BodySHA            string   `json:",omitempty"`
 		AttachmentSHA      []string `json:",omitempty"`
+		WebView            bool     `json:",omitempty"`
 	}
 	doc := canonDoc{From: v.from, To: v.to, Template: v.tpl.Slug, Version: asked, Vars: v.vars,
 		TTL: int64(v.ttl / time.Second), RequestID: v.requestID, Locale: locale}
@@ -255,6 +262,7 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 		doc.Priority = v.priority
 	}
 	doc.ReplyTo, doc.CC, doc.BCC = v.replyTo, v.cc, v.bcc
+	doc.WebView = v.webView
 	if len(v.headers) > 0 {
 		doc.Headers = headerCanon(v.headers)
 	}
@@ -309,6 +317,13 @@ func (s *Service) extraRecipients(req SendRequest, v *validated) error {
 		v.priority = req.Priority
 	default:
 		return invalid("invalid_priority")
+	}
+	if req.WebView {
+		// A one-time code or reset link must not live on at a URL.
+		if v.priority == "high" {
+			return invalid("web_view_not_allowed")
+		}
+		v.webView = true
 	}
 	if req.SendAt != "" {
 		t, perr := time.Parse(time.RFC3339, req.SendAt)
@@ -654,7 +669,7 @@ func (s *Service) acceptTx(ctx context.Context, p *Principal, v *validated, idem
 	id := secure.NewUUID()
 	pl, _ := json.Marshal(Payload{From: v.from, FromName: v.fromName, To: v.to, Template: v.tpl.Slug, Version: v.tpl.Version,
 		VersionID: v.tpl.VersionID, Locale: v.locale, Vars: v.vars, Raw: v.raw, Subject: v.subject, HTML: v.html, Text: v.text,
-		ReplyTo: v.replyTo, CC: v.cc, BCC: v.bcc, Headers: v.headers, System: v.system, Personal: v.personal})
+		ReplyTo: v.replyTo, CC: v.cc, BCC: v.bcc, Headers: v.headers, System: v.system, Personal: v.personal, WebView: v.webView})
 	sealed, err := s.Box.Seal(pl, []byte(id))
 	if err != nil {
 		return nil, false, unavailable("seal", err)

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -42,6 +42,19 @@ import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------- inbox
 
+/** Calls onMail when new mail arrives (server-sent events). The browser
+ * reconnects by itself and resumes from the last event it saw. */
+function useInboxStream(base: string, onMail: () => void) {
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return;
+    const es = new EventSource(`/admin/v1${base}/inbox/stream`, { withCredentials: true });
+    es.addEventListener("inbound", onMail);
+    return () => es.close();
+    // onMail is a fresh closure each render; the stream follows the workspace only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [base]);
+}
+
 type InboxMsg = Row & { id: string };
 
 export function Inbox() {
@@ -63,6 +76,11 @@ export function Inbox() {
     queryKey: key("unread"),
     queryFn: () => api.get<{ total: number; mailboxes: Record<string, number> }>("/inbox/unread"),
   });
+  const client = useQueryClient();
+  useInboxStream(api.base, () => {
+    client.invalidateQueries({ queryKey: key("inbox") });
+    client.invalidateQueries({ queryKey: key("unread") });
+  });
   const params = new URLSearchParams({ limit: "50", offset: String(offset) });
   if (mailbox) params.set("mailbox", mailbox);
   if (unread) params.set("unread", "1");
@@ -71,7 +89,7 @@ export function Inbox() {
   const list = useQuery({
     queryKey: key("inbox", params.toString()),
     queryFn: () => api.get<Page<InboxMsg>>(`/inbox?${params}`),
-    refetchInterval: 20_000, // new mail appears without a reload
+    refetchInterval: 60_000, // a fallback: the live stream refreshes at once
   });
   const noMailbox = mailboxes.isSuccess && mailboxes.data.items.length === 0;
   return (

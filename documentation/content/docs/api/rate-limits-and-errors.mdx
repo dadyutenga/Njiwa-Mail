@@ -76,3 +76,10 @@ All of them answer `429 rate_limited` (or `503 queue_full`). Wait `Retry-After` 
 | `rate_limited` | 429 | A limit was reached. See `Retry-After` |
 | `queue_full` | 503 | The live backlog is full. See `Retry-After` |
 | `service_unavailable` | 503 | Storage was unavailable. Nothing was accepted |
+| `web_view_not_allowed` | 422 | `web_view` with priority `high`: a one-time code or reset link must not live on at a URL |
+| `invalid_signature` | 401 | Inbound ingest: missing, wrong or stale signature, or ingest is not turned on |
+| `invalid_message` | 422 | Inbound ingest: the body is not a message and no `X-Njiwa-Recipients` was given |
+| `no_inbound_recipient` | 422 | Inbound ingest: none of the recipients is an inbound address of this environment |
+| `invalid_json` | 400 | The body is not valid JSON |
+| `emails_required` | 422 | Address verification: no `email` or `emails` given |
+| `too_many_addresses` | 422 | Address verification: more than 100 addresses in one request |

@@ -1,0 +1,44 @@
+---
+title: SMTP relay
+description: Point an application that only speaks SMTP at Njiwa Mail, and move to the HTTP API at your own pace.
+---
+
+The relay accepts mail from your applications over SMTP and sends it through the same pipeline as `POST /v1/emails`:
+the same approved senders, domain checks, suppressions, allowlists, rate limits and delivery status. Use it for software
+you cannot change yet (a CMS, a monitoring tool, an old service), then move each one to the API when convenient.
+
+## Turn it on
+
+The relay needs a TLS certificate for the host name your applications will connect to (for example the API's own
+certificate). Put `fullchain.pem` and `privkey.pem` in `./relay-tls/` (or set `NJIWA_RELAY_TLS_DIR`), then:
+
+```bash
+docker compose --profile relay up -d relay
+```
+
+It listens on `127.0.0.1:2587` by default, so it never takes port 587 from a mail server already on the host. To reach it
+from other machines, set `NJIWA_RELAY_BIND=0.0.0.0` (and `NJIWA_RELAY_PORT` if you like) and allow only your application
+servers in the firewall.
+
+## Configure your application
+
+| Setting | Value |
+|---|---|
+| Host | the relay's host name (the one on its certificate) |
+| Port | `2587` (or your `NJIWA_RELAY_PORT`) |
+| Security | STARTTLS (set `RELAY_IMPLICIT_TLS=true` for TLS from the first byte, as on port 465) |
+| Username | anything, for example `apikey` |
+| Password | a Njiwa Mail API key with scope `emails:send_raw` |
+
+The key decides the project and environment: a sandbox key captures mail, a live key sends it. The key's IP allowlist applies.
+
+## What happens to a message
+
+- Each envelope recipient (To, Cc and Bcc) becomes its own message with its own id and status.
+- `From` must be an approved sender of the key's environment; the subject, text, HTML, `Reply-To`, `X-` headers and
+  attachments are kept (the API's attachment types and limits apply).
+- The reply is `250 Queued as <ids>`. A temporary problem (a rate limit, a full queue) is a `451`, and your
+  application retries. A retry of the same message (same `Message-ID` and recipient) is not sent twice.
+- A refusal is permanent and names the reason: `550` for an unapproved sender or a suppressed recipient, `554` otherwise.
+
+AUTH is only offered after TLS. There is no way to send without a key.

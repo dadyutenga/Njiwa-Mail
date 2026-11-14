@@ -24,6 +24,7 @@ var publicRoutes = map[string]string{
 	"GET /metrics":                "bearer-token protected (TestMetricsOverviewAndHealth)",
 	"GET /v1/unsubscribe/:token":  "signed unsubscribe link",
 	"POST /v1/unsubscribe/:token": "signed one-click unsubscribe (RFC 8058)",
+	"GET /v1/view/:token":         "signed, expiring \"view in browser\" link (TestWebView)",
 }
 
 var paramRe = regexp.MustCompile(`:[a-z]+`)

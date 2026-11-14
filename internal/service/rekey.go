@@ -47,6 +47,8 @@ var sealedColumns = []sealedSpec{
 	{"users.totp_secret_enc", "users", "totp_secret_enc", "id::text", "'totp:'||id::text"},
 	{"dns_connections.token_enc", "dns_connections", "token_enc", "id::text", "'dns-connection:'||id::text||':token'"},
 	{"dns_connections.refresh_enc", "dns_connections", "refresh_enc", "id::text", "'dns-connection:'||id::text||':refresh'"},
+	{"web_views.html_enc", "web_views", "html_enc", "message_id::text", "'web-view:'||message_id::text"},
+	{"inbound_ingest.secret_enc", "inbound_ingest", "secret_enc", "environment_id::text", "'ingest:'||environment_id::text"},
 	{"dns_oauth_states.verifier_enc", "dns_oauth_states", "verifier_enc", "encode(state_hash,'hex')", "'dns-oauth:'||encode(state_hash,'hex')"},
 }
 

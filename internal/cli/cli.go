@@ -4,10 +4,12 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/njiwa-tz/mail/internal/relay"
 	"io"
 	"log/slog"
 	"net"
@@ -213,6 +215,8 @@ func Run(args []string) {
 		runWorker(ctx, cfg, svc)
 	case "inbound":
 		runInbound(ctx, cfg, svc)
+	case "relay":
+		runRelay(ctx, cfg, svc)
 	case "scheduler":
 		runScheduler(ctx, cfg, svc)
 	case "role-health":
@@ -420,6 +424,23 @@ func runInbound(ctx context.Context, cfg *config.Config, svc *service.Service) {
 		return
 	}
 	srv := &inbound.Server{Svc: svc, Addr: cfg.InboundListenAddr, AllowedSources: sources, Hostname: cfg.MailHostname, MaxBytes: int64(cfg.InboundMaxBytes)}
+	if err := srv.ListenAndServe(ctx); err != nil {
+		die(err)
+	}
+}
+
+// runRelay serves SMTP submission for applications (AUTH PLAIN with an API
+// key, TLS required).
+func runRelay(ctx context.Context, cfg *config.Config, svc *service.Service) {
+	if cfg.RelayTLSCert == "" || cfg.RelayTLSKey == "" {
+		die(errors.New("the relay needs RELAY_TLS_CERT and RELAY_TLS_KEY: AUTH is only offered over TLS"))
+	}
+	cert, err := tls.LoadX509KeyPair(cfg.RelayTLSCert, cfg.RelayTLSKey)
+	if err != nil {
+		die(fmt.Errorf("relay certificate: %w", err))
+	}
+	srv := &relay.Server{Svc: svc, Addr: cfg.RelayListenAddr, Hostname: cfg.MailHostname, Implicit: cfg.RelayImplicitTLS,
+		TLS: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}}
 	if err := srv.ListenAndServe(ctx); err != nil {
 		die(err)
 	}

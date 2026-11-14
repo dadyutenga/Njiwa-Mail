@@ -22,7 +22,9 @@ tags:
   - { name: Emails, description: Queue, read and cancel outbound email }
   - { name: Inbound, description: Read mail received at your inbound addresses }
   - { name: Suppressions, description: Addresses that must not receive mail }
+  - { name: Addresses, description: Check addresses before sending to them }
   - { name: Unsubscribe, description: Public one-click unsubscribe for bulk mail }
+  - { name: Web view, description: Public "view in browser" copies of sent messages }
   - { name: Health, description: Liveness and readiness }
 paths:
   /v1/emails:
@@ -35,7 +37,7 @@ paths:
         Template sends need scope `emails:send`; raw sends (no `template`, a `subject` and `html` and/or `text`) need `emails:send_raw`.
         The request body may be up to 6 MiB as shipped (attachments).
       x-required-scopes: ['emails:send or emails:send_raw']
-      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, web_view_not_allowed, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -142,6 +144,39 @@ paths:
         '200': { description: A page of inbound messages, content: { application/json: { schema: { $ref: '#/components/schemas/InboundPage' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Error' }
+  /v1/inbound/ingest/{env}:
+    post:
+      tags: [Inbound]
+      operationId: ingestInbound
+      summary: Deliver one inbound message over HTTP (signed)
+      description: |
+        For a mail provider or a server of yours that receives mail and should pass it on over HTTP instead of SMTP.
+        The body is the raw message (RFC 5322). It is signed with the environment's ingest secret (dashboard: Inbound, HTTP
+        ingest): `X-Njiwa-Timestamp` is the Unix time in seconds, within 5 minutes of the server's, and
+        `X-Njiwa-Signature` is `v1=` followed by the hex HMAC-SHA256 of `<timestamp>.<body>`. Every signature problem is
+        the same `401 invalid_signature`.
+        Envelope recipients come from `X-Njiwa-Recipients` (comma-separated), otherwise from `To` and `Cc`; only enabled
+        inbound addresses of this environment are kept. The message is then parsed, stored, forwarded and reported
+        (`inbound.received`) exactly like mail received over SMTP. Sending the same signed request again returns
+        `duplicate: true` and stores nothing.
+      security: []
+      x-required-scopes: ['none: signed with the environment ingest secret']
+      x-error-codes: [invalid_signature, invalid_message, no_inbound_recipient, service_unavailable]
+      parameters:
+        - { name: env, in: path, required: true, schema: { type: string, format: uuid }, description: The environment id shown with the secret }
+        - { name: X-Njiwa-Timestamp, in: header, required: true, schema: { type: string } }
+        - { name: X-Njiwa-Signature, in: header, required: true, schema: { type: string } }
+        - { name: X-Njiwa-Recipients, in: header, required: false, schema: { type: string } }
+        - { name: X-Njiwa-Envelope-From, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          message/rfc822: { schema: { type: string, format: binary } }
+      responses:
+        '202': { description: Spooled, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, recipients: { type: integer } } } } } }
+        '200': { description: Already received, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, duplicate: { type: boolean } } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /v1/inbound/{id}:
     get:
       tags: [Inbound]
@@ -175,6 +210,42 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /v1/addresses/verify:
+    post:
+      tags: [Addresses]
+      operationId: verifyAddresses
+      summary: Verify addresses before sending
+      description: |
+        Checks up to 100 addresses: syntax, whether the domain accepts mail (MX, the A/AAAA fallback, RFC 7505 null MX),
+        disposable-address providers, role accounts (`info@`, `support@`), and this environment's suppressions and bulk
+        unsubscribes. It sends no mail and never connects to the recipient's mail server, so `deliverable` means the
+        domain accepts mail, not that the mailbox exists. `unknown` means DNS did not answer in time; try again later.
+        Any key with `emails:send`, `emails:send_raw` or `addresses:verify` may call it.
+      x-required-scopes: ['addresses:verify or emails:send or emails:send_raw']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, invalid_json, emails_required, too_many_addresses, service_unavailable]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email: { type: string, description: One address }
+                emails: { type: array, maxItems: 100, items: { type: string } }
+            example: { emails: [ada@example.com, info@example.com] }
+      responses:
+        '200':
+          description: One result per address, in request order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results: { type: array, items: { $ref: '#/components/schemas/AddressCheck' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /v1/suppressions:
     get:
       tags: [Suppressions]
@@ -248,6 +319,21 @@ paths:
       responses:
         '200': { description: Unsubscribed (HTML), content: { text/html: { schema: { type: string } } } }
         '404': { description: Unknown token (HTML), content: { text/html: { schema: { type: string } } } }
+  /v1/view/{token}:
+    get:
+      tags: [Web view]
+      operationId: webView
+      summary: View a message in the browser (HTML)
+      description: |
+        Opened by the recipient from the link at the top of a message sent with `web_view: true`. The page is the HTML as
+        sent, under a sandboxing Content-Security-Policy (no scripts, forms or same-origin access), not indexed by search
+        engines. Links expire after 30 days, or earlier when the message's metadata is deleted.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: The message HTML, content: { text/html: { schema: { type: string } } } }
+        '404': { description: Unknown, altered or expired link (HTML), content: { text/html: { schema: { type: string } } } }
   /health/live:
     get:
       tags: [Health]
@@ -270,7 +356,7 @@ components:
     bearer:
       type: http
       scheme: bearer
-      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage. Keep it on your server.'
+      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage, addresses:verify. Keep it on your server.'
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -365,6 +451,7 @@ components:
         bcc: { type: array, items: { type: string } }
         priority: { type: string, enum: [high, normal], description: otp and password-reset default to high. }
         send_at: { type: string, format: date-time, description: RFC 3339, at most 7 days ahead. }
+        web_view: { type: boolean, description: 'Adds a "view in browser" link at the top of the message, backed by a signed copy of the HTML that expires after 30 days. Not allowed with priority high (one-time codes, password resets).' }
         attachments: { type: array, maxItems: 5, items: { $ref: '#/components/schemas/Attachment' } }
         headers: { type: object, additionalProperties: { type: string } }
     Accepted:
@@ -473,6 +560,22 @@ components:
                   content_type: { type: string }
                   size: { type: integer }
                   sha256: { type: string }
+    AddressCheck:
+      type: object
+      required: [email, result, reasons, syntax_valid, disposable, role_account, suppressed, unsubscribed]
+      properties:
+        email: { type: string, description: The address, normalised when the syntax is valid }
+        result: { type: string, enum: [deliverable, risky, undeliverable, unknown] }
+        reasons:
+          type: array
+          items: { type: string, enum: [invalid_syntax, null_mx, no_mail_server, dns_timeout, disposable_domain, role_account, suppressed] }
+        syntax_valid: { type: boolean }
+        domain: { type: string }
+        mx: { type: array, items: { type: string }, description: Mail servers for the domain, sorted }
+        disposable: { type: boolean }
+        role_account: { type: boolean }
+        suppressed: { type: boolean, description: On this environment's suppression list; mail to it is refused }
+        unsubscribed: { type: boolean, description: Unsubscribed from bulk mail in this environment }
     SuppressionPage:
       allOf:
         - $ref: '#/components/schemas/Page'

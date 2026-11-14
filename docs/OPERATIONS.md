@@ -283,6 +283,16 @@ ownership check passes. Another project that adds the same domain sees "already 
   `domain_not_registered`. `ALLOW_UNREGISTERED_LIVE_DOMAINS=true` restores the old behaviour for unclaimed names only, as a
   temporary bridge while domains are registered; it never allows a claimed name.
 
+## SMTP relay for applications
+
+`njiwa-mail relay` (Compose: `docker compose --profile relay up -d relay`; native: `deploy/njiwa-mail-relay.service`) accepts
+SMTP from applications that cannot use the HTTP API yet. AUTH PLAIN over TLS only; the password is an API key with
+`emails:send_raw`. Each envelope recipient becomes one message through the normal accept path, with an idempotency key from
+the `Message-ID` and recipient, so a client's retry is not sent twice. Settings: `RELAY_LISTEN_ADDR`, `RELAY_TLS_CERT`,
+`RELAY_TLS_KEY`, `RELAY_IMPLICIT_TLS`. The Compose service listens on host port 2587 (`NJIWA_RELAY_PORT`) bound to
+`127.0.0.1` (`NJIWA_RELAY_BIND`), so it never takes 587 from a mail server on the same host. Guide: the docs portal's
+"SMTP relay" page.
+
 ## Inbound mail and bounces
 
 Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to `DATA_DIR/spool` and records it before answering `250`; the parser runs afterwards.

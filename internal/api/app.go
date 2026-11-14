@@ -35,6 +35,7 @@ func (s *Server) key(scope string, h keyFn) fiber.Handler {
 
 func (s *Server) appRoutes(app *fiber.App) {
 	svc := s.Svc
+	app.Post("/v1/inbound/ingest/:env", s.ingestInbound)
 	app.Get("/v1/inbound", s.key(service.ScopeInboundRead, func(c fiber.Ctx, p *service.Principal) (any, error) {
 		items, more, err := svc.ListInbound(reqCtx(c), p.EnvironmentID, "", "", c.Query("q"), pageOf(c))
 		return list(c, items, more, err)

@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/njiwa-tz/mail/internal/inbound"
 	"log/slog"
 	"mime"
 	"net"
 	"net/http"
+	"net/mail"
 	"os"
 	"strconv"
 	"strings"
@@ -30,10 +32,14 @@ type Server struct {
 	EnvSMTP         *mailer.SMTPConfig // SMTP from the environment (nil when unset); used by the Mail server test
 
 	// Admin API (/admin/v1).
-	TrustProxy      bool             // take the client IP from X-Forwarded-For (set by our own reverse proxy)
-	InsecureCookies bool             // local HTTP development only: drop the Secure cookie attribute
-	MetricsToken    string           // bearer token for /metrics; empty disables the endpoint
-	Resolver        service.Resolver // DNS resolver override for tests; nil = system resolver
+	TrustProxy      bool   // take the client IP from X-Forwarded-For (set by our own reverse proxy)
+	InsecureCookies bool   // local HTTP development only: drop the Secure cookie attribute
+	MetricsToken    string // bearer token for /metrics; empty disables the endpoint
+	// StreamMax ends a live event stream (the browser reconnects with
+	// Last-Event-ID); 0 means 25 minutes. StreamPoll is how often it looks
+	// for new events; 0 means 2 seconds.
+	StreamMax, StreamPoll time.Duration
+	Resolver              service.Resolver // DNS resolver override for tests; nil = system resolver
 
 	// MTA is the host agent behind the mail queue controls (E10); nil when none is configured.
 	MTA MTAAgent
@@ -74,6 +80,7 @@ func (s *Server) App() *fiber.App {
 	app.Post("/v1/emails", s.postEmail)
 	app.Post("/v1/emails/:id/cancel", s.cancelEmail)
 	app.Get("/v1/emails/:id", s.getEmail)
+	app.Post("/v1/addresses/verify", s.verifyAddresses)
 	app.Get("/health/live", func(c fiber.Ctx) error { return writeJSON(c, 200, map[string]string{"status": "ok"}) })
 	app.Get("/health/ready", s.ready)
 
@@ -222,6 +229,92 @@ func (s *Server) getEmail(c fiber.Ctx) error {
 	return writeJSON(c, 200, st)
 }
 
+// verifyAddresses checks up to 100 addresses (syntax, MX, disposable, role,
+// and this environment's suppressions). Any key that can send may verify.
+func (s *Server) verifyAddresses(c fiber.Ctx) error {
+	p, err := s.Svc.Authenticate(reqCtx(c), c.Get("Authorization"))
+	if err != nil {
+		return writeErr(c, err)
+	}
+	if err := p.AllowIP(s.clientIP(c)); err != nil {
+		return writeErr(c, err)
+	}
+	if !p.HasScope(service.ScopeVerify) && !p.HasScope(service.ScopeSend) && !p.HasScope(service.ScopeSendRaw) {
+		return writeErr(c, &service.Error{Status: 403, Code: "missing_scope"})
+	}
+	var in struct {
+		Email  string   `json:"email"`
+		Emails []string `json:"emails"`
+	}
+	if len(c.Body()) > 64<<10 {
+		return writeErr(c, &service.Error{Status: 413, Code: "body_too_large"})
+	}
+	if err := json.Unmarshal(c.Body(), &in); err != nil {
+		return writeErr(c, &service.Error{Status: 400, Code: "invalid_json"})
+	}
+	emails := in.Emails
+	if in.Email != "" {
+		emails = append([]string{in.Email}, emails...)
+	}
+	res, err := s.Svc.VerifyAddresses(reqCtx(c), p.EnvironmentID, emails)
+	if err != nil {
+		return writeErr(c, err)
+	}
+	return writeJSON(c, 200, map[string]any{"results": res})
+}
+
+// IngestMaxBytes is the largest message HTTP ingest accepts (the SMTP
+// listener's default).
+const IngestMaxBytes = 10 << 20
+
+// ingestInbound takes one raw message (RFC 5322) signed with the
+// environment's ingest secret and spools it like mail received over SMTP.
+// Envelope recipients come from X-Njiwa-Recipients, else from To and Cc;
+// only this environment's inbound addresses are kept.
+func (s *Server) ingestInbound(c fiber.Ctx) error {
+	ctx := reqCtx(c)
+	raw := append([]byte(nil), c.Body()...)
+	if len(raw) > IngestMaxBytes {
+		return writeErr(c, &service.Error{Status: 413, Code: "body_too_large"})
+	}
+	env := c.Params("env")
+	id, err := s.Svc.VerifyIngest(ctx, env, c.Get("X-Njiwa-Timestamp"), c.Get("X-Njiwa-Signature"), raw)
+	if err != nil {
+		if e, ok := service.IsError(err); ok && e.Status == 401 {
+			c.Set("WWW-Authenticate", `Signature realm="njiwa-mail"`)
+		}
+		return writeErr(c, err)
+	}
+	if dup, err := s.Svc.SpoolExists(ctx, id); err != nil {
+		return writeErr(c, &service.Error{Status: 503, Code: "service_unavailable"})
+	} else if dup {
+		return writeJSON(c, 200, map[string]any{"id": id, "duplicate": true})
+	}
+	var rcpts []string
+	if h := c.Get("X-Njiwa-Recipients"); h != "" {
+		rcpts = strings.Split(h, ",")
+	} else if msg, err := mail.ReadMessage(bytes.NewReader(raw)); err == nil {
+		for _, k := range []string{"To", "Cc"} {
+			if list, err := msg.Header.AddressList(k); err == nil {
+				for _, a := range list {
+					rcpts = append(rcpts, a.Address)
+				}
+			}
+		}
+	} else {
+		return writeErr(c, &service.Error{Status: 422, Code: "invalid_message"})
+	}
+	to, err := s.Svc.IngestRecipients(ctx, env, rcpts)
+	if err != nil {
+		return writeErr(c, err)
+	}
+	from := c.Get("X-Njiwa-Envelope-From")
+	if err := inbound.SpoolRaw(ctx, s.Svc, id, from, to, raw); err != nil {
+		return writeErr(c, &service.Error{Status: 503, Code: "service_unavailable"})
+	}
+	return writeJSON(c, 202, map[string]any{"id": id, "recipients": len(to)})
+}
+
 func (s *Server) ready(c fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(reqCtx(c), 2*time.Second)
 	defer cancel()
@@ -303,6 +396,8 @@ func writeOut(c fiber.Ctx, out any) error {
 		return writeJSON(c, 200, map[string]bool{"ok": true})
 	case rawResponse:
 		return v.write(c)
+	case streamResponse:
+		return v(c)
 	default:
 		return writeJSON(c, 200, out)
 	}
@@ -311,6 +406,9 @@ func writeOut(c fiber.Ctx, out any) error {
 func subtleMismatch(got, want string) bool {
 	return subtleCompare(got, want) != 1
 }
+
+// streamResponse writes its own response (server-sent events).
+type streamResponse func(c fiber.Ctx) error
 
 // rawResponse is a non-JSON response (attachment download, HTML view, cookie write).
 type rawResponse struct {

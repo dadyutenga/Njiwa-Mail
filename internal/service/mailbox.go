@@ -332,3 +332,33 @@ func (s *Service) blocked(ctx context.Context, tx *db.Tx, envID, from string) (b
 	}
 	return err == nil, err
 }
+
+// InboxEvent is one new inbound message for the live stream.
+type InboxEvent struct {
+	ID         string    `json:"id"`
+	From       string    `json:"from"`
+	Subject    string    `json:"subject"`
+	AddressID  string    `json:"address_id,omitempty"`
+	ReceivedAt time.Time `json:"received_at"`
+}
+
+// InboxSince returns messages received in the environment after the cursor
+// (received_at, id), oldest first, at most limit.
+func (s *Service) InboxSince(ctx context.Context, envID string, after time.Time, afterID string, limit int) ([]InboxEvent, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT id::text, coalesce(header_from,''), coalesce(subject,''), coalesce(address_id::text,''), received_at
+FROM inbound_messages WHERE environment_id=$1 AND (received_at, id::text) > ($2, $3)
+ORDER BY received_at, id LIMIT $4`, envID, after, afterID, limit)
+	if err != nil {
+		return nil, unavailable("inbox_stream", err)
+	}
+	defer rows.Close()
+	var out []InboxEvent
+	for rows.Next() {
+		var e InboxEvent
+		if err := rows.Scan(&e.ID, &e.From, &e.Subject, &e.AddressID, &e.ReceivedAt); err != nil {
+			return nil, unavailable("inbox_stream", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

@@ -4,8 +4,10 @@ import (
 	"crypto/rand"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/njiwa-tz/mail/internal/secure"
 	"github.com/njiwa-tz/mail/internal/service"
@@ -61,6 +63,14 @@ func TestEncryptionKeyRotation(t *testing.T) {
 	e.process()
 	var inID, attID string
 	e.must(e.pool.QueryRow(ctx, `SELECT inbound_message_id::text, id::text FROM inbound_attachments`).Scan(&inID, &attID))
+	// A "view in browser" copy and an HTTP ingest secret.
+	var msgID, liveEnv string
+	e.must(e.pool.QueryRow(ctx, `SELECT id::text FROM messages LIMIT 1`).Scan(&msgID))
+	e.must(e.pool.QueryRow(ctx, `SELECT e.id::text FROM environments e JOIN projects p ON p.id=e.project_id WHERE p.name='sacas' AND e.mode='live'`).Scan(&liveEnv))
+	_, err = e.svc.StoreWebView(ctx, msgID, "Web view", "<p>sealed under the old key</p>")
+	e.must(err)
+	ingestSecret, err := e.svc.RotateIngestSecret(ctx, liveEnv)
+	e.must(err)
 
 	// Rotate: new key seals, old key still opens.
 	both, onlyNew := rotatedBoxes(t, oldKey)
@@ -104,6 +114,13 @@ func TestEncryptionKeyRotation(t *testing.T) {
 	}
 	if r := e.loginWith("admin@njiwa.co.tz", totpCode(t, totpSecret, 1)); r.Code != 200 {
 		t.Fatalf("MFA login with only the new key: %d %s", r.Code, r.Raw)
+	}
+	if _, html, err := e.svc.OpenWebView(ctx, strings.TrimPrefix(e.svc.WebViewURL(msgID), e.svc.Opts.PublicURL+"/v1/view/")); err != nil || !strings.Contains(html, "old key") {
+		t.Fatalf("web view with only the new key: %v", err)
+	}
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	if _, err := e.svc.VerifyIngest(ctx, liveEnv, ts, service.IngestSignature(ingestSecret, ts, []byte("x")), []byte("x")); err != nil {
+		t.Fatalf("ingest secret with only the new key: %v", err)
 	}
 	e.runWorker() // opens the queued payload sealed under the old key
 	if e.count(`SELECT count(*) FROM messages WHERE source<>'automation' AND state='submitted'`) < 1 {

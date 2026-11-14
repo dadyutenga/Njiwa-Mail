@@ -1,8 +1,12 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -189,6 +193,19 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "transport.test_queued", "message", acc.ID, scoped(sc, nil))
 		return acc, nil
 	})
+	h("POST", "/recipients/verify", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Emails []string `json:"emails"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		res, err := svc.VerifyAddresses(ctx(c), sc.EnvID, in.Emails)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"results": res}, nil
+	})
 	h("POST", "/recipients/check", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Emails []string `json:"emails"`
@@ -229,6 +246,51 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		items, more, err := svc.Inbox(ctx(c), sc, service.InboxFilter{Mailbox: c.Query("mailbox"), Query: c.Query("q"), Label: c.Query("label"),
 			Unread: boolQuery(c, "unread"), Archived: boolQuery(c, "archived")}, pageOf(c))
 		return list(c, items, more, err)
+	})
+	// Live stream of new inbound mail (server-sent events). The browser's
+	// EventSource reconnects by itself and resumes from Last-Event-ID.
+	h("GET", "/inbox/stream", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		after, afterID := time.Now().UTC(), ""
+		if last := c.Get("Last-Event-ID"); last != "" {
+			if ns, id, ok := strings.Cut(last, ":"); ok {
+				if n, err := strconv.ParseInt(ns, 10, 64); err == nil {
+					after, afterID = time.Unix(0, n).UTC(), id
+				}
+			}
+		}
+		return s.eventStream(c, func(ctx context.Context) ([]sseEvent, error) {
+			items, err := svc.InboxSince(ctx, sc.EnvID, after, afterID, 50)
+			out := make([]sseEvent, 0, len(items))
+			for _, it := range items {
+				after, afterID = it.ReceivedAt, it.ID
+				out = append(out, sseEvent{Name: "inbound", ID: strconv.FormatInt(it.ReceivedAt.UnixNano(), 10) + ":" + it.ID, Data: it})
+			}
+			return out, err
+		}), nil
+	})
+	// ---- HTTP ingest of inbound mail (signed with a per-environment secret)
+	h("GET", "/inbound-ingest", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return svc.IngestStatus(ctx(c), sc.EnvID)
+	})
+	h("POST", "/inbound-ingest/secret", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		secret, err := svc.RotateIngestSecret(ctx(c), sc.EnvID)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "inbound_ingest.secret_rotated", "environment", sc.EnvID, scoped(sc, nil))
+		st, err := svc.IngestStatus(ctx(c), sc.EnvID)
+		if err != nil {
+			return nil, err
+		}
+		st["secret"] = secret // shown once
+		return st, nil
+	})
+	h("DELETE", "/inbound-ingest", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DisableIngest(ctx(c), sc.EnvID); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "inbound_ingest.disabled", "environment", sc.EnvID, scoped(sc, nil))
+		return nil, nil
 	})
 	h("GET", "/inbox/unread", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.UnreadCounts(ctx(c), sc)
@@ -893,6 +955,32 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	s.installationRoutes(app)
 	s.mtaRoutes(app)
 
+	// ---- public "view in browser" copy (signed, expiring link). The sender's
+	// HTML runs in a CSP sandbox: no script, no forms, no same-origin access.
+	app.Get("/v1/view/:token", func(c fiber.Ctx) error {
+		subject, body, err := s.Svc.OpenWebView(reqCtx(c), c.Params("token"))
+		c.Set("Cache-Control", "private, no-store")
+		c.Set("X-Robots-Tag", "noindex, nofollow")
+		c.Set("Referrer-Policy", "no-referrer")
+		if err != nil {
+			if e, ok := service.IsError(err); ok && e.Status == 404 {
+				c.Status(404)
+				c.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
+				c.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+				return c.SendString(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Link expired</title></head><body style="font:16px system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>This link has expired</h1><p>The message is no longer available in the browser. Your inbox still has it.</p></body></html>`)
+			}
+			return writeErr(c, err)
+		}
+		c.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
+		c.Set("Content-Security-Policy", "sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation; "+
+			"default-src 'none'; img-src https: data:; style-src 'unsafe-inline' https:; font-src https: data:")
+		if !strings.Contains(strings.ToLower(body), "<html") {
+			body = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>` +
+				html.EscapeString(subject) + `</title></head><body>` + body + `</body></html>`
+		}
+		return c.SendString(body)
+	})
+
 	// ---- public one-click unsubscribe (RFC 8058). Bulk mail only.
 	app.Get("/v1/unsubscribe/:token", func(c fiber.Ctx) error {
 		c.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
@@ -912,6 +1000,67 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		c.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 		return c.SendString(unsubscribePage(err == nil))
 	})
+}
+
+type sseEvent struct {
+	Name, ID string
+	Data     any
+}
+
+// eventStream answers with text/event-stream: next is polled for events
+// until the client goes away or StreamMax passes. A comment line every 15
+// seconds keeps proxies from closing an idle connection.
+func (s *Server) eventStream(c fiber.Ctx, next func(context.Context) ([]sseEvent, error)) streamResponse {
+	max, poll := s.StreamMax, s.StreamPoll
+	if max <= 0 {
+		max = 25 * time.Minute
+	}
+	if poll <= 0 {
+		poll = 2 * time.Second
+	}
+	return func(c fiber.Ctx) error {
+		c.Set(fiber.HeaderContentType, "text/event-stream")
+		c.Set("Cache-Control", "no-store")
+		c.Set("X-Accel-Buffering", "no") // nginx: pass events through at once
+		return c.SendStreamWriter(func(w *bufio.Writer) {
+			ctx, cancel := context.WithTimeout(context.Background(), max)
+			defer cancel()
+			fmt.Fprintf(w, "retry: 3000\n\n")
+			if w.Flush() != nil {
+				return
+			}
+			t := time.NewTicker(poll)
+			defer t.Stop()
+			idle := time.Now()
+			for {
+				evs, err := next(ctx)
+				if err != nil {
+					fmt.Fprintf(w, "event: error\ndata: {\"code\":\"stream_unavailable\"}\n\n")
+					_ = w.Flush()
+					return
+				}
+				for _, e := range evs {
+					b, _ := json.Marshal(e.Data)
+					fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Name, b)
+				}
+				if len(evs) == 0 && time.Since(idle) > 15*time.Second {
+					fmt.Fprintf(w, ": keep-alive\n\n")
+					idle = time.Now()
+				}
+				if w.Flush() != nil {
+					return // the client went away
+				}
+				if len(evs) > 0 {
+					idle = time.Now()
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+			}
+		})
+	}
 }
 
 func unsubscribePage(done bool) string {

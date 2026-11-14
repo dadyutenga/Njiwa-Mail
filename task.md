@@ -198,3 +198,46 @@ Guide: `docs/INSTALL.md`. Code: `internal/installer/discover`, `internal/install
   plan/apply` and a Test-mode send on one real AlmaLinux or Rocky Linux 9 VM (throwaway, never `rida-server`); check `getenforce`
   stays Enforcing, `ausearch -m avc -ts recent` is empty, and rollback removes the `smtp_port_t` label.
 - [ ] **T11.2 (owner)** RHEL proper needs a subscription for EPEL/CRB; untested until someone has a RHEL host.
+
+## 12. Feature round (owner's list of 2026-11-14): gap analysis and plan
+
+Owner decisions: Njiwa becomes transactional **and** marketing; open/click tracking is added **off by default**; all four
+parts are built, one PR each, in this order.
+
+**Already in place before this round** (checked in code, not added again): REST API for single, batch and templated mail;
+attachments, custom headers, priorities (high/normal), scheduled sending (`send_at`), sandbox capture (preview mode);
+idempotency; API keys with scopes, expiry, IP allowlist, hashing; sessions, CSRF, optional/required TOTP; rate limits
+(key, project, recipient, domain); domain verification with real SPF/DKIM/DMARC evaluation and staged DKIM rotation;
+verified-sender enforcement; transport profiles with failover; inbound SMTP with attachments, Rspamd spam score, storage,
+forwarding, spool retries and `inbound.received`; bounce (hard/soft) and complaint handling with automatic suppression;
+bulk announcements with RFC 8058 one-click unsubscribe; automations; signed webhooks with retries and replay; audit log;
+alerts; Prometheus metrics, health endpoints; retention; dark/light mode; English and Kiswahili.
+
+**Not taken over as written** (an equivalent exists): Redis/Asynq (the PostgreSQL queue is durable, needs no extra
+service and already has priorities and retries), JWT (server-side sessions can be revoked at once), Vue (the dashboard
+is React).
+
+### 12.1 Sending and inbound gaps (PR 1)
+- [x] Address verification `POST /v1/addresses/verify`: syntax, MX/null MX, disposable, role, suppressions; scope `addresses:verify`.
+- [x] Web view: `web_view: true`, signed expiring link `/v1/view/{token}`, sandboxed page, not for high priority.
+- [x] SMTP relay role for applications (AUTH PLAIN with an API key over TLS, same accept path, idempotent retries).
+- [x] Live inbox stream (server-sent events), used by the Inbox page.
+- [x] Signed HTTP ingest of inbound mail `POST /v1/inbound/ingest/{env}` (per-environment HMAC secret, replay-safe).
+
+### 12.2 Contacts and marketing (PR 2)
+- [ ] Contacts with per-recipient send/failure stats; subscriber lists (static) and segments (dynamic).
+- [ ] CSV/JSON import with column mapping; subscriber lifecycle (active, bounced, unsubscribed, complained).
+- [ ] Per-list unsubscribe (RFC 8058, scoped: receipts and resets keep flowing), resubscribe, `email.unsubscribed` webhook.
+- [ ] Campaigns sent to lists and segments (on top of the existing bulk pipeline).
+- [ ] Open and click tracking, off by default, marketing mail only, never in high-priority mail; opens labelled estimates.
+
+### 12.3 Analytics and admin (PR 3)
+- [ ] Period comparison, time-to-submit percentiles, deliverability by mailbox provider, CSV export of every report, daily report.
+- [ ] Usage plans with quotas per project; announcements and a per-user notification inbox with dismissible health alerts.
+- [ ] OAuth/OIDC sign-in (Google, Keycloak, authentik and other OIDC providers).
+
+### 12.4 Forms and live chat (PR 4)
+- [ ] Form endpoint (HTML, JSON, multipart, no JavaScript needed): origin allowlist, honeypot, single-use nonce, rate
+  limits, spam score with reasons and allow/flag/quarantine/reject, workspace filters with dry run, inbox states,
+  manual replies through the normal pipeline, digests. Off by default.
+- [ ] Chat widget (one script tag), real-time answers from the dashboard, replies by email after the visitor leaves.

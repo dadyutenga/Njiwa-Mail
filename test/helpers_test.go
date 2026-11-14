@@ -112,7 +112,8 @@ func setup(t *testing.T) *env {
 	}
 	tr := &fakeTransport{}
 	e := &env{t: t, pool: pool, svc: svc, box: box, tr: tr}
-	e.srv = &api.Server{Svc: svc, MaxBodyBytes: 32 * 1024, MetricsToken: "metrics-token-0123456789"}
+	e.srv = &api.Server{Svc: svc, MaxBodyBytes: 32 * 1024, MetricsToken: "metrics-token-0123456789",
+		StreamMax: 300 * time.Millisecond, StreamPoll: 50 * time.Millisecond} // event streams end quickly in tests
 	e.h = e.srv.App()
 	e.w = &worker.Worker{Svc: svc, SMTP: tr, ID: "test", Lease: 30 * time.Second, SendTimeout: 5 * time.Second,
 		Backoff: []time.Duration{10 * time.Millisecond}, BounceAddress: bounceAddr}
