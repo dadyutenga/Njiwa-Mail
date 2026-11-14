@@ -24,6 +24,7 @@ import { Complaints, Mailboxes, Senders, Suppressions } from "@/features/workspa
 import { Templates } from "@/features/workspace/pages/Templates";
 import { Automations } from "@/features/workspace/pages/Automations";
 import { Bulk, CampaignDetail, NewCampaign } from "@/features/workspace/pages/Bulk";
+import { ContactDetail, Contacts, Lists, Segments } from "@/features/workspace/pages/Audience";
 import { ApiDocs, ApiKeys, WebhookDetail, Webhooks } from "@/features/workspace/pages/Developers";
 import {
   Alerts,
@@ -65,6 +66,10 @@ const workspacePages: [string, ReactNode][] = [
   ["inbox", <Inbox />],
   ["sent", <Sent />],
   ["scheduled", <Scheduled />],
+  ["contacts", <Contacts />],
+  ["contacts/:id", <ContactDetail />],
+  ["lists", <Lists />],
+  ["segments", <Segments />],
   ["bulk", <Bulk />],
   ["bulk/new", <NewCampaign />],
   ["bulk/:id", <CampaignDetail />],
