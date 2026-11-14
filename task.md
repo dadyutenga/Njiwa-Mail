@@ -233,12 +233,61 @@ is React).
 - [x] Public API `POST /v1/contacts`, `DELETE /v1/contacts/{ref}`, `GET /v1/lists` (scope `contacts:manage`).
 
 ### 12.3 Analytics and admin (PR 3)
-- [ ] Period comparison, time-to-submit percentiles, deliverability by mailbox provider, CSV export of every report, daily report.
-- [ ] Usage plans with quotas per project; announcements and a per-user notification inbox with dismissible health alerts.
-- [ ] OAuth/OIDC sign-in (Google, Keycloak, authentik and other OIDC providers).
+- [x] Period report: comparison with the previous period, time-to-submit and time-to-remote-accept percentiles,
+  results by mailbox provider, CSV of every table; the Analytics page uses it.
+- [x] Notification inbox per user (announcements, daily report, open alerts for operators), operator announcements
+  (retractable), the daily report recorded once per day.
+- [x] Usage plans with quotas per project (monthly Live messages, contacts), assigned per project.
+- [x] Fix: a contact's "Bounced" count counted every message.
 
 ### 12.4 Forms and live chat (PR 4)
 - [ ] Form endpoint (HTML, JSON, multipart, no JavaScript needed): origin allowlist, honeypot, single-use nonce, rate
   limits, spam score with reasons and allow/flag/quarantine/reject, workspace filters with dry run, inbox states,
   manual replies through the normal pipeline, digests. Off by default.
 - [ ] Chat widget (one script tag), real-time answers from the dashboard, replies by email after the visitor leaves.
+
+## 13. Leftover work (paused on the owner's request, 2026-11-14)
+
+Not started or not finished. Each item is its own PR to `dev`; none needs real infrastructure except where noted.
+
+### T13.1 OIDC / SSO sign-in (Google, Keycloak, authentik, any OIDC provider)
+Design agreed while starting it (no code kept):
+- Standard library only, no new dependency: discovery (`/.well-known/openid-configuration`, issuer must match, https
+  endpoints only), authorization code flow with PKCE (S256), state and nonce, ID token verification for RS256
+  (keys of 2048 bits or more) and ES256 with the provider's JWKS (refetched once for an unknown key id); checks iss, aud,
+  azp, exp, iat, nonce, and a verified email address.
+- Operator settings: `sso_providers` (name, issuer, client id, client secret encrypted and in `rekey`, allowed email
+  domains, "create users on first sign-in" off by default, enabled). New users are never operators.
+- `sso_states` (state hash, provider, nonce, PKCE verifier encrypted, 10 minutes). Callback URL
+  `PUBLIC_URL/admin/v1/auth/sso/callback`.
+- An account with a local authenticator (TOTP) still enters its code after the provider: the callback leaves a
+  short-lived pending sign-in and the login page asks for the code.
+- Sessions, audit (`auth.login` with method `sso`) and the login throttle as for passwords. Routes in the security
+  matrix (start and callback are public by design); tests with a fake identity provider (httptest TLS) signing its own
+  tokens, including a wrong audience, an expired token, a bad nonce, an unverified email and an unknown key.
+- Dashboard: "Sign in with …" buttons on the login page; an operator page to add providers.
+
+### T13.2 Daily report by email
+The report is recorded and shown in every inbox, but not emailed. Needs an operator setting for recipients and a
+system sender (the same question as T9.8/password-reset mail); owner decision on which sender.
+
+### T13.3 Forms (PR 4, first half)
+Form endpoint accepting HTML form posts, JSON and multipart (works without JavaScript); origin allowlist, honeypot,
+single-use nonce, rate limits per IP, form, sender and workspace; spam score with reasons and allow / flag /
+quarantine / reject; workspace filters (keyword, phrase, regex, email, domain, IP) with a dry run; inbox states,
+assignment, attachments, live stream (reuse the SSE stream); manual replies through the normal sending pipeline (no
+auto-responder); immediate, hourly or daily digests to each form's addresses. Off by default (a setting, like
+`POSTA_MESSAGES_ENABLED` in the owner's list).
+
+### T13.4 Live chat (PR 4, second half)
+A chat widget added with one script tag, real-time answers from the dashboard (SSE or WebSocket), replies by email once
+the visitor has left, and a home screen for the site's own links and announcements.
+
+### T13.5 Smaller follow-ups found along the way
+- Dashboard pages for the new APIs that have none yet: address verification (a "Check addresses" tool), web view
+  toggle in Compose, SMTP relay status.
+- A docs portal page for analytics and usage plans; OPERATIONS.md sections for announcements, daily reports and plans.
+- Visual check of the Analytics, Announcements and Usage plans pages in a running dashboard (done for Contacts,
+  Segments and Bulk send only).
+- Contact attributes are stored in plain text by design (segments filter on them); revisit if a project needs
+  encrypted attributes.
