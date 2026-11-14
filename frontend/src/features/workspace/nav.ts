@@ -7,6 +7,7 @@ import {
   Bot,
   CalendarClock,
   ClipboardCheck,
+  ClipboardList,
   Contact,
   Filter,
   FileText,
@@ -20,11 +21,13 @@ import {
   ListPlus,
   Mailbox,
   Megaphone,
+  MessageSquareText,
   ScrollText,
   Send,
   Server,
   Settings,
   ShieldBan,
+  ShieldAlert,
   ShieldCheck,
   TestTube2,
   Timer,
@@ -41,6 +44,8 @@ export type NavItem = {
   badge?: "unread";
   /** Only installation operators see this entry. */
   operator?: boolean;
+  /** Hidden unless the server turned this feature on. */
+  feature?: "forms";
 };
 export type NavGroup = { label: string; items: NavItem[] };
 
@@ -69,6 +74,14 @@ export const navGroups: NavGroup[] = [
       { path: "contacts", label: "Contacts", icon: Contact },
       { path: "lists", label: "Lists", icon: ListPlus },
       { path: "segments", label: "Segments", icon: Filter },
+    ],
+  },
+  {
+    label: "Forms",
+    items: [
+      { path: "forms", label: "Forms", icon: ClipboardList, feature: "forms" },
+      { path: "forms/submissions", label: "Form inbox", icon: MessageSquareText, feature: "forms" },
+      { path: "forms/filters", label: "Spam filters", icon: ShieldAlert, feature: "forms" },
     ],
   },
   {
