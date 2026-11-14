@@ -96,6 +96,10 @@ All of them answer `429 rate_limited` (or `503 queue_full`). Wait `Retry-After` 
 | `spam_rejected` | 422 | Forms: the message looks like spam and was not kept |
 | `monthly_quota_exceeded` | 429 | Live: the project's monthly message quota (its usage plan) is used up. `Retry-After` points to the next month (UTC) |
 | `contact_limit_reached` | 422 | Contacts: the project's plan allows no more contacts |
+| `chat_disabled` | 404 | Chat: the operator has not turned live chat on |
+| `empty_message` | 422 | Chat: the message is empty |
+| `message_too_long` | 422 | Chat: a message is longer than 2000 characters |
+| `conversation_full` | 422 | Chat: the conversation has 300 messages; start a new one |
 | `invalid_json` | 400 | The body is not valid JSON |
 | `emails_required` | 422 | Address verification: no `email` or `emails` given |
 | `too_many_addresses` | 422 | Address verification: more than 100 addresses in one request |

@@ -319,6 +319,25 @@ forms](../documentation/content/docs/api/forms.mdx).
   are "submitted", never "delivered", until the delivery evidence says so.
 - Digest notifications (hourly / daily) are sent by the scheduler once a minute; quarantined messages never notify.
 
+## Live chat (off by default)
+
+Set `CHAT_ENABLED=true` and restart to let projects add a chat widget to their websites. Until then the public chat routes
+answer `404 chat_disabled`, the dashboard hides the Chat entries and the email follow-up job does nothing. Public docs:
+[Live chat](../documentation/content/docs/api/chat.mdx).
+
+- Public routes under `/v1/chat/{id}/…` are guarded by the chat's origin allowlist, per-address / per-chat / per-workspace
+  limits, the spam score and the workspace's form filters, and (after the first message) a per-conversation session token
+  kept only as a hash. With a proxy in front, set `TRUST_PROXY=true` so each visitor has their own limit.
+- Each open visitor page holds one event stream (polled every 2 s on the server, at most 20 opens a minute per address) and
+  the dashboard holds one per open Conversations page. The proxy must not buffer `text/event-stream` (the service sets
+  `X-Accel-Buffering: no`) and should allow responses of about 25 minutes; the widget reconnects by itself.
+- Messages and visitor details are encrypted (`chat_messages`, `chat_conversations`) and covered by `ENCRYPTION_KEY`
+  rotation. The visitor IP is stored only as a keyed hash. Conversations are deleted by the retention job.
+- Answers a visitor's page never received are emailed by the scheduler (once a minute) to the address the visitor left,
+  through the normal sending path; they are "submitted", never "delivered", until the delivery evidence says so. The
+  sender is the chat's reply sender or the environment's default sender; without one the answer stays pending and the
+  job logs `chat email failed`.
+
 ## Message states
 
 | State | Meaning | Operator action |

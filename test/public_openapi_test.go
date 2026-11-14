@@ -90,8 +90,8 @@ func TestPublicOpenAPIRoutesMatchTheServer(t *testing.T) {
 			t.Errorf("docs/openapi.yaml describes %s but the server has no such route", k)
 		}
 	}
-	if len(inServer) != 24 {
-		t.Errorf("expected 24 public operations, found %d: update docs/public-portal/AUDIT.md", len(inServer))
+	if len(inServer) != 31 {
+		t.Errorf("expected 31 public operations, found %d: update docs/public-portal/AUDIT.md", len(inServer))
 	}
 }
 
@@ -229,7 +229,7 @@ func TestPublicOpenAPIScopesStatesAndCodesMatchSource(t *testing.T) {
 	// the public paths can return is listed somewhere in the spec.
 	src := goSource(t, "internal/service/accept.go", "internal/service/auth.go", "internal/service/status.go", "internal/service/claims.go",
 		"internal/service/product.go", "internal/service/adminviews.go", "internal/service/templates.go", "internal/api/api.go", "internal/tmpl/tmpl.go",
-		"internal/service/verifyaddr.go", "internal/service/ingest.go", "internal/service/contacts.go", "internal/service/plans.go", "internal/service/forms.go", "internal/api/forms.go")
+		"internal/service/verifyaddr.go", "internal/service/ingest.go", "internal/service/contacts.go", "internal/service/plans.go", "internal/service/forms.go", "internal/api/forms.go", "internal/service/chat.go", "internal/api/chat.go")
 	known := map[string]bool{}
 	for _, r := range []*regexp.Regexp{regexp.MustCompile(`invalid\("([a-z_]+)"\)`), regexp.MustCompile(`newErr\(\d+, "([a-z_]+)"\)`), regexp.MustCompile(`Code: "([a-z_]+)"`), regexp.MustCompile(`bad\("([a-z_]+)"\)`)} {
 		for _, mm := range r.FindAllStringSubmatch(src, -1) {
