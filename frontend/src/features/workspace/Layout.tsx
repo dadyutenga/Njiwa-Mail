@@ -251,7 +251,8 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
           const items = g.items
             .filter((i) => !(i.path === "setup" && checklist.data?.complete))
             .filter((i) => !i.operator || user?.installation_operator !== false)
-            .filter((i) => i.feature !== "forms" || info?.forms_enabled);
+            .filter((i) => i.feature !== "forms" || info?.forms_enabled)
+            .filter((i) => i.feature !== "chat" || info?.chat_enabled);
           if (items.length === 0) return null;
           return (
             <div key={g.label}>
