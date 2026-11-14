@@ -268,6 +268,100 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 			return out, err
 		}), nil
 	})
+	// ---- contacts and lists (marketing audiences)
+	h("GET", "/contacts", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, more, err := svc.ListContacts(ctx(c), sc, service.ContactFilter{ListID: c.Query("list"), Status: c.Query("status"),
+			Domain: c.Query("domain"), Query: c.Query("q")}, pageOf(c))
+		return list(c, items, more, err)
+	})
+	h("POST", "/contacts", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.ContactInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, created, err := svc.UpsertContact(ctx(c), sc, in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "contact.saved", "contact", id, scoped(sc, nil))
+		return map[string]any{"id": id, "created": created}, nil
+	})
+	h("POST", "/contacts/import", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.ImportInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		dry := boolQuery(c, "dry_run")
+		rep, err := svc.ImportContacts(ctx(c), sc, in, dry)
+		if err != nil {
+			return nil, err
+		}
+		if !dry {
+			s.audit(c, u, "contact.imported", "contact", "", scoped(sc, map[string]any{"created": rep.Created, "updated": rep.Updated, "invalid": rep.Invalid}))
+		}
+		return rep, nil
+	})
+	h("GET", "/contacts/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return svc.GetContact(ctx(c), sc, c.Params("id"))
+	})
+	h("DELETE", "/contacts/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteContact(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "contact.deleted", "contact", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("POST", "/contacts/:id/resubscribe", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			ListID string `json:"list_id"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.Resubscribe(ctx(c), sc, c.Params("id"), in.ListID); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "contact.resubscribed", "contact", c.Params("id"), scoped(sc, map[string]any{"list_id": in.ListID}))
+		return nil, nil
+	})
+	h("GET", "/lists", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, err := svc.ListLists(ctx(c), sc)
+		return map[string]any{"items": items}, err
+	})
+	h("POST", "/lists", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct{ Name, Description string }
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateList(ctx(c), sc, in.Name, in.Description)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "list.created", "list", id, scoped(sc, nil))
+		return map[string]any{"id": id}, nil
+	})
+	h("DELETE", "/lists/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteList(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "list.deleted", "list", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("POST", "/lists/:id/members", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			ContactIDs []string `json:"contact_ids"`
+			Remove     bool     `json:"remove"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		n, err := svc.SetMembership(ctx(c), sc, c.Params("id"), in.ContactIDs, !in.Remove)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"changed": n}, nil
+	})
+
 	// ---- HTTP ingest of inbound mail (signed with a per-environment secret)
 	h("GET", "/inbound-ingest", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.IngestStatus(ctx(c), sc.EnvID)
