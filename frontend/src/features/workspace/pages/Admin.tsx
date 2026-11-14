@@ -27,6 +27,7 @@ import {
   errorMessage,
   Field,
   inputClass,
+  textareaClass,
   PageHeader,
   Pager,
   run,
@@ -1490,6 +1491,114 @@ export function Privacy() {
           </ConfirmButton>
         </div>
       </Section>
+    </>
+  );
+}
+
+export function Announcements() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const [f, setF] = useState({ title: "", body: "", link: "" });
+  const offset = useOffset();
+  const q = useQuery({
+    queryKey: ["announcements", offset],
+    queryFn: () => admin.get<Page>(`/announcements?limit=50&offset=${offset}`),
+  });
+  const post = async () => {
+    const r = await run(
+      () => admin.send("/announcements", "POST", f),
+      phrase("Announcement sent."),
+    );
+    if (r) setF({ title: "", body: "", link: "" });
+    client.invalidateQueries({ queryKey: ["announcements"] });
+    client.invalidateQueries({ queryKey: ["notifications"] });
+  };
+  return (
+    <>
+      <PageHeader
+        title={phrase("Announcements")}
+        description={phrase(
+          "A message in every user's notifications. You can retract it afterwards.",
+        )}
+      />
+      <Section title={phrase("New announcement")}>
+        <div className="grid gap-3">
+          <Field label={phrase("Title")}>
+            <input
+              className={inputClass}
+              value={f.title}
+              onChange={(e) => setF({ ...f, title: e.target.value })}
+            />
+          </Field>
+          <Field label={phrase("Message (optional)")}>
+            <textarea
+              className={textareaClass}
+              rows={3}
+              value={f.body}
+              onChange={(e) => setF({ ...f, body: e.target.value })}
+            />
+          </Field>
+          <Field
+            label={phrase("Link (optional)")}
+            hint={phrase("A page here, such as /p/project/domains, or an https:// address.")}
+          >
+            <input
+              className={inputClass}
+              value={f.link}
+              onChange={(e) => setF({ ...f, link: e.target.value })}
+            />
+          </Field>
+          <div>
+            <Button onClick={post} disabled={!f.title.trim()}>
+              {phrase("Send to everyone")}
+            </Button>
+          </div>
+        </div>
+      </Section>
+      <DataState q={q} isEmpty={(d) => d.items.length === 0} empty={null}>
+        {(d) => (
+          <Section className="mt-4" title={phrase("Sent")}>
+            <Table
+              rows={d.items}
+              rowKey={(r) => s(r.id)}
+              columns={[
+                { key: "title", label: phrase("Title") },
+                {
+                  key: "created_at",
+                  label: phrase("Sent"),
+                  render: (r) => <Time value={r.created_at} relative />,
+                },
+                { key: "read_by", label: phrase("Read by") },
+                {
+                  key: "x",
+                  label: <span className="sr-only">{phrase("Actions")}</span>,
+                  render: (r) =>
+                    r.retracted_at ? (
+                      <StateBadge state="cancelled" label={phrase("retracted")} />
+                    ) : (
+                      <ConfirmButton
+                        title={phrase("Retract this announcement?")}
+                        description={phrase("It disappears from every user's notifications.")}
+                        confirm="Retract"
+                        onConfirm={async () => {
+                          await run(
+                            () => admin.send(`/announcements/${s(r.id)}/retract`, "POST"),
+                            phrase("Retracted."),
+                          );
+                          client.invalidateQueries({ queryKey: ["announcements"] });
+                          client.invalidateQueries({ queryKey: ["notifications"] });
+                        }}
+                      >
+                        {phrase("Retract")}
+                      </ConfirmButton>
+                    ),
+                },
+              ]}
+            />
+            <Pager page={d} />
+          </Section>
+        )}
+      </DataState>
     </>
   );
 }

@@ -2,6 +2,30 @@ import { swDns } from "./sw-dns";
 import { swSetup } from "./sw-setup";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "A message in every user's notifications. You can retract it afterwards.":
+    "Ujumbe kwenye arifa za kila mtumiaji. Unaweza kuuondoa baadaye.",
+  "A page here, such as /p/project/domains, or an https:// address.":
+    "Ukurasa hapa, kama /p/project/domains, au anwani ya https://.",
+  "Announcement sent.": "Tangazo limetumwa.",
+  Announcements: "Matangazo",
+  "It disappears from every user's notifications.": "Linaondoka kwenye arifa za kila mtumiaji.",
+  "Link (optional)": "Kiungo (si lazima)",
+  "Mark all read": "Weka zote kama zimesomwa",
+  "Message (optional)": "Ujumbe (si lazima)",
+  "Nothing new.": "Hakuna jipya.",
+  "Read by": "Limesomwa na",
+  Read: "Imesomwa",
+  "Retract this announcement?": "Ondoa tangazo hili?",
+  Retract: "Ondoa",
+  "Retracted.": "Limeondolewa.",
+  "Send to everyone": "Tuma kwa wote",
+  Title: "Kichwa",
+  failed: "imeshindwa",
+  "hard bounces": "barua zilizorudi kabisa",
+  retracted: "limeondolewa",
+  submitted: "imewasilishwa",
+  "Daily report": "Ripoti ya kila siku",
+  Alert: "Tahadhari",
   "By mailbox provider": "Kwa mtoa huduma wa barua",
   Day: "Siku",
   "Download CSV": "Pakua CSV",

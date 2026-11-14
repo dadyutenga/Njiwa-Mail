@@ -19,6 +19,40 @@ func (s *Server) productRoutes(app *fiber.App) {
 		}
 		return map[string]any{"items": items}, nil
 	})
+	// ---- the user's notification inbox, and operator announcements
+	h(fiber.MethodGet, "/admin/v1/notifications", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.Notifications(reqCtx(c), u)
+	})
+	h(fiber.MethodPost, "/admin/v1/notifications/read-all", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return nil, svc.MarkAllNotificationsRead(reqCtx(c), u)
+	})
+	h(fiber.MethodPost, "/admin/v1/notifications/:kind/:id/:action", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return nil, svc.MarkNotification(reqCtx(c), u, c.Params("kind"), c.Params("id"), c.Params("action"))
+	})
+	op := func(method, path string, fn adminFn) { route(app, method, path, s.adm(s.op(fn))) }
+	op(fiber.MethodGet, "/admin/v1/announcements", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		items, more, err := svc.ListAnnouncements(reqCtx(c), pageOf(c))
+		return list(c, items, more, err)
+	})
+	op(fiber.MethodPost, "/admin/v1/announcements", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct{ Title, Body, Link string }
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateAnnouncement(reqCtx(c), u.Email, in.Title, in.Body, in.Link)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "announcement.create", "announcement", id, map[string]any{"title": in.Title})
+		return map[string]string{"id": id}, nil
+	})
+	op(fiber.MethodPost, "/admin/v1/announcements/:id/retract", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		if err := svc.RetractAnnouncement(reqCtx(c), c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "announcement.retract", "announcement", c.Params("id"), nil)
+		return nil, nil
+	})
 	h(fiber.MethodGet, "/admin/v1/domains", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListDomains(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
