@@ -1,0 +1,54 @@
+---
+title: Live chat
+description: Add a chat to your website with one script tag, answer from the dashboard, and reach visitors by email after they leave.
+---
+
+A **chat** puts a small widget on your website: a home screen with your announcement and links, and a conversation window.
+Visitors write; you answer from the dashboard (Conversations) and the answer appears on their page within seconds. If they
+have already left, the answer goes to the email address they gave. Chat is off unless the operator set `CHAT_ENABLED=true`;
+until then the calls below answer `404 chat_disabled`.
+
+Create the chat in the dashboard (Live chat), list the websites allowed to show it, then paste one line into your pages:
+
+```html
+<script src="https://mail.example.com/v1/chat/CHAT_ID/widget.js" async></script>
+```
+
+The widget sets no cookies. It remembers the visitor's conversation in the browser's `localStorage`, and it does not appear on
+a page whose website is not on the allowlist.
+
+| Call | Returns |
+|---|---|
+| `GET /v1/chat/{id}/widget.js` | The widget script (static) |
+| `GET /v1/chat/{id}/config` | Title, welcome text, announcement and home links |
+| `POST /v1/chat/{id}/conversations` with `message`, optional `name` and `email` | `{"conversation_id": "…", "token": "…"}` |
+| `POST /v1/chat/{id}/conversations/{cid}/messages` with `body` | `{"id": "…"}` |
+| `GET /v1/chat/{id}/conversations/{cid}/messages?after=` | `{"items": [...], "cursor": "…"}` |
+| `GET /v1/chat/{id}/conversations/{cid}/stream` | Server-sent `message` events |
+| `PUT /v1/chat/{id}/conversations/{cid}/contact` with `name`, `email` | `{"ok": true}` |
+
+You normally never call these yourself: the widget does. If you build your own chat window, send the `token` from the first
+call as `Authorization: Bearer <token>` on every later call. It is shown once and stored only as a hash.
+
+## What protects a chat
+
+- **Origin allowlist.** A browser's `Origin` must be one of the chat's allowed websites, otherwise `403 origin_not_allowed`.
+  Cross-origin answers are given only to those sites.
+- **Session token.** A conversation can be read or written only with its token. A wrong token and an unknown conversation
+  are the same `404`.
+- **Limits.** New conversations per address (3 a minute, 10 an hour), per chat and per workspace; 20 messages a minute per
+  conversation, 300 per conversation. Over a limit you get `429` with `Retry-After`.
+- **Spam.** Each message is scored like a [form](/docs/api/forms) post and held to the workspace's spam filters. Chat has no
+  quarantine: anything that would be held is `422 spam_rejected`.
+
+## Answers after the visitor has left
+
+An answer the visitor's page has not received after 30 seconds, from a visitor whose page has been silent for a minute, is
+emailed to the address they left, once, from the chat's "send email answers from" sender (or the environment's default
+sender). Answers to one conversation go out in one message. The email is accepted for sending like any other mail; whether it was
+delivered is shown by the message timeline, never assumed. A visitor who left no address gets nothing, and the dashboard says so.
+
+## What is kept
+
+Messages and the visitor's name and address are encrypted at rest. The visitor's IP is kept only as a keyed hash for limits.
+Conversations follow the workspace's retention period and are removed with their chat.

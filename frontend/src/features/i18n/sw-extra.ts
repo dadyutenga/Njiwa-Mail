@@ -1,4 +1,6 @@
 import { swDns } from "./sw-dns";
+import { swChat } from "./sw-chat";
+import { swForms } from "./sw-forms";
 import { swSetup } from "./sw-setup";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
@@ -1156,3 +1158,5 @@ export const swExtra: Record<string, string> = {
 
 Object.assign(swExtra, swDns);
 Object.assign(swExtra, swSetup);
+Object.assign(swExtra, swForms);
+Object.assign(swExtra, swChat);

@@ -90,6 +90,11 @@ type Config struct {
 	RelayListenAddr, RelayTLSCert, RelayTLSKey string
 	RelayImplicitTLS                           bool
 
+	// FormsEnabled (FORMS_ENABLED) turns on contact forms; off by default.
+	FormsEnabled bool
+	// ChatEnabled (CHAT_ENABLED) turns on the live chat widget; off by default.
+	ChatEnabled bool
+
 	// DNS health checker expectations.
 	MailHostname string
 	OutboundIP   string
@@ -342,6 +347,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("ADMIN_SESSION_TTL must be between 5m and 168h")
 	}
 	if c.TrustProxy, err = boolVar("TRUST_PROXY"); err != nil {
+		return nil, err
+	}
+	if c.FormsEnabled, err = boolVar("FORMS_ENABLED"); err != nil {
+		return nil, err
+	}
+	if c.ChatEnabled, err = boolVar("CHAT_ENABLED"); err != nil {
 		return nil, err
 	}
 	if c.InsecureCookies, err = boolVar("ADMIN_INSECURE_COOKIES"); err != nil {

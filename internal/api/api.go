@@ -97,6 +97,8 @@ func (s *Server) App() *fiber.App {
 	s.adminRoutes(app)
 	s.productRoutes(app)
 	s.ssoRoutes(app)
+	s.formRoutes(app)
+	s.chatRoutes(app)
 	s.workspaceRoutes(app)
 	s.dnsRoutes(app)
 	return app

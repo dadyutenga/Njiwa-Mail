@@ -26,6 +26,8 @@ tags:
   - { name: Contacts, description: Marketing contacts and subscriber lists }
   - { name: Unsubscribe, description: Public one-click unsubscribe for bulk mail }
   - { name: Web view, description: Public "view in browser" copies of sent messages }
+  - { name: Forms, description: Contact forms posted from a website (off unless the operator turns forms on) }
+  - { name: Chat, description: Live chat widget for a website (off unless the operator turns chat on) }
   - { name: Health, description: Liveness and readiness }
 paths:
   /v1/emails:
@@ -392,6 +394,197 @@ paths:
       responses:
         '200': { description: Unsubscribed (HTML), content: { text/html: { schema: { type: string } } } }
         '404': { description: Unknown token (HTML), content: { text/html: { schema: { type: string } } } }
+  /v1/forms/{id}:
+    post:
+      tags: [Forms]
+      operationId: submitForm
+      summary: Post a contact form
+      description: |
+        Posted from a website, by an HTML form (no JavaScript needed), JSON or multipart (up to 3 files of PDF, PNG, JPEG or
+        plain text, 2 MiB in all). Create the form in the dashboard first; it is off unless the operator set `FORMS_ENABLED`.
+        - The field `email` is required (replies go there); other fields are free text (letters, digits, `_ . -` in names; up to
+          30 fields, 5000 characters each).
+        - A browser's `Origin` (or `Referer`) must be one of the form's allowed origins, or the post is `403 origin_not_allowed`.
+          CORS answers are given only to those origins.
+        - Keep the field `hp_website` empty and hidden: a filled one is answered as success and kept nowhere.
+        - If the form requires it, fetch a single-use `_nonce` first (`GET /v1/forms/{id}/nonce`) and post it back.
+        - Limits per address, per form, per sender and per workspace answer `429` with `Retry-After`.
+        - The message is scored for spam (allow, flag, quarantine, reject) and checked against the workspace's filters;
+          rejected posts are `422 spam_rejected` and not kept.
+        JSON clients get JSON; HTML form posts get a thank-you page or a `303` to the form's thank-you address.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true, required: [email], properties: { email: { type: string }, name: { type: string }, message: { type: string } } }
+          application/x-www-form-urlencoded:
+            schema: { type: object, additionalProperties: true, required: [email], properties: { email: { type: string }, name: { type: string }, message: { type: string } } }
+          multipart/form-data:
+            schema: { type: object, additionalProperties: true, required: [email], properties: { email: { type: string } } }
+      x-required-scopes: ['none: public, protected by origin allowlist, limits and spam rules']
+      x-error-codes: [forms_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, invalid_field, field_too_long, form_too_large, too_many_fields, too_many_files, file_type_not_allowed, files_too_large, nonce_required, nonce_invalid, spam_rejected, body_too_large, invalid_request, service_unavailable]
+      responses:
+        '202': { description: Received, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, status: { type: string, enum: [received] } } } } } }
+        '303': { description: HTML form post with a thank-you address set }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /v1/forms/{id}/nonce:
+    get:
+      tags: [Forms]
+      operationId: formNonce
+      summary: A single-use nonce for a form page
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      x-required-scopes: ['none: public']
+      x-error-codes: [forms_disabled, not_found]
+      responses:
+        '200': { description: A nonce valid for an hour, content: { application/json: { schema: { type: object, properties: { nonce: { type: string }, expires_in: { type: integer } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/widget.js:
+    get:
+      tags: [Chat]
+      operationId: chatWidgetScript
+      summary: The chat widget script
+      description: |
+        One static script. Add it to a page with `<script src="https://YOUR-HOST/v1/chat/CHAT_ID/widget.js" async></script>`.
+        It shows a chat button, a home screen (announcement and links) and the conversation. Create the chat in the dashboard first;
+        it is off unless the operator set `CHAT_ENABLED`.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      x-required-scopes: ['none: public']
+      x-error-codes: [chat_disabled]
+      responses:
+        '200': { description: JavaScript, content: { application/javascript: { schema: { type: string } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/config:
+    get:
+      tags: [Chat]
+      operationId: chatConfig
+      summary: What the widget shows before a conversation starts
+      description: Title, welcome text, announcement and home links. CORS answers are given only to the chat's allowed origins.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      x-required-scopes: ['none: public']
+      x-error-codes: [chat_disabled, not_found]
+      responses:
+        '200': { description: Settings, content: { application/json: { schema: { type: object, properties: { title: { type: string }, welcome: { type: string }, offline_message: { type: string }, announcement: { type: string }, links: { type: array, items: { type: object, properties: { label: { type: string }, url: { type: string } } } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/conversations:
+    post:
+      tags: [Chat]
+      operationId: chatStart
+      summary: A visitor starts a conversation
+      description: |
+        Opens a conversation with the visitor's first message and returns a session `token`. Send it as `Authorization: Bearer <token>`
+        on every later call for that conversation; it is shown once and kept only as a hash.
+        - A browser's `Origin` (or `Referer`) must be one of the chat's allowed origins, or the call is `403 origin_not_allowed`.
+        - Limits per address, per chat and per workspace answer `429` with `Retry-After`.
+        - The message is scored for spam and checked against the workspace's filters; anything that would be held is `422 spam_rejected`.
+        - `email` is optional. Without it an answer cannot reach a visitor who has left.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [message], properties: { name: { type: string, maxLength: 80 }, email: { type: string }, message: { type: string, maxLength: 2000 } } }
+      x-required-scopes: ['none: public, protected by origin allowlist, limits and spam rules']
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, empty_message, message_too_long, spam_rejected, invalid_request, service_unavailable]
+      responses:
+        '201': { description: Started, content: { application/json: { schema: { type: object, properties: { conversation_id: { type: string, format: uuid }, token: { type: string } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/conversations/{cid}/messages:
+    get:
+      tags: [Chat]
+      operationId: chatMessages
+      summary: Messages of a conversation, after a cursor
+      description: Oldest first. Pass the `cursor` of the last call as `after`. Answers returned here count as received by the visitor's page, so they are not emailed. A wrong token and an unknown conversation are the same `404`.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
+      x-error-codes: [chat_disabled, not_found, service_unavailable]
+      responses:
+        '200': { description: Messages, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { type: object, properties: { id: { type: string }, sender: { type: string, enum: [visitor, agent] }, body: { type: string }, at: { type: string, format: date-time }, agent: { type: string } } } }, cursor: { type: string } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Chat]
+      operationId: chatSend
+      summary: The visitor sends a message
+      description: A new visitor message reopens a closed conversation. At most 20 a minute per conversation and 300 per conversation.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 2000 } } }
+      x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, empty_message, message_too_long, conversation_full, spam_rejected, invalid_request, service_unavailable]
+      responses:
+        '201': { description: Added, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/conversations/{cid}/stream:
+    get:
+      tags: [Chat]
+      operationId: chatStream
+      summary: Live messages of a conversation (server-sent events)
+      description: |
+        `text/event-stream` of `message` events, each with an `id` that can be sent back as `Last-Event-ID` (or `after`) to resume.
+        Browsers' `EventSource` cannot send the token header; the widget reads the stream with `fetch`. The stream ends after 25 minutes; reconnect.
+        An open stream keeps the visitor marked as present, so answers are not emailed.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
+      x-error-codes: [chat_disabled, not_found, rate_limited, service_unavailable]
+      responses:
+        '200': { description: Event stream, content: { text/event-stream: { schema: { type: string } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/conversations/{cid}/contact:
+    put:
+      tags: [Chat]
+      operationId: chatContact
+      summary: The visitor leaves a name and an email address
+      description: Lets an answer reach the visitor by email after they have left. Sending an empty `email` removes it.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { name: { type: string, maxLength: 80 }, email: { type: string } } }
+      x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, invalid_request, service_unavailable]
+      responses:
+        '200': { description: Saved, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /v1/t/o/{token}:
     get:
       tags: [Web view]

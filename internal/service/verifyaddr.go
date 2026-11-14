@@ -29,15 +29,8 @@ func (s *Service) VerifyAddresses(ctx context.Context, envID string, emails []st
 	if len(emails) > MaxVerifyBatch {
 		return nil, invalid("too_many_addresses")
 	}
-	s.verifyOnce.Do(func() {
-		var r verify.Resolver = net.DefaultResolver
-		if s.Opts.VerifyResolver != nil {
-			r = s.Opts.VerifyResolver
-		}
-		s.verifier, s.verifyErr = verify.New(r, NormalizeEmail, s.Opts.DisposableFile)
-	})
-	if s.verifyErr != nil {
-		return nil, unavailable("verify_setup", s.verifyErr)
+	if _, err := s.getVerifier(); err != nil {
+		return nil, unavailable("verify_setup", err)
 	}
 	out := make([]VerifiedAddress, 0, len(emails))
 	for _, e := range emails {
@@ -57,4 +50,16 @@ func (s *Service) VerifyAddresses(ctx context.Context, envID string, emails []st
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// getVerifier builds the address verifier once (disposable list, resolver).
+func (s *Service) getVerifier() (*verify.Verifier, error) {
+	s.verifyOnce.Do(func() {
+		var r verify.Resolver = net.DefaultResolver
+		if s.Opts.VerifyResolver != nil {
+			r = s.Opts.VerifyResolver
+		}
+		s.verifier, s.verifyErr = verify.New(r, NormalizeEmail, s.Opts.DisposableFile)
+	})
+	return s.verifier, s.verifyErr
 }

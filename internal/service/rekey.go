@@ -52,6 +52,10 @@ var sealedColumns = []sealedSpec{
 	{"inbound_ingest.secret_enc", "inbound_ingest", "secret_enc", "environment_id::text", "'ingest:'||environment_id::text"},
 	{"sso_providers.client_secret_enc", "sso_providers", "client_secret_enc", "id::text", "'sso:'||id::text"},
 	{"sso_states.verifier_enc", "sso_states", "verifier_enc", "encode(state_hash,'hex')", "'sso-state:'||encode(state_hash,'hex')"},
+	{"form_submissions.data_enc", "form_submissions", "data_enc", "id::text", "'form-sub:'||id::text"},
+	{"form_files.data_enc", "form_files", "data_enc", "id::text", "'form-file:'||id::text"},
+	{"chat_conversations.visitor_enc", "chat_conversations", "visitor_enc", "id::text", "'chat-visitor:'||id::text"},
+	{"chat_messages.body_enc", "chat_messages", "body_enc", "id::text", "'chat-msg:'||id::text"},
 	{"dns_oauth_states.verifier_enc", "dns_oauth_states", "verifier_enc", "encode(state_hash,'hex')", "'dns-oauth:'||encode(state_hash,'hex')"},
 }
 
