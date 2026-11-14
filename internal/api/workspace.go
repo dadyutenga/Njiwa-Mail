@@ -189,6 +189,19 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "transport.test_queued", "message", acc.ID, scoped(sc, nil))
 		return acc, nil
 	})
+	h("POST", "/recipients/verify", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Emails []string `json:"emails"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		res, err := svc.VerifyAddresses(ctx(c), sc.EnvID, in.Emails)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"results": res}, nil
+	})
 	h("POST", "/recipients/check", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
 			Emails []string `json:"emails"`

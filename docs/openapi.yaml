@@ -22,6 +22,7 @@ tags:
   - { name: Emails, description: Queue, read and cancel outbound email }
   - { name: Inbound, description: Read mail received at your inbound addresses }
   - { name: Suppressions, description: Addresses that must not receive mail }
+  - { name: Addresses, description: Check addresses before sending to them }
   - { name: Unsubscribe, description: Public one-click unsubscribe for bulk mail }
   - { name: Health, description: Liveness and readiness }
 paths:
@@ -175,6 +176,42 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /v1/addresses/verify:
+    post:
+      tags: [Addresses]
+      operationId: verifyAddresses
+      summary: Verify addresses before sending
+      description: |
+        Checks up to 100 addresses: syntax, whether the domain accepts mail (MX, the A/AAAA fallback, RFC 7505 null MX),
+        disposable-address providers, role accounts (`info@`, `support@`), and this environment's suppressions and bulk
+        unsubscribes. It sends no mail and never connects to the recipient's mail server, so `deliverable` means the
+        domain accepts mail, not that the mailbox exists. `unknown` means DNS did not answer in time; try again later.
+        Any key with `emails:send`, `emails:send_raw` or `addresses:verify` may call it.
+      x-required-scopes: ['addresses:verify or emails:send or emails:send_raw']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, invalid_json, emails_required, too_many_addresses, service_unavailable]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email: { type: string, description: One address }
+                emails: { type: array, maxItems: 100, items: { type: string } }
+            example: { emails: [ada@example.com, info@example.com] }
+      responses:
+        '200':
+          description: One result per address, in request order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results: { type: array, items: { $ref: '#/components/schemas/AddressCheck' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /v1/suppressions:
     get:
       tags: [Suppressions]
@@ -270,7 +307,7 @@ components:
     bearer:
       type: http
       scheme: bearer
-      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage. Keep it on your server.'
+      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage, addresses:verify. Keep it on your server.'
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -473,6 +510,22 @@ components:
                   content_type: { type: string }
                   size: { type: integer }
                   sha256: { type: string }
+    AddressCheck:
+      type: object
+      required: [email, result, reasons, syntax_valid, disposable, role_account, suppressed, unsubscribed]
+      properties:
+        email: { type: string, description: The address, normalised when the syntax is valid }
+        result: { type: string, enum: [deliverable, risky, undeliverable, unknown] }
+        reasons:
+          type: array
+          items: { type: string, enum: [invalid_syntax, null_mx, no_mail_server, dns_timeout, disposable_domain, role_account, suppressed] }
+        syntax_valid: { type: boolean }
+        domain: { type: string }
+        mx: { type: array, items: { type: string }, description: Mail servers for the domain, sorted }
+        disposable: { type: boolean }
+        role_account: { type: boolean }
+        suppressed: { type: boolean, description: On this environment's suppression list; mail to it is refused }
+        unsubscribed: { type: boolean, description: Unsubscribed from bulk mail in this environment }
     SuppressionPage:
       allOf:
         - $ref: '#/components/schemas/Page'

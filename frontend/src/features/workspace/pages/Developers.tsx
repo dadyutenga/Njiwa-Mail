@@ -38,6 +38,7 @@ const SCOPES: [string, string][] = [
   ["emails:read", "Read message status"],
   ["inbound:read", "Read inbound mail"],
   ["suppressions:manage", "Manage suppressions"],
+  ["addresses:verify", "Verify addresses"],
 ];
 const EVENTS = [
   "email.submitted",

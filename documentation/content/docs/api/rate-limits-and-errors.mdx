@@ -76,3 +76,6 @@ All of them answer `429 rate_limited` (or `503 queue_full`). Wait `Retry-After` 
 | `rate_limited` | 429 | A limit was reached. See `Retry-After` |
 | `queue_full` | 503 | The live backlog is full. See `Retry-After` |
 | `service_unavailable` | 503 | Storage was unavailable. Nothing was accepted |
+| `invalid_json` | 400 | The body is not valid JSON |
+| `emails_required` | 422 | Address verification: no `email` or `emails` given |
+| `too_many_addresses` | 422 | Address verification: more than 100 addresses in one request |

@@ -74,6 +74,7 @@ func (s *Server) App() *fiber.App {
 	app.Post("/v1/emails", s.postEmail)
 	app.Post("/v1/emails/:id/cancel", s.cancelEmail)
 	app.Get("/v1/emails/:id", s.getEmail)
+	app.Post("/v1/addresses/verify", s.verifyAddresses)
 	app.Get("/health/live", func(c fiber.Ctx) error { return writeJSON(c, 200, map[string]string{"status": "ok"}) })
 	app.Get("/health/ready", s.ready)
 
@@ -220,6 +221,40 @@ func (s *Server) getEmail(c fiber.Ctx) error {
 		return writeErr(c, err)
 	}
 	return writeJSON(c, 200, st)
+}
+
+// verifyAddresses checks up to 100 addresses (syntax, MX, disposable, role,
+// and this environment's suppressions). Any key that can send may verify.
+func (s *Server) verifyAddresses(c fiber.Ctx) error {
+	p, err := s.Svc.Authenticate(reqCtx(c), c.Get("Authorization"))
+	if err != nil {
+		return writeErr(c, err)
+	}
+	if err := p.AllowIP(s.clientIP(c)); err != nil {
+		return writeErr(c, err)
+	}
+	if !p.HasScope(service.ScopeVerify) && !p.HasScope(service.ScopeSend) && !p.HasScope(service.ScopeSendRaw) {
+		return writeErr(c, &service.Error{Status: 403, Code: "missing_scope"})
+	}
+	var in struct {
+		Email  string   `json:"email"`
+		Emails []string `json:"emails"`
+	}
+	if len(c.Body()) > 64<<10 {
+		return writeErr(c, &service.Error{Status: 413, Code: "body_too_large"})
+	}
+	if err := json.Unmarshal(c.Body(), &in); err != nil {
+		return writeErr(c, &service.Error{Status: 400, Code: "invalid_json"})
+	}
+	emails := in.Emails
+	if in.Email != "" {
+		emails = append([]string{in.Email}, emails...)
+	}
+	res, err := s.Svc.VerifyAddresses(reqCtx(c), p.EnvironmentID, emails)
+	if err != nil {
+		return writeErr(c, err)
+	}
+	return writeJSON(c, 200, map[string]any{"results": res})
 }
 
 func (s *Server) ready(c fiber.Ctx) error {

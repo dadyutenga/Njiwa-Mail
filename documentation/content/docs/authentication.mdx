@@ -25,6 +25,7 @@ Authorization: Bearer dmk_sbx_<prefix>_<secret>
 | `emails:read` | `GET /v1/emails/{id}` |
 | `inbound:read` | List and read inbound mail and attachments |
 | `suppressions:manage` | List, add and remove suppressions |
+| `addresses:verify` | Verify addresses (also allowed with `emails:send` or `emails:send_raw`) |
 
 Give an application only the scopes it needs. A call without the right scope is `403 missing_scope`.
 

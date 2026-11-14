@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/verify"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -63,6 +64,13 @@ type Options struct {
 
 	PublicURL string // origin used in admin password-reset links
 
+	// DisposableFile adds disposable-address domains to the built-in list
+	// used by address verification (one per line).
+	DisposableFile string
+	// VerifyResolver answers address verification's DNS queries (tests);
+	// nil uses the system resolver.
+	VerifyResolver verify.Resolver
+
 	// AllowUnregisteredLiveDomains: see config. Temporary upgrade escape hatch.
 	AllowUnregisteredLiveDomains bool
 
@@ -90,6 +98,10 @@ type Service struct {
 	bdMu  sync.Mutex // per-domain return-path domains (D04), cached briefly
 	bdAt  time.Time
 	bdSet map[string]bool
+
+	verifyOnce sync.Once
+	verifier   *verify.Verifier
+	verifyErr  error
 }
 
 func New(pool *db.DB, box *secure.Box, o Options) *Service {
@@ -165,9 +177,10 @@ const (
 	ScopeRead         = "emails:read"
 	ScopeInboundRead  = "inbound:read"
 	ScopeSuppressions = "suppressions:manage"
+	ScopeVerify       = "addresses:verify"
 )
 
-var allScopes = []string{ScopeSend, ScopeSendRaw, ScopeRead, ScopeInboundRead, ScopeSuppressions}
+var allScopes = []string{ScopeSend, ScopeSendRaw, ScopeRead, ScopeInboundRead, ScopeSuppressions, ScopeVerify}
 
 func validScope(sc string) bool {
 	for _, x := range allScopes {
