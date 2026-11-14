@@ -84,6 +84,12 @@ type Config struct {
 	InboundMaxBytes               int
 	DataDir                       string
 
+	// SMTP relay for applications (the relay role): RELAY_LISTEN_ADDR,
+	// RELAY_TLS_CERT and RELAY_TLS_KEY (PEM files), RELAY_IMPLICIT_TLS for
+	// port 465 instead of STARTTLS.
+	RelayListenAddr, RelayTLSCert, RelayTLSKey string
+	RelayImplicitTLS                           bool
+
 	// DNS health checker expectations.
 	MailHostname string
 	OutboundIP   string
@@ -356,6 +362,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("METRICS_TOKEN must be at least 16 characters")
 	}
 	c.InboundListenAddr = get("INBOUND_LISTEN_ADDR", "0.0.0.0:2525")
+	c.RelayListenAddr = get("RELAY_LISTEN_ADDR", "0.0.0.0:587")
+	c.RelayTLSCert, c.RelayTLSKey = get("RELAY_TLS_CERT", ""), get("RELAY_TLS_KEY", "")
+	if c.RelayImplicitTLS, err = boolVar("RELAY_IMPLICIT_TLS"); err != nil {
+		return nil, err
+	}
 	c.IMAPHost = get("IMAP_HOST", "")
 	if c.IMAPPort, err = intVar("IMAP_PORT", 993); err != nil {
 		return nil, err
