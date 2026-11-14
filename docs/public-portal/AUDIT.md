@@ -33,6 +33,8 @@ assets → tests → deployment).
 | POST | `/v1/unsubscribe/{token}` | `workspace.go` | none (token in URL) | | 200 / 404 HTML | `workspace_test.go` |
 | GET | `/v1/t/o/{token}` | `workspace.go` | none (signed token) | | 200 GIF always; first open counted | `marketing_test.go`, `security_matrix_test.go` |
 | GET | `/v1/t/c/{token}` | `workspace.go` | none (signed token) | | 302 to a stored campaign link; 404 HTML | `marketing_test.go`, `security_matrix_test.go` |
+| POST | `/v1/forms/{id}` | `forms.go` | none (origin allowlist, limits, spam rules) | | 202 `{id,status}` (JSON) or a page / 303 (HTML forms); 403 `origin_not_allowed`; 422 `spam_rejected` and field errors; 429 | `test/forms_test.go`, `security_matrix_test.go` |
+| GET | `/v1/forms/{id}/nonce` | `forms.go` | none | | 200 `{nonce,expires_in}` | `test/forms_test.go`, `security_matrix_test.go` |
 | GET | `/v1/view/{token}` | `workspace.go` | none (signed token in URL) | | 200 sandboxed HTML; 404 HTML when altered or expired | `webview_test.go`, `security_matrix_test.go` |
 | GET | `/health/live` | `api.go` | none | | 200 `{status:"ok"}` | `api_test.go`, CI smoke |
 | GET | `/health/ready` | `api.go` | none | | 200 `{status:"ready"}` / 503 `{status:"unavailable"}` | `api_test.go`, CI smoke |

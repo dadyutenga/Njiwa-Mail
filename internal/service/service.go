@@ -71,6 +71,10 @@ type Options struct {
 	// nil uses the system resolver.
 	VerifyResolver verify.Resolver
 
+	// FormsEnabled turns on contact forms (FORMS_ENABLED). Off by default:
+	// the public form endpoints answer 404 and the workspace pages are hidden.
+	FormsEnabled bool
+
 	// AllowUnregisteredLiveDomains: see config. Temporary upgrade escape hatch.
 	AllowUnregisteredLiveDomains bool
 

@@ -26,6 +26,8 @@ var publicRoutes = map[string]string{
 	"POST /v1/unsubscribe/:token": "signed one-click unsubscribe (RFC 8058)",
 	"GET /v1/t/o/:token":          "signed open pixel of an opt-in tracked campaign (TestCampaignToListTrackingAndScopedUnsubscribe)",
 	"GET /v1/t/c/:token":          "signed click redirect, only to the campaign's stored links (TestCampaignToListTrackingAndScopedUnsubscribe)",
+	"GET /v1/forms/:id/nonce":     "public form nonce for a website's page (TestFormsNonceAndFiles); forms are off by default",
+	"POST /v1/forms/:id":          "a website's contact form post: origin, limits and spam rules (TestFormsSubmissionsSpamFiltersAndInbox)",
 	"GET /v1/view/:token":         "signed, expiring \"view in browser\" link (TestWebView)",
 }
 

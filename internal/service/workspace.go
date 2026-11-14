@@ -69,6 +69,7 @@ FROM projects p JOIN environments e ON e.project_id=p.id WHERE e.id=$1`, sc.EnvI
 	}
 	m["inbound_domain"] = s.Opts.InboundDomain
 	m["api_host"] = s.Opts.PublicURL
+	m["forms_enabled"] = s.Opts.FormsEnabled
 	return m, nil
 }
 
