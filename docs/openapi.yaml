@@ -38,7 +38,7 @@ paths:
         Template sends need scope `emails:send`; raw sends (no `template`, a `subject` and `html` and/or `text`) need `emails:send_raw`.
         The request body may be up to 6 MiB as shipped (attachments).
       x-required-scopes: ['emails:send or emails:send_raw']
-      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, web_view_not_allowed, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, web_view_not_allowed, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, monthly_quota_exceeded, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -257,7 +257,7 @@ paths:
         lists. It never resubscribes anyone who unsubscribed. Attributes are for segmenting (a plan, a city), not for
         secrets: they are stored as plain values. Names are lower case letters, digits and `_`, at most 50.
       x-required-scopes: ['contacts:manage']
-      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, invalid_request, invalid_email, list_not_found, service_unavailable]
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, invalid_request, invalid_email, list_not_found, contact_limit_reached, service_unavailable]
       requestBody:
         required: true
         content:

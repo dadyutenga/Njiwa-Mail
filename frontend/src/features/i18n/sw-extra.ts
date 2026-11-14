@@ -2,6 +2,29 @@ import { swDns } from "./sw-dns";
 import { swSetup } from "./sw-setup";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "A plan is a set of limits. Putting a project on a plan copies its limits to the project; changing the plan updates its projects.":
+    "Mpango ni seti ya mipaka. Kuweka mradi kwenye mpango kunanakili mipaka yake kwenye mradi; kubadilisha mpango kunasasisha miradi yake.",
+  "Edit plan": "Hariri mpango",
+  "Live messages this month": "Ujumbe wa Live mwezi huu",
+  "New plan": "Mpango mpya",
+  "No plan": "Hakuna mpango",
+  "No plans yet": "Bado hakuna mipango",
+  "Only a plan with no projects can be deleted.": "Mpango usio na miradi tu ndio unaweza kufutwa.",
+  "Per month": "Kwa mwezi",
+  "Plan assigned.": "Mpango umewekwa.",
+  "Plan deleted.": "Mpango umefutwa.",
+  "Plan for": "Mpango wa",
+  "Save plan": "Hifadhi mpango",
+  "Usage plans": "Mipango ya matumizi",
+  "Usage this month": "Matumizi mwezi huu",
+  "Messages per minute": "Ujumbe kwa dakika",
+  "Messages per day": "Ujumbe kwa siku",
+  "Per recipient per minute": "Kwa mpokeaji kwa dakika",
+  "Per recipient per hour": "Kwa mpokeaji kwa saa",
+  "Bulk recipients per campaign": "Wapokeaji wa bulk kwa kampeni",
+  "Bulk messages per day": "Ujumbe wa bulk kwa siku",
+  "Live messages per month (0 = unlimited)": "Ujumbe wa Live kwa mwezi (0 = bila kikomo)",
+  "Contacts (0 = unlimited)": "Waasiliani (0 = bila kikomo)",
   "A message in every user's notifications. You can retract it afterwards.":
     "Ujumbe kwenye arifa za kila mtumiaji. Unaweza kuuondoa baadaye.",
   "A page here, such as /p/project/domains, or an https:// address.":

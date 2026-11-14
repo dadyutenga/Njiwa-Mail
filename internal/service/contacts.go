@@ -106,6 +106,9 @@ func (s *Service) upsertContactTx(ctx context.Context, tx *db.Tx, sc *Scope, in 
 	err = tx.QueryRow(ctx, `SELECT id::text, data_enc FROM contacts WHERE environment_id=$1 AND email_hash=$2`, sc.EnvID, hash).Scan(&id, &enc)
 	switch {
 	case errors.Is(err, db.ErrNoRows):
+		if err := checkContactLimitTx(ctx, tx, sc.ProjectID); err != nil {
+			return "", false, err
+		}
 		id = secure.NewUUID()
 		sealed, err := s.Box.Seal(mustJSON(contactData{Email: email, Name: name}), []byte("contact:"+id))
 		if err != nil {

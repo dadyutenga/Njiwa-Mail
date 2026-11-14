@@ -40,6 +40,8 @@ var tableDocs = map[string]string{
 	"environments":          "Sandbox and Live environment of a project: enabled flag, approved origins, recipient allowlist.",
 	"inbound_addresses":     "Addresses that receive mail into a project (mailboxes, temporary inboxes, catch-all).",
 	"inbound_attachments":   "Metadata of inbound attachments; the files are sealed on disk.",
+	"monthly_usage":         "Live messages accepted per project and UTC month, for the plan's monthly quota.",
+	"usage_plans":           "Named sets of project limits (sending, bulk, monthly messages, contacts).",
 	"announcements":         "Operator announcements shown in every user's notifications until retracted.",
 	"daily_reports":         "One summary per UTC day (all projects), shown in every user's notifications.",
 	"inbox_state":           "Per-user read and dismissed state of notification items.",

@@ -1602,3 +1602,250 @@ export function Announcements() {
     </>
   );
 }
+
+const planFields: [string, string][] = [
+  ["send_per_minute", "Messages per minute"],
+  ["send_per_day", "Messages per day"],
+  ["recipient_per_minute", "Per recipient per minute"],
+  ["recipient_per_hour", "Per recipient per hour"],
+  ["bulk_max_per_campaign", "Bulk recipients per campaign"],
+  ["bulk_max_per_day", "Bulk messages per day"],
+  ["monthly_messages", "Live messages per month (0 = unlimited)"],
+  ["max_contacts", "Contacts (0 = unlimited)"],
+];
+
+const emptyPlan = {
+  name: "",
+  description: "",
+  send_per_minute: 30,
+  send_per_day: 500,
+  recipient_per_minute: 3,
+  recipient_per_hour: 10,
+  bulk_max_per_campaign: 5000,
+  bulk_max_per_day: 10000,
+  monthly_messages: 0,
+  max_contacts: 0,
+};
+
+export function Plans() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const [edit, setEdit] = useState<{ id?: string; plan: Record<string, string | number> } | null>(
+    null,
+  );
+  const [error, setError] = useState("");
+  const plans = useQuery({
+    queryKey: ["plans"],
+    queryFn: () => admin.get<{ items: Row[] }>("/plans"),
+  });
+  const usage = useQuery({
+    queryKey: ["usage"],
+    queryFn: () => admin.get<{ items: Row[] }>("/usage"),
+  });
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["plans"] });
+    client.invalidateQueries({ queryKey: ["usage"] });
+  };
+  const save = async () => {
+    if (!edit) return;
+    setError("");
+    const body = Object.fromEntries(
+      Object.entries(edit.plan).map(([k, v]) => [
+        k,
+        k === "name" || k === "description" ? v : Number(v),
+      ]),
+    );
+    try {
+      if (edit.id) await admin.send(`/plans/${edit.id}`, "PUT", body);
+      else await admin.send("/plans", "POST", body);
+      setEdit(null);
+      refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <>
+      <PageHeader
+        title={phrase("Usage plans")}
+        description={phrase(
+          "A plan is a set of limits. Putting a project on a plan copies its limits to the project; changing the plan updates its projects.",
+        )}
+        action={
+          <Button onClick={() => setEdit({ plan: { ...emptyPlan } })}>
+            <Plus size={16} /> {phrase("New plan")}
+          </Button>
+        }
+      />
+      {edit && (
+        <Section className="mb-4" title={edit.id ? phrase("Edit plan") : phrase("New plan")}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={phrase("Name")}>
+              <input
+                className={inputClass}
+                value={String(edit.plan.name)}
+                onChange={(e) => setEdit({ ...edit, plan: { ...edit.plan, name: e.target.value } })}
+              />
+            </Field>
+            <Field label={phrase("Description")}>
+              <input
+                className={inputClass}
+                value={String(edit.plan.description ?? "")}
+                onChange={(e) =>
+                  setEdit({ ...edit, plan: { ...edit.plan, description: e.target.value } })
+                }
+              />
+            </Field>
+            {planFields.map(([k, label]) => (
+              <Field key={k} label={phrase(label)}>
+                <input
+                  type="number"
+                  min={0}
+                  className={inputClass}
+                  value={String(edit.plan[k] ?? 0)}
+                  onChange={(e) =>
+                    setEdit({ ...edit, plan: { ...edit.plan, [k]: e.target.value } })
+                  }
+                />
+              </Field>
+            ))}
+          </div>
+          {error && (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="mt-3 flex gap-2">
+            <Button onClick={save} disabled={!String(edit.plan.name).trim()}>
+              {phrase("Save plan")}
+            </Button>
+            <Button variant="outline" onClick={() => setEdit(null)}>
+              {phrase("Cancel")}
+            </Button>
+          </div>
+        </Section>
+      )}
+      <DataState
+        q={plans}
+        isEmpty={(d) => d.items.length === 0}
+        empty={<Empty title={phrase("No plans yet")} />}
+      >
+        {(d) => (
+          <Table
+            rows={d.items}
+            rowKey={(r) => s(r.id)}
+            columns={[
+              { key: "name", label: phrase("Plan") },
+              { key: "send_per_day", label: phrase("Per day") },
+              {
+                key: "monthly_messages",
+                label: phrase("Per month"),
+                render: (r) => (r.monthly_messages ? s(r.monthly_messages) : "∞"),
+              },
+              {
+                key: "max_contacts",
+                label: phrase("Contacts"),
+                render: (r) => (r.max_contacts ? s(r.max_contacts) : "∞"),
+              },
+              { key: "projects", label: phrase("Projects") },
+              {
+                key: "x",
+                label: <span className="sr-only">{phrase("Actions")}</span>,
+                render: (r) => (
+                  <span className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setEdit({
+                          id: s(r.id),
+                          plan: Object.fromEntries(
+                            ["name", "description", ...planFields.map(([k]) => k)].map((k) => [
+                              k,
+                              r[k] as string | number,
+                            ]),
+                          ),
+                        })
+                      }
+                    >
+                      {phrase("Edit")}
+                    </Button>
+                    <ConfirmButton
+                      title={`${phrase("Delete")} ${s(r.name)}?`}
+                      description={phrase("Only a plan with no projects can be deleted.")}
+                      confirm="Delete plan"
+                      onConfirm={async () => {
+                        await run(
+                          () => admin.send(`/plans/${s(r.id)}`, "DELETE"),
+                          phrase("Plan deleted."),
+                        );
+                        refresh();
+                      }}
+                    >
+                      {phrase("Delete")}
+                    </ConfirmButton>
+                  </span>
+                ),
+              },
+            ]}
+          />
+        )}
+      </DataState>
+      <DataState q={usage} isEmpty={(d) => d.items.length === 0} empty={null}>
+        {(d) => (
+          <Section className="mt-4" title={phrase("Usage this month")}>
+            <Table
+              rows={d.items}
+              rowKey={(r) => s(r.project)}
+              columns={[
+                { key: "project", label: phrase("Project") },
+                {
+                  key: "plan",
+                  label: phrase("Plan"),
+                  render: (r) => (
+                    <select
+                      aria-label={`${phrase("Plan for")} ${s(r.project)}`}
+                      className={selectClass + " w-40"}
+                      value=""
+                      onChange={async (e) => {
+                        if (!e.target.value) return;
+                        await run(
+                          () =>
+                            admin.send(
+                              `/projects/${encodeURIComponent(s(r.project))}/plan`,
+                              "POST",
+                              { plan_id: e.target.value },
+                            ),
+                          phrase("Plan assigned."),
+                        );
+                        refresh();
+                      }}
+                    >
+                      <option value="">{s(r.plan) || phrase("No plan")}</option>
+                      {plans.data?.items.map((p) => (
+                        <option key={s(p.id)} value={s(p.id)}>
+                          {s(p.name)}
+                        </option>
+                      ))}
+                    </select>
+                  ),
+                },
+                {
+                  key: "messages_this_month",
+                  label: phrase("Live messages this month"),
+                  render: (r) =>
+                    `${s(r.messages_this_month)} / ${r.monthly_messages ? s(r.monthly_messages) : "∞"}`,
+                },
+                {
+                  key: "contacts",
+                  label: phrase("Contacts"),
+                  render: (r) => `${s(r.contacts)} / ${r.max_contacts ? s(r.max_contacts) : "∞"}`,
+                },
+              ]}
+            />
+          </Section>
+        )}
+      </DataState>
+    </>
+  );
+}
