@@ -19,6 +19,93 @@ func (s *Server) productRoutes(app *fiber.App) {
 		}
 		return map[string]any{"items": items}, nil
 	})
+	// ---- the user's notification inbox, and operator announcements
+	h(fiber.MethodGet, "/admin/v1/notifications", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.Notifications(reqCtx(c), u)
+	})
+	h(fiber.MethodPost, "/admin/v1/notifications/read-all", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return nil, svc.MarkAllNotificationsRead(reqCtx(c), u)
+	})
+	h(fiber.MethodPost, "/admin/v1/notifications/:kind/:id/:action", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return nil, svc.MarkNotification(reqCtx(c), u, c.Params("kind"), c.Params("id"), c.Params("action"))
+	})
+	op := func(method, path string, fn adminFn) { route(app, method, path, s.adm(s.op(fn))) }
+	op(fiber.MethodGet, "/admin/v1/announcements", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		items, more, err := svc.ListAnnouncements(reqCtx(c), pageOf(c))
+		return list(c, items, more, err)
+	})
+	op(fiber.MethodPost, "/admin/v1/announcements", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct{ Title, Body, Link string }
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateAnnouncement(reqCtx(c), u.Email, in.Title, in.Body, in.Link)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "announcement.create", "announcement", id, map[string]any{"title": in.Title})
+		return map[string]string{"id": id}, nil
+	})
+	op(fiber.MethodPost, "/admin/v1/announcements/:id/retract", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		if err := svc.RetractAnnouncement(reqCtx(c), c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "announcement.retract", "announcement", c.Params("id"), nil)
+		return nil, nil
+	})
+	// ---- usage plans (operators)
+	op(fiber.MethodGet, "/admin/v1/plans", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		items, err := svc.ListPlans(reqCtx(c))
+		return map[string]any{"items": items}, err
+	})
+	op(fiber.MethodPost, "/admin/v1/plans", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in service.UsagePlanInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreatePlan(reqCtx(c), in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "plan.create", "plan", id, map[string]any{"name": in.Name})
+		return map[string]string{"id": id}, nil
+	})
+	op(fiber.MethodPut, "/admin/v1/plans/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in service.UsagePlanInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		n, err := svc.UpdatePlan(reqCtx(c), c.Params("id"), in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "plan.update", "plan", c.Params("id"), map[string]any{"projects": n})
+		return map[string]int{"projects_updated": n}, nil
+	})
+	op(fiber.MethodDelete, "/admin/v1/plans/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		if err := svc.DeletePlan(reqCtx(c), c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "plan.delete", "plan", c.Params("id"), nil)
+		return nil, nil
+	})
+	op(fiber.MethodPost, "/admin/v1/projects/:name/plan", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct {
+			PlanID string `json:"plan_id"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.AssignPlan(reqCtx(c), c.Params("name"), in.PlanID); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "project.plan", "project", c.Params("name"), map[string]any{"plan_id": in.PlanID})
+		return nil, nil
+	})
+	op(fiber.MethodGet, "/admin/v1/usage", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		items, err := svc.Usage(reqCtx(c))
+		return map[string]any{"items": items}, err
+	})
 	h(fiber.MethodGet, "/admin/v1/domains", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListDomains(reqCtx(c), pageOf(c))
 		return list(c, items, more, err)
