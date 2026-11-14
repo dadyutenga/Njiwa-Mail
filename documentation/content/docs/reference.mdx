@@ -15,6 +15,9 @@ The contract is [`/openapi.yaml`](/openapi.yaml) (also [`/openapi.json`](/openap
 | `GET /v1/inbound/{id}` | `inbound:read` | [Inbound mail](/docs/api/inbound) |
 | `GET /v1/inbound/{id}/attachments/{aid}` | `inbound:read` | [Inbound mail](/docs/api/inbound) |
 | `POST /v1/addresses/verify` | `addresses:verify`, `emails:send` or `emails:send_raw` | [Verify addresses](/docs/api/verify) |
+| `POST /v1/contacts` | `contacts:manage` | [Contacts](/docs/api/contacts) |
+| `DELETE /v1/contacts/{ref}` | `contacts:manage` | [Contacts](/docs/api/contacts) |
+| `GET /v1/lists` | `contacts:manage` | [Contacts](/docs/api/contacts) |
 | `GET /v1/suppressions` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |
 | `POST /v1/suppressions` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |
 | `DELETE /v1/suppressions/{id}` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |

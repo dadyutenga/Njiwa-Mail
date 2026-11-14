@@ -54,6 +54,29 @@ func (s *Server) appRoutes(app *fiber.App) {
 	actor := func(p *service.Principal) service.Actor {
 		return service.Actor{KeyID: p.KeyID, Name: "key:" + p.KeyPrefix}
 	}
+	// Contacts: an application adds sign-ups to lists itself.
+	app.Post("/v1/contacts", s.key(service.ScopeContacts, func(c fiber.Ctx, p *service.Principal) (any, error) {
+		var in service.ContactInput
+		if err := decode(c, &in); err != nil {
+			return nil, &service.Error{Status: 422, Code: "invalid_request"}
+		}
+		id, created, err := svc.UpsertContact(reqCtx(c), service.KeyScope(p), in)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"id": id, "created": created}, nil
+	}))
+	app.Delete("/v1/contacts/:ref", s.key(service.ScopeContacts, func(c fiber.Ctx, p *service.Principal) (any, error) {
+		if err := svc.DeleteContactRef(reqCtx(c), service.KeyScope(p), c.Params("ref")); err != nil {
+			return nil, err
+		}
+		svc.Audit(reqCtx(c), actor(p), "contact.deleted", "contact", "", nil)
+		return map[string]bool{"ok": true}, nil
+	}))
+	app.Get("/v1/lists", s.key(service.ScopeContacts, func(c fiber.Ctx, p *service.Principal) (any, error) {
+		items, err := svc.ListLists(reqCtx(c), service.KeyScope(p))
+		return map[string]any{"items": items}, err
+	}))
 	app.Get("/v1/suppressions", s.key(service.ScopeSuppressions, func(c fiber.Ctx, p *service.Principal) (any, error) {
 		items, more, err := svc.KeySuppressions(reqCtx(c), p, pageOf(c))
 		return list(c, items, more, err)

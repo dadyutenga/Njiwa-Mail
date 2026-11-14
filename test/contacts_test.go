@@ -95,3 +95,49 @@ func TestContactsListsAndImport(t *testing.T) {
 		t.Fatalf("after delete: %d", n)
 	}
 }
+
+// The public contacts API: an application adds a sign-up to a list.
+func TestContactsAPI(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	k := e.provision("sacas")
+	e.provision("other")
+	sc, err := e.svc.ResolveScope(ctx, "sacas", "live")
+	e.must(err)
+	listID, err := e.svc.CreateList(ctx, sc, "Newsletter", "")
+	e.must(err)
+	osc, err := e.svc.ResolveScope(ctx, "other", "live")
+	e.must(err)
+	otherList, err := e.svc.CreateList(ctx, osc, "Theirs", "")
+	e.must(err)
+	key, _, err := e.svc.CreateKey(ctx, "sacas", "live", []string{"contacts:manage"}, "crm", 0)
+	e.must(err)
+	if r := e.do("POST", "/v1/contacts", k.live, "", map[string]any{"email": "a@example.org"}); r.Code != 403 {
+		t.Fatalf("sending key: %d", r.Code)
+	}
+	r := e.do("POST", "/v1/contacts", key, "", map[string]any{"email": "Signup@Example.org", "name": "Neema",
+		"attributes": map[string]any{"source": "website"}, "lists": []string{listID}})
+	if r.Code != 200 || r.JSON["created"] != true {
+		t.Fatalf("create: %d %s", r.Code, r.Raw)
+	}
+	if r := e.do("POST", "/v1/contacts", key, "", map[string]any{"email": "signup@example.org", "lists": []string{listID}}); r.JSON["created"] != false {
+		t.Fatalf("repeat: %s", r.Raw)
+	}
+	// Another project's list cannot be used; a bad address is refused.
+	if r := e.do("POST", "/v1/contacts", key, "", map[string]any{"email": "x@example.org", "lists": []string{otherList}}); r.Code != 404 {
+		t.Fatalf("other project's list: %d %s", r.Code, r.Raw)
+	}
+	if r := e.do("POST", "/v1/contacts", key, "", map[string]any{"email": "nope"}); r.Code != 422 || errCode(r) != "invalid_email" {
+		t.Fatalf("bad address: %d %s", r.Code, r.Raw)
+	}
+	lists := e.do("GET", "/v1/lists", key, "", nil)
+	if !strings.Contains(lists.Raw, `"members":1`) || strings.Contains(lists.Raw, "Theirs") {
+		t.Fatalf("lists: %s", lists.Raw)
+	}
+	if r := e.do("DELETE", "/v1/contacts/signup@example.org", key, "", nil); r.Code != 200 {
+		t.Fatalf("delete: %d %s", r.Code, r.Raw)
+	}
+	if r := e.do("DELETE", "/v1/contacts/signup@example.org", key, "", nil); r.Code != 404 {
+		t.Fatalf("delete again: %d", r.Code)
+	}
+}

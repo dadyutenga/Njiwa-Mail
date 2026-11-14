@@ -23,6 +23,7 @@ tags:
   - { name: Inbound, description: Read mail received at your inbound addresses }
   - { name: Suppressions, description: Addresses that must not receive mail }
   - { name: Addresses, description: Check addresses before sending to them }
+  - { name: Contacts, description: Marketing contacts and subscriber lists }
   - { name: Unsubscribe, description: Public one-click unsubscribe for bulk mail }
   - { name: Web view, description: Public "view in browser" copies of sent messages }
   - { name: Health, description: Liveness and readiness }
@@ -246,6 +247,78 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
+  /v1/contacts:
+    post:
+      tags: [Contacts]
+      operationId: upsertContact
+      summary: Add or update a contact
+      description: |
+        Creates the contact, or updates the name and merges attributes when the address exists, and adds it to the given
+        lists. It never resubscribes anyone who unsubscribed. Attributes are for segmenting (a plan, a city), not for
+        secrets: they are stored as plain values. Names are lower case letters, digits and `_`, at most 50.
+      x-required-scopes: ['contacts:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, invalid_request, invalid_email, list_not_found, service_unavailable]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email: { type: string }
+                name: { type: string, maxLength: 200 }
+                attributes: { type: object, additionalProperties: true }
+                lists: { type: array, items: { type: string, format: uuid } }
+            example: { email: neema@example.com, name: Neema, attributes: { source: website }, lists: ['00000000-0000-4000-8000-000000000000'] }
+      responses:
+        '200': { description: Saved, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, created: { type: boolean } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /v1/contacts/{ref}:
+    delete:
+      tags: [Contacts]
+      operationId: deleteContact
+      summary: Delete a contact
+      description: "`ref` is the contact id or the address. Its list memberships go with it; suppressions and unsubscribes stay."
+      x-required-scopes: ['contacts:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, not_found]
+      parameters:
+        - { name: ref, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/lists:
+    get:
+      tags: [Contacts]
+      operationId: listLists
+      summary: Subscriber lists of this environment
+      x-required-scopes: ['contacts:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope]
+      responses:
+        '200':
+          description: The lists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+                        description: { type: string }
+                        members: { type: integer }
+                        unsubscribed: { type: integer }
+                        created_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /v1/suppressions:
     get:
       tags: [Suppressions]
@@ -379,7 +452,7 @@ components:
     bearer:
       type: http
       scheme: bearer
-      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage, addresses:verify. Keep it on your server.'
+      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage, addresses:verify, contacts:manage. Keep it on your server.'
   parameters:
     IdempotencyKey:
       name: Idempotency-Key

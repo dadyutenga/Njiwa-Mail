@@ -1,1 +1,1 @@
-{"title": "API", "pages": ["send-email", "batch", "status-and-cancel", "idempotency", "rate-limits-and-errors", "templates", "inbound", "suppressions", "verify"]}
+{"title": "API", "pages": ["send-email", "batch", "status-and-cancel", "idempotency", "rate-limits-and-errors", "templates", "inbound", "suppressions", "verify", "contacts"]}

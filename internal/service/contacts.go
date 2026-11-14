@@ -568,3 +568,23 @@ func (s *Service) contactVars(id string, enc []byte, attrs map[string]any) (stri
 	}
 	return d.Email, vars
 }
+
+// KeyScope is the workspace scope of an API key's environment.
+func KeyScope(p *Principal) *Scope {
+	return &Scope{ProjectID: p.ProjectID, EnvID: p.EnvironmentID, Mode: p.Mode}
+}
+
+// DeleteContactRef deletes a contact by id or by its address.
+func (s *Service) DeleteContactRef(ctx context.Context, sc *Scope, ref string) error {
+	if e, ok := NormalizeEmail(ref); ok {
+		tag, err := s.Pool.Exec(ctx, `DELETE FROM contacts WHERE environment_id=$1 AND email_hash=$2`, sc.EnvID, s.Box.MAC("recipient", []byte(e)))
+		if err != nil {
+			return unavailable("contact_delete", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return newErr(404, "not_found")
+		}
+		return nil
+	}
+	return s.DeleteContact(ctx, sc, ref)
+}

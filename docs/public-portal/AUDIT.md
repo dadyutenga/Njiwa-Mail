@@ -23,6 +23,9 @@ assets → tests → deployment).
 | GET | `/v1/inbound/{id}` | `app.go` | Bearer key | `inbound:read` | 200 message | `complete_test.go`, `lifecycle_test.go`, `v2_test.go` |
 | GET | `/v1/inbound/{id}/attachments/{aid}` | `app.go` | Bearer key | `inbound:read` | 200 bytes, always `application/octet-stream` | `rekey_test.go`, `lifecycle_test.go`, `complete_test.go` |
 | POST | `/v1/addresses/verify` | `api.go verifyAddresses` | Bearer key | `addresses:verify`, `emails:send` or `emails:send_raw` | 200 `{results:[AddressCheck]}`; 422 over 100 | `test/verify_test.go` |
+| POST | `/v1/contacts` | `app.go` | Bearer key | `contacts:manage` | 200 `{id,created}` | `test/contacts_test.go` |
+| DELETE | `/v1/contacts/{ref}` | `app.go` | Bearer key | `contacts:manage` | 200 `{ok:true}`; `{ref}` may be the address | `test/contacts_test.go` |
+| GET | `/v1/lists` | `app.go` | Bearer key | `contacts:manage` | 200 `{items}` | `test/contacts_test.go` |
 | GET | `/v1/suppressions` | `app.go` | Bearer key | `suppressions:manage` | 200 page | `test/v2_test.go` |
 | POST | `/v1/suppressions` | `app.go` | Bearer key | `suppressions:manage` | 200 `{id}` | `v2_test.go` |
 | DELETE | `/v1/suppressions/{id}` | `app.go` | Bearer key | `suppressions:manage` | 200 `{ok:true}`; `{id}` may be the address | `v2_test.go` |

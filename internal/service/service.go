@@ -178,9 +178,10 @@ const (
 	ScopeInboundRead  = "inbound:read"
 	ScopeSuppressions = "suppressions:manage"
 	ScopeVerify       = "addresses:verify"
+	ScopeContacts     = "contacts:manage"
 )
 
-var allScopes = []string{ScopeSend, ScopeSendRaw, ScopeRead, ScopeInboundRead, ScopeSuppressions, ScopeVerify}
+var allScopes = []string{ScopeSend, ScopeSendRaw, ScopeRead, ScopeInboundRead, ScopeSuppressions, ScopeVerify, ScopeContacts}
 
 func validScope(sc string) bool {
 	for _, x := range allScopes {
