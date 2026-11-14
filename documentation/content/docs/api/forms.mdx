@@ -1,0 +1,52 @@
+---
+title: Website forms
+description: Receive contact-form messages from your website, with spam checks and replies by email.
+---
+
+A **form** gives your website a public address that accepts messages without an API key. Create it in the dashboard
+(Forms), list the websites allowed to post to it, and paste the snippet into your page. Forms are off unless the operator
+set `FORMS_ENABLED=true`; until then the calls below answer `404 forms_disabled`.
+
+```html
+<form action="https://mail.example.com/v1/forms/FORM_ID" method="post">
+  <input name="email" type="email" placeholder="Email" required>
+  <textarea name="message" placeholder="Message" required></textarea>
+  <input name="hp_website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
+  <button type="submit">Send</button>
+</form>
+```
+
+A plain HTML post needs no JavaScript: the visitor sees a thank-you page, or is sent to the thank-you address you set.
+JSON and multipart posts (up to 3 files of PDF, PNG, JPEG or plain text, 2 MiB in all) are answered with JSON.
+
+| Call | Returns |
+|---|---|
+| `POST /v1/forms/{id}` | `202` with `{"id": "…", "status": "received"}` |
+| `GET /v1/forms/{id}/nonce` | `{"nonce": "…", "expires_in": 3600}`. Post it back as `_nonce` when the form requires it |
+
+## What protects a form
+
+- **Origin allowlist.** A browser's `Origin` (or `Referer`) must be one of the form's allowed websites, otherwise
+  `403 origin_not_allowed`. Cross-origin answers are given only to those sites.
+- **Honeypot.** Keep `hp_website` empty and hidden. Bots fill it; the post is answered as a success and kept nowhere.
+- **One-time token.** With "require a one-time token" on, the page fetches a single-use `_nonce` first. A script that
+  posts directly gets `422 nonce_required`.
+- **Limits.** Per address (5 a minute, 30 an hour), per form, per sender and per workspace. Over a limit you get `429`
+  with `Retry-After`.
+- **Spam score.** Each message is scored (links, shouting, known phrases, your own filters). It is accepted, flagged for
+  you, quarantined (kept out of your inbox and never notifies you) or rejected (`422 spam_rejected`, not kept).
+
+## The inbox
+
+Submissions appear in **Form inbox** as they arrive. Open one to read it, download its files, set its state (new, open,
+replied, closed, spam), assign it, or reply by email. A reply is accepted for sending from the form's "reply from"
+address; like all mail, it is confirmed delivered only by the message timeline, never by the server accepting it.
+
+Notifications go to the addresses you list, immediately or as an hourly or daily digest. Quarantined messages never
+notify. **Spam filters** holds your own rules (keyword, phrase, regular expression, address, domain or IP) with an action
+of flag, quarantine or reject, and a dry run against past submissions before you save one.
+
+## What is kept
+
+Field values and files are encrypted at rest. The visitor's IP address is kept only as a keyed hash for rate limits and
+IP filters. Submissions follow the workspace's retention period and are removed with it.

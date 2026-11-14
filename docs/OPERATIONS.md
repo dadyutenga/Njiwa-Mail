@@ -303,6 +303,22 @@ Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to
 - A hard bounce suppresses only when the DSN matches one of our message ids **and** names that message's own recipient.
 - To lift a suppression after the user fixed their mailbox: Suppressions → remove (a reason is required and audited).
 
+## Website forms (off by default)
+
+Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer
+`404 forms_disabled`, the dashboard hides the Forms entries and the digest job does nothing. Public docs: [Website
+forms](../documentation/content/docs/api/forms.mdx).
+
+- `POST /v1/forms/{id}` is public. It is guarded by the form's origin allowlist, a hidden honeypot, an optional single-use
+  nonce, per-IP / per-form / per-sender / per-workspace limits and a spam score (flag 30, quarantine 60, reject 90) plus
+  the workspace's own filters. If the service sits behind a proxy, make sure `X-Forwarded-For` carries the visitor's address
+  (`TRUST_PROXY=true`): all visitors behind one proxy address would otherwise share one rate limit.
+- Field values and files are encrypted (`form_submissions`, `form_files`); both are covered by `ENCRYPTION_KEY` rotation.
+  The visitor IP is stored only as a keyed hash. Submissions are deleted with the retention job.
+- Replies go through the normal sending path from the form's "reply from" address, which must be a verified sender; they
+  are "submitted", never "delivered", until the delivery evidence says so.
+- Digest notifications (hourly / daily) are sent by the scheduler once a minute; quarantined messages never notify.
+
 ## Message states
 
 | State | Meaning | Operator action |
