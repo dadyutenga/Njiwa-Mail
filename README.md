@@ -34,7 +34,9 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - **Outbound:** authenticated `POST /v1/emails` → durable PostgreSQL queue → worker → verified-TLS SMTP submission to the active delivery profile (managed Postfix over mutual TLS, or your SMTP server).
 - **Setup:** the Delivery infrastructure page guides the choice of mode and shows each check's real state, with the fix for every problem. Live mail needs a sending domain the project has verified and holds the installation-wide claim for; SPF, DKIM and DMARC are evaluated, not just looked up.
 - **Templates** in the database, versioned and immutable once published, in English and Kiswahili (`locale`: `en` or `sw`). Seeded: `otp`, `password-reset`, `account-notice`.
-- **Inbound:** your mail server (or managed Postfix, for bounces) relays to a private SMTP listener; mail is parsed to JSON (text, HTML, headers, attachments).
+- **SMTP relay:** point an application that only speaks SMTP at Njiwa (AUTH with an API key over TLS); its mail goes through the same pipeline as the API, so you can move to the HTTP API at your own pace.
+- **Address verification** before sending (syntax, MX, disposable and role addresses, suppressions), and an optional signed **"view in browser"** link.
+- **Inbound:** your mail server (or managed Postfix, for bounces) relays to a private SMTP listener, or a server of yours posts raw messages over signed HTTP; mail is parsed to JSON (text, HTML, headers, attachments), and the dashboard's inbox updates live.
 - **Bounces:** DSNs are parsed; hard bounces suppress the recipient automatically; policy bounces raise an alert and never suppress.
 - **Webhooks:** signed (HMAC-SHA256), retried for about 24 hours, replayable, with SSRF controls.
 - **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, one role (`admin`) with an installation-operator permission, optional TOTP two-step sign-in, audit log, DNS health check, metrics.
