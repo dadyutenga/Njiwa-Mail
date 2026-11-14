@@ -19,6 +19,7 @@ Njiwa-Mail posts a signed JSON event to your endpoint when something happens to 
 | `email.delivery_bounced` | The mail server log shows a permanent rejection | same |
 | `email.delivery_expired_in_queue` | The mail server gave up retrying | same |
 | `inbound.received` | Mail was parsed for one of your inbound addresses | `inbound_id`, `address_id`, `attachment_count`, `raw_size` |
+| `email.unsubscribed` | A recipient unsubscribed from marketing mail: from one list (`scope: "list"`) or from all of it (`scope: "all"`). Transactional mail is not affected | `campaign_id`, `scope`, `list_id`, `contact_id`, `recipient` (masked) |
 
 There is no `email.delivered` event and there never will be: the service cannot prove delivery. The `email.delivery_*` events come from the mail server log and exist only when the log collector runs; a message's `state` never changes because of them.
 

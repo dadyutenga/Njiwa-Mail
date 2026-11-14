@@ -90,8 +90,8 @@ func TestPublicOpenAPIRoutesMatchTheServer(t *testing.T) {
 			t.Errorf("docs/openapi.yaml describes %s but the server has no such route", k)
 		}
 	}
-	if len(inServer) != 17 {
-		t.Errorf("expected 17 public operations, found %d: update docs/public-portal/AUDIT.md", len(inServer))
+	if len(inServer) != 19 {
+		t.Errorf("expected 19 public operations, found %d: update docs/public-portal/AUDIT.md", len(inServer))
 	}
 }
 

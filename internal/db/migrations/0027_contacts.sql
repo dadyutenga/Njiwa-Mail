@@ -69,12 +69,13 @@ CREATE TABLE IF NOT EXISTS campaign_links (
   PRIMARY KEY (campaign_id, idx)
 );
 
--- Opens and clicks. No IP address or user agent is kept.
+-- Opens, clicks and list-scoped unsubscribes (global ones are in
+-- bulk_unsubscribes). No IP address or user agent is kept.
 CREATE TABLE IF NOT EXISTS tracking_events (
   id            bigserial PRIMARY KEY,
   campaign_id   uuid NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
   recipient_id  bigint NOT NULL REFERENCES campaign_recipients(id) ON DELETE CASCADE,
-  kind          text NOT NULL CHECK (kind IN ('open','click')),
+  kind          text NOT NULL CHECK (kind IN ('open','click','unsubscribe')),
   link_idx      int,
   created_at    timestamptz NOT NULL DEFAULT now()
 );

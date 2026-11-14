@@ -20,7 +20,7 @@ import (
 
 var WebhookEvents = []string{"email.submitted", "email.failed", "email.unknown", "email.expired", "email.bounced",
 	"email.delivery_deferred", "email.delivery_remote_accepted", "email.delivery_bounced", "email.delivery_expired_in_queue",
-	"inbound.received"}
+	"inbound.received", "email.unsubscribed"}
 
 // Retry schedule: about 24 hours in total, then the delivery is dead.
 var webhookBackoff = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute,

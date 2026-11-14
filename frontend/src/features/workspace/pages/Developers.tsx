@@ -47,6 +47,7 @@ const EVENTS = [
   "email.expired",
   "email.bounced",
   "inbound.received",
+  "email.unsubscribed",
 ];
 
 import { SendingMode, useSendingModeParam } from "../SendingMode";

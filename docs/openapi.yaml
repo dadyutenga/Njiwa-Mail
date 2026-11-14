@@ -319,6 +319,29 @@ paths:
       responses:
         '200': { description: Unsubscribed (HTML), content: { text/html: { schema: { type: string } } } }
         '404': { description: Unknown token (HTML), content: { text/html: { schema: { type: string } } } }
+  /v1/t/o/{token}:
+    get:
+      tags: [Web view]
+      operationId: trackOpen
+      summary: Open pixel of a tracked campaign
+      description: A 1x1 GIF in campaigns that turned on open tracking (off by default). Counts the first open per recipient; any token gets the GIF. No IP address or user agent is kept.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: A transparent GIF, content: { image/gif: { schema: { type: string, format: binary } } } }
+  /v1/t/c/{token}:
+    get:
+      tags: [Web view]
+      operationId: trackClick
+      summary: Click redirect of a tracked campaign
+      description: Links in campaigns that turned on click tracking (off by default). Redirects only to a link stored with the campaign, never to a URL taken from the request.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '302': { description: Redirect to the campaign's link }
+        '404': { description: Unknown or altered link (HTML), content: { text/html: { schema: { type: string } } } }
   /v1/view/{token}:
     get:
       tags: [Web view]

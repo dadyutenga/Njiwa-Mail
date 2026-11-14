@@ -24,6 +24,8 @@ var publicRoutes = map[string]string{
 	"GET /metrics":                "bearer-token protected (TestMetricsOverviewAndHealth)",
 	"GET /v1/unsubscribe/:token":  "signed unsubscribe link",
 	"POST /v1/unsubscribe/:token": "signed one-click unsubscribe (RFC 8058)",
+	"GET /v1/t/o/:token":          "signed open pixel of an opt-in tracked campaign (TestCampaignToListTrackingAndScopedUnsubscribe)",
+	"GET /v1/t/c/:token":          "signed click redirect, only to the campaign's stored links (TestCampaignToListTrackingAndScopedUnsubscribe)",
 	"GET /v1/view/:token":         "signed, expiring \"view in browser\" link (TestWebView)",
 }
 
