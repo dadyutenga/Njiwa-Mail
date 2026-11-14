@@ -25,7 +25,7 @@ func ParseReportRange(from, to string) (time.Time, time.Time, error) {
 		}
 		return time.Parse("2006-01-02", v)
 	}
-	end := time.Now().UTC().Truncate(24*time.Hour).Add(24 * time.Hour)
+	end := time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	start := end.Add(-30 * 24 * time.Hour)
 	var err error
 	if to != "" {
