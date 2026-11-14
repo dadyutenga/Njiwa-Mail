@@ -49,7 +49,7 @@ func TestCampaignToListTrackingAndScopedUnsubscribe(t *testing.T) {
 		t.Fatalf("tracked template: %d %s", r.Code, r.Raw)
 	}
 	body := map[string]any{"name": "November", "sender_email": "news@news.example.com", "subject": "Hi {{name}}",
-		"html": `<html><body><p>Hello {{name}}, see <a href="https://example.com/pricing?x=1&amp;y=2">pricing</a>.</p></body></html>`,
+		"html":    `<html><body><p>Hello {{name}}, see <a href="https://example.com/pricing?x=1&amp;y=2">pricing</a>.</p></body></html>`,
 		"list_id": listID, "track_opens": true, "track_clicks": true}
 	c := e.admOK(admin, "POST", wsBase+"/campaigns", body)
 	cid := str(c.JSON, "id")
