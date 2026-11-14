@@ -180,7 +180,7 @@ func Run(args []string) {
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
-		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
 			TokenURL: cfg.CloudflareOAuthTokenURL, RevokeURL: cfg.CloudflareOAuthRevokeURL, Scope: cfg.CloudflareOAuthScope},
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
@@ -525,6 +525,10 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 		}
 		slog.Info("daily summary", "recipients", len(recipients), "bytes", len(body))
 		return nil
+	})
+	every(time.Minute, "chat_emails", func() error {
+		_, err := svc.SendChatEmails(ctx)
+		return err
 	})
 	every(time.Minute, "form_digests", func() error {
 		_, err := svc.SendFormDigests(ctx)
