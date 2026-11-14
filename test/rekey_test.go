@@ -71,6 +71,10 @@ func TestEncryptionKeyRotation(t *testing.T) {
 	e.must(err)
 	ingestSecret, err := e.svc.RotateIngestSecret(ctx, liveEnv)
 	e.must(err)
+	liveScope, err := e.svc.ResolveScope(ctx, "sacas", "live")
+	e.must(err)
+	contactID, _, err := e.svc.UpsertContact(ctx, liveScope, service.ContactInput{Email: "rotate@example.org", Name: "Rotated"})
+	e.must(err)
 
 	// Rotate: new key seals, old key still opens.
 	both, onlyNew := rotatedBoxes(t, oldKey)
@@ -121,6 +125,9 @@ func TestEncryptionKeyRotation(t *testing.T) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	if _, err := e.svc.VerifyIngest(ctx, liveEnv, ts, service.IngestSignature(ingestSecret, ts, []byte("x")), []byte("x")); err != nil {
 		t.Fatalf("ingest secret with only the new key: %v", err)
+	}
+	if ct, err := e.svc.GetContact(ctx, liveScope, contactID); err != nil || ct["email"] != "rotate@example.org" || ct["name"] != "Rotated" {
+		t.Fatalf("contact with only the new key: %v %v", ct, err)
 	}
 	e.runWorker() // opens the queued payload sealed under the old key
 	if e.count(`SELECT count(*) FROM messages WHERE source<>'automation' AND state='submitted'`) < 1 {

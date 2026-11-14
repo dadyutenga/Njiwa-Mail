@@ -134,7 +134,7 @@ func TestDocumentedCurlSnippetsWorkAgainstTheHandlers(t *testing.T) {
 	const sender = "noreply@notify.example.com"
 	e.provisionFrom("docs", sender)
 	e.must(e.svc.SetOrigins(ctx, "docs", "sandbox", []string{"https://app.example.com"}))
-	key, _, err := e.svc.CreateKey(ctx, "docs", "sandbox", []string{"emails:send", "emails:send_raw", "emails:read", "inbound:read", "suppressions:manage"}, "docs-replay", 0)
+	key, _, err := e.svc.CreateKey(ctx, "docs", "sandbox", []string{"emails:send", "emails:send_raw", "emails:read", "inbound:read", "suppressions:manage", "contacts:manage"}, "docs-replay", 0)
 	e.must(err)
 
 	n, seq := 0, 0
@@ -311,7 +311,7 @@ func TestDocsScopesStatesAndErrorsMatchTheSource(t *testing.T) {
 	page := readDoc(t, "api/rate-limits-and-errors.mdx")
 	pageCodes := tableCodes(page)
 	src := goSource(t, "internal/service/accept.go", "internal/service/auth.go", "internal/service/status.go", "internal/service/claims.go", "internal/service/product.go",
-		"internal/service/adminviews.go", "internal/tmpl/tmpl.go", "internal/api/api.go", "internal/service/verifyaddr.go", "internal/service/ingest.go")
+		"internal/service/adminviews.go", "internal/tmpl/tmpl.go", "internal/api/api.go", "internal/service/verifyaddr.go", "internal/service/ingest.go", "internal/service/contacts.go")
 	known := map[string]bool{"body_too_large": true}
 	for _, r := range []*regexp.Regexp{regexp.MustCompile(`invalid\("([a-z_]+)"\)`), regexp.MustCompile(`newErr\(\d+, "([a-z_]+)"\)`), regexp.MustCompile(`Code: "([a-z_]+)"`), regexp.MustCompile(`bad\("([a-z_]+)"\)`)} {
 		for _, mm := range r.FindAllStringSubmatch(src, -1) {

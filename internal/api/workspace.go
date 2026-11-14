@@ -268,6 +268,134 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 			return out, err
 		}), nil
 	})
+	// ---- contacts and lists (marketing audiences)
+	h("GET", "/contacts", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, more, err := svc.ListContacts(ctx(c), sc, service.ContactFilter{ListID: c.Query("list"), Status: c.Query("status"),
+			Domain: c.Query("domain"), Query: c.Query("q")}, pageOf(c))
+		return list(c, items, more, err)
+	})
+	h("POST", "/contacts", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.ContactInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, created, err := svc.UpsertContact(ctx(c), sc, in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "contact.saved", "contact", id, scoped(sc, nil))
+		return map[string]any{"id": id, "created": created}, nil
+	})
+	h("POST", "/contacts/import", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.ImportInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		dry := boolQuery(c, "dry_run")
+		rep, err := svc.ImportContacts(ctx(c), sc, in, dry)
+		if err != nil {
+			return nil, err
+		}
+		if !dry {
+			s.audit(c, u, "contact.imported", "contact", "", scoped(sc, map[string]any{"created": rep.Created, "updated": rep.Updated, "invalid": rep.Invalid}))
+		}
+		return rep, nil
+	})
+	h("GET", "/contacts/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return svc.GetContact(ctx(c), sc, c.Params("id"))
+	})
+	h("DELETE", "/contacts/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteContact(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "contact.deleted", "contact", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("POST", "/contacts/:id/resubscribe", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			ListID string `json:"list_id"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.Resubscribe(ctx(c), sc, c.Params("id"), in.ListID); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "contact.resubscribed", "contact", c.Params("id"), scoped(sc, map[string]any{"list_id": in.ListID}))
+		return nil, nil
+	})
+	h("GET", "/lists", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, err := svc.ListLists(ctx(c), sc)
+		return map[string]any{"items": items}, err
+	})
+	h("POST", "/lists", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct{ Name, Description string }
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateList(ctx(c), sc, in.Name, in.Description)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "list.created", "list", id, scoped(sc, nil))
+		return map[string]any{"id": id}, nil
+	})
+	h("DELETE", "/lists/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteList(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "list.deleted", "list", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("POST", "/lists/:id/members", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			ContactIDs []string `json:"contact_ids"`
+			Remove     bool     `json:"remove"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		n, err := svc.SetMembership(ctx(c), sc, c.Params("id"), in.ContactIDs, !in.Remove)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"changed": n}, nil
+	})
+
+	h("GET", "/segments", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, err := svc.ListSegments(ctx(c), sc)
+		return map[string]any{"items": items}, err
+	})
+	h("POST", "/segments/preview", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.SegmentRules
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		return svc.SegmentPreview(ctx(c), sc, in)
+	})
+	h("POST", "/segments", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Name  string               `json:"name"`
+			Rules service.SegmentRules `json:"rules"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateSegment(ctx(c), sc, in.Name, in.Rules)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "segment.created", "segment", id, scoped(sc, nil))
+		return map[string]any{"id": id}, nil
+	})
+	h("DELETE", "/segments/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteSegment(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "segment.deleted", "segment", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+
 	// ---- HTTP ingest of inbound mail (signed with a per-environment secret)
 	h("GET", "/inbound-ingest", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.IngestStatus(ctx(c), sc.EnvID)
@@ -985,10 +1113,18 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	app.Get("/v1/unsubscribe/:token", func(c fiber.Ctx) error {
 		c.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
 		c.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
-		return c.SendString(unsubscribePage(false))
+		list, err := s.Svc.UnsubscribeScope(reqCtx(c), c.Params("token"))
+		if err != nil {
+			c.Status(404)
+			return c.SendString(unsubscribePage("", false, false))
+		}
+		return c.SendString(unsubscribePage(list, false, false))
 	})
+	// The form posts scope=list or scope=all; a mail client's RFC 8058
+	// one-click POST ("List-Unsubscribe=One-Click") means the list.
 	app.Post("/v1/unsubscribe/:token", func(c fiber.Ctx) error {
-		err := s.Svc.Unsubscribe(reqCtx(c), c.Params("token"))
+		all := c.FormValue("scope") == "all"
+		err := s.Svc.Unsubscribe(reqCtx(c), c.Params("token"), all)
 		if err != nil {
 			if e, ok := service.IsError(err); ok && e.Status == 404 {
 				c.Status(404)
@@ -996,11 +1132,41 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 				return writeErr(c, err)
 			}
 		}
+		list := ""
+		if !all {
+			list, _ = s.Svc.UnsubscribeScope(reqCtx(c), c.Params("token"))
+		}
 		c.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
 		c.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
-		return c.SendString(unsubscribePage(err == nil))
+		return c.SendString(unsubscribePage(list, err == nil, all))
+	})
+
+	// ---- opt-in tracking: open pixel and click redirect (written campaigns)
+	app.Get("/v1/t/o/:token", func(c fiber.Ctx) error {
+		s.Svc.RecordOpen(reqCtx(c), c.Params("token"))
+		c.Set(fiber.HeaderContentType, "image/gif")
+		c.Set("Cache-Control", "no-store, private")
+		c.Set("Referrer-Policy", "no-referrer")
+		return c.Send(transparentGIF)
+	})
+	app.Get("/v1/t/c/:token", func(c fiber.Ctx) error {
+		url, err := s.Svc.RecordClick(reqCtx(c), c.Params("token"))
+		c.Set("Cache-Control", "no-store, private")
+		c.Set("Referrer-Policy", "no-referrer")
+		if err != nil {
+			c.Status(404)
+			c.Set(fiber.HeaderContentType, "text/html; charset=utf-8")
+			c.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+			return c.SendString(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Link not found</title></head><body style="font:16px system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>This link does not work</h1><p>It may have been copied incompletely.</p></body></html>`)
+		}
+		return c.Redirect().Status(302).To(url)
 	})
 }
+
+// transparentGIF is a 1x1 transparent GIF.
+var transparentGIF = []byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+	0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b}
 
 type sseEvent struct {
 	Name, ID string
@@ -1063,13 +1229,26 @@ func (s *Server) eventStream(c fiber.Ctx, next func(context.Context) ([]sseEvent
 	}
 }
 
-func unsubscribePage(done bool) string {
-	body := `<form method="post"><p>Stop receiving announcements from this sender? Account and security messages are not affected.</p><button type="submit">Unsubscribe</button></form>`
+// unsubscribePage confirms an unsubscribe. For a list campaign it offers the
+// list (default) or all marketing mail; nothing changes without a click.
+func unsubscribePage(list string, done, all bool) string {
+	what := "these announcements"
+	if list != "" {
+		what = "the list “" + html.EscapeString(list) + "”"
+	}
+	body := `<form method="post"><input type="hidden" name="scope" value="list"><p>Stop receiving ` + what +
+		` from this sender? Account and security messages are not affected.</p><button type="submit">Unsubscribe</button></form>`
+	if list != "" {
+		body += `<form method="post" style="margin-top:1rem"><input type="hidden" name="scope" value="all"><button type="submit" class="alt">Unsubscribe from all marketing mail</button></form>`
+	}
 	if done {
-		body = `<p>You are unsubscribed from these announcements. Account and security messages are not affected.</p>`
+		if all {
+			what = "all marketing mail from this sender"
+		}
+		body = `<p>You are unsubscribed from ` + what + `. Account and security messages are not affected.</p>`
 	}
 	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribe</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1f2937}button{font:inherit;padding:.6rem 1.2rem;border-radius:.5rem;border:0;background:#0f766e;color:#fff}</style>
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1f2937}button{font:inherit;padding:.6rem 1.2rem;border-radius:.5rem;border:0;background:#0f766e;color:#fff}button.alt{background:#fff;color:#0f766e;border:1px solid #0f766e}</style>
 </head><body><h1>Unsubscribe</h1>` + body + `</body></html>`
 }
 

@@ -1,6 +1,6 @@
 # Njiwa Mail
 
-**Self-hosted transactional email you can see into: one API, one dashboard, your own server.**
+**Self-hosted transactional and marketing email you can see into: one API, one dashboard, your own server.**
 
 [![CI](https://github.com/dadyutenga/Njiwa-Mail/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/dadyutenga/Njiwa-Mail/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
@@ -23,6 +23,8 @@ message. It is free and open source under the [GNU AGPL-3.0](LICENSE), built in 
   recipient's server, bounced) is shown with its source. Njiwa never claims "delivered".
 - **Domains done properly.** SPF, DKIM and DMARC are evaluated, not just looked up. DKIM keys rotate in stages. Live mail needs a
   domain the project has verified.
+- **Marketing too, kept apart.** Contacts, subscriber lists, segments, CSV import, campaigns from a separate bulk
+  domain, list-scoped one-click unsubscribe, and opt-in open and click tracking (off by default).
 - **Built for operators.** A dashboard in English and Kiswahili, with audit log, optional TOTP sign-in, metrics, rate limits and
   backup/restore.
 
@@ -144,7 +146,8 @@ One request accepts a `to` address plus `cc` and `bcc` (10 addresses altogether)
 
 Inbound mail arrives by Mailcow relay, or by IMAP polling of a catch-all mailbox (`IMAP_HOST`). Outbound submission uses `SMTP_HOST` and, when that host fails before acceptance, `SMTP_FAILOVER_HOST`. Extra `api` and `worker` replicas share the same PostgreSQL queue, so a second instance does not double-send.
 
-This remains a transactional service. It does not send marketing campaigns.
+Marketing mail (contacts, lists, segments, campaigns) is kept apart from transactional mail: its own bulk domain, its
+own pace behind transactional mail, and unsubscribes that never stop a receipt or a password reset.
 
 ## Contributing
 

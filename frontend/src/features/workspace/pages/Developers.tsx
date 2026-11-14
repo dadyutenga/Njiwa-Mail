@@ -39,6 +39,7 @@ const SCOPES: [string, string][] = [
   ["inbound:read", "Read inbound mail"],
   ["suppressions:manage", "Manage suppressions"],
   ["addresses:verify", "Verify addresses"],
+  ["contacts:manage", "Manage contacts and lists"],
 ];
 const EVENTS = [
   "email.submitted",
@@ -47,6 +48,7 @@ const EVENTS = [
   "email.expired",
   "email.bounced",
   "inbound.received",
+  "email.unsubscribed",
 ];
 
 import { SendingMode, useSendingModeParam } from "../SendingMode";

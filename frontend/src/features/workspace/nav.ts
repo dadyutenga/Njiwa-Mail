@@ -7,6 +7,8 @@ import {
   Bot,
   CalendarClock,
   ClipboardCheck,
+  Contact,
+  Filter,
   FileText,
   FolderKanban,
   Globe,
@@ -15,6 +17,7 @@ import {
   KeyRound,
   LayoutDashboard,
   ListChecks,
+  ListPlus,
   Mailbox,
   Megaphone,
   ScrollText,
@@ -58,6 +61,14 @@ export const navGroups: NavGroup[] = [
       { path: "bulk", label: "Bulk send", icon: Megaphone },
       { path: "temp-inboxes", label: "Temporary inboxes", icon: Timer },
       { path: "captures", label: "Sandbox", icon: TestTube2 },
+    ],
+  },
+  {
+    label: "Audience",
+    items: [
+      { path: "contacts", label: "Contacts", icon: Contact },
+      { path: "lists", label: "Lists", icon: ListPlus },
+      { path: "segments", label: "Segments", icon: Filter },
     ],
   },
   {

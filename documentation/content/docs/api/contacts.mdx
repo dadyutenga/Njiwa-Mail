@@ -1,0 +1,28 @@
+---
+title: Contacts
+description: Add sign-ups to subscriber lists from your application.
+---
+
+Marketing mail goes to **contacts** on **lists** (or matched by **segments**), which you manage in the dashboard
+(Audience). Your application can add sign-ups itself with a key that has scope `contacts:manage`:
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/contacts" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "neema@example.com", "name": "Neema", "attributes": {"source": "website"}}'
+```
+
+| Call | Returns |
+|---|---|
+| `POST /v1/contacts` with `email`, optional `name`, `attributes` and `lists` (list ids) | `{"id": "…", "created": true}`; an existing address is updated (name, merged attributes) and added to the lists |
+| `DELETE /v1/contacts/{ref}` | `{"ok": true}`. `{ref}` is the contact id or the address |
+| `GET /v1/lists` | The environment's lists with member and unsubscribed counts |
+
+- Adding a contact never resubscribes someone who unsubscribed, and never lifts a suppression (a bounce, a complaint or
+  a block). Ask for consent before you add anyone.
+- Attributes (lower case names, at most 50) are for segments, such as a plan or a city. They are stored as plain values,
+  so do not put secrets in them. The address and name are encrypted.
+- Every marketing message has a one-click unsubscribe link. From a list campaign it leaves that list, or all marketing
+  mail if the reader chooses; you get an `email.unsubscribed` [webhook](/docs/webhooks). Transactional mail (receipts,
+  password resets) is never affected.
