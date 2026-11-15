@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code2, Plus, Trash2, Upload, UserPlus } from "lucide-react";
@@ -56,6 +56,8 @@ export function Contacts() {
   const [search, setSearch] = useState(q);
   const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const [deleting, setDeleting] = useState<Row | null>(null);
   const offset = useOffset();
   const lists = useQuery({
     queryKey: key("lists"),
@@ -239,6 +241,20 @@ export function Contacts() {
                   label: phrase("Added"),
                   render: (r) => <Time value={r.created_at} relative />,
                 },
+                {
+                  key: "actions",
+                  label: phrase("Actions"),
+                  render: (r) => (
+                    <span className="flex justify-end gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setEditing(r)}>
+                        {phrase("Edit")}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setDeleting(r)}>
+                        {phrase("Delete")}
+                      </Button>
+                    </span>
+                  ),
+                },
               ]}
             />
             <div className="px-4 pb-3">
@@ -249,6 +265,12 @@ export function Contacts() {
       </DataState>
       <ImportDialog open={importing} onOpenChange={setImporting} lists={lists.data?.items ?? []} />
       <ContactDialog open={adding} onOpenChange={setAdding} lists={lists.data?.items ?? []} />
+      <EditContactDialog
+        contact={editing}
+        lists={lists.data?.items ?? []}
+        onClose={() => setEditing(null)}
+      />
+      <DeleteContactDialog contact={deleting} onClose={() => setDeleting(null)} />
     </>
   );
 }
@@ -517,6 +539,154 @@ function ImportDialog({
               {phrase("Import")}
             </Button>
           </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditContactDialog({
+  contact,
+  lists,
+  onClose,
+}: {
+  contact: Row | null;
+  lists: Row[];
+  onClose: () => void;
+}) {
+  const phrase = usePhrase();
+  const { api, key } = useAudience();
+  const client = useQueryClient();
+  const id = contact ? s(contact.id) : "";
+  const q = useQuery({
+    queryKey: key("contact", id),
+    queryFn: () => api.get<Row>(`/contacts/${id}`),
+    enabled: !!id,
+  });
+  const [f, setF] = useState({ email: "", name: "", list: "" });
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!q.data) return;
+    setF({ email: s(q.data.email), name: s(q.data.name), list: "" });
+    setError("");
+  }, [q.data]);
+  const save = async () => {
+    setError("");
+    try {
+      await api.send(`/contacts/${id}`, "PATCH", {
+        email: f.email.trim(),
+        name: f.name.trim(),
+        lists: f.list ? [f.list] : [],
+      });
+      client.invalidateQueries({ queryKey: key("contacts") });
+      client.invalidateQueries({ queryKey: key("contact", id) });
+      client.invalidateQueries({ queryKey: key("lists") });
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <Dialog open={!!contact} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogTitle>{phrase("Edit contact")}</DialogTitle>
+        <DialogDescription>
+          {phrase(
+            "Change the name or address. Choosing a list adds them to it and leaves their other lists as they are.",
+          )}
+        </DialogDescription>
+        {q.isFetching && !q.data ? (
+          <p role="status">{phrase("Loading…")}</p>
+        ) : q.error && !q.data ? (
+          <p role="alert">{q.error.message}</p>
+        ) : (
+          <div className="grid gap-3">
+            <Field label={phrase("Email address")}>
+              <input
+                className={inputClass}
+                type="email"
+                value={f.email}
+                onChange={(e) => setF({ ...f, email: e.target.value })}
+              />
+            </Field>
+            <Field label={phrase("Name")}>
+              <input
+                className={inputClass}
+                value={f.name}
+                onChange={(e) => setF({ ...f, name: e.target.value })}
+              />
+            </Field>
+            <Field label={phrase("Add to list")}>
+              <select
+                className={selectClass}
+                value={f.list}
+                onChange={(e) => setF({ ...f, list: e.target.value })}
+              >
+                <option value="">{phrase("None")}</option>
+                {lists.map((l) => (
+                  <option key={s(l.id)} value={s(l.id)}>
+                    {s(l.name)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Button onClick={save} disabled={!f.email.trim()}>
+                {phrase("Save")}
+              </Button>
+              <Button type="button" variant="outline" onClick={onClose}>
+                {phrase("Cancel")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteContactDialog({ contact, onClose }: { contact: Row | null; onClose: () => void }) {
+  const phrase = usePhrase();
+  const { api, key } = useAudience();
+  const client = useQueryClient();
+  const [error, setError] = useState("");
+  const remove = async () => {
+    if (!contact) return;
+    setError("");
+    try {
+      await api.send(`/contacts/${s(contact.id)}`, "DELETE");
+      client.invalidateQueries({ queryKey: key("contacts") });
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <Dialog open={!!contact} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogTitle>{phrase("Delete contact")}</DialogTitle>
+        <DialogDescription>
+          {s(contact?.email_masked)}
+          {". "}
+          {phrase("Their list memberships go too. Suppressions and unsubscribes stay.")}
+        </DialogDescription>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Button variant="destructive" onClick={remove}>
+            {phrase("Delete")}
+          </Button>
+          <Button type="button" variant="outline" onClick={onClose}>
+            {phrase("Cancel")}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

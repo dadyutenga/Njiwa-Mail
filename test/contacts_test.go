@@ -69,6 +69,13 @@ VALUES (gen_random_uuid(),$1,$2,'otp',1,'submitted',$3,'x','contact-history-1', 
 	if str(ada.JSON, "name") != "Ada Lovelace" || !strings.Contains(ada.Raw, `"plan":"team"`) || !strings.Contains(ada.Raw, `"city":"Dar"`) {
 		t.Fatalf("updated: %s", ada.Raw)
 	}
+	e.admOK(admin, "PATCH", wsBase+"/contacts/"+adaID, map[string]any{"email": "ada@example.org", "name": "Ada L."})
+	if str(e.admOK(admin, "GET", wsBase+"/contacts/"+adaID, nil).JSON, "name") != "Ada L." {
+		t.Fatal("name was not edited")
+	}
+	if r := e.adm(admin, "PATCH", wsBase+"/contacts/"+adaID, map[string]any{"email": "bob@example.org", "name": "Taken"}); r.Code != 409 || errCode(r) != "contact_exists" {
+		t.Fatalf("address already used: %d %s", r.Code, r.Raw)
+	}
 	// Status follows the sending tables: a hard bounce makes it "bounced", and
 	// resubscribe does not lift that.
 	e.must(e.svc.Suppress(ctx, "sacas", "sandbox", "ada@example.org", "hard_bounce"))

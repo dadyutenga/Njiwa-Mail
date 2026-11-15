@@ -318,6 +318,17 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	h("GET", "/contacts/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.GetContact(ctx(c), sc, c.Params("id"))
 	})
+	h("PATCH", "/contacts/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.ContactInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.UpdateContact(ctx(c), sc, c.Params("id"), in); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "contact.updated", "contact", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
 	h("DELETE", "/contacts/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.DeleteContact(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err

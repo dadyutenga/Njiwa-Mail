@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -228,6 +229,63 @@ JOIN contact_lists l ON l.id=m.list_id WHERE m.contact_id=$1 ORDER BY l.name`, i
 	}
 	m["list_memberships"] = lists
 	return m, nil
+}
+
+// UpdateContact changes the name and address of one contact. A new address
+// must not already belong to someone else in this environment. List ids are
+// added; existing memberships stay.
+func (s *Service) UpdateContact(ctx context.Context, sc *Scope, id string, in ContactInput) error {
+	if !uuidRe.MatchString(id) {
+		return newErr(404, "not_found")
+	}
+	email, ok := NormalizeEmail(in.Email)
+	if !ok {
+		return invalid("invalid_email")
+	}
+	name := clean(strings.TrimSpace(in.Name), 200)
+	newHash := s.Box.MAC("recipient", []byte(email))
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return unavailable("begin", err)
+	}
+	defer tx.Rollback(ctx)
+	var oldHash []byte
+	err = tx.QueryRow(ctx, `SELECT email_hash FROM contacts WHERE id=$1 AND environment_id=$2 FOR UPDATE`, id, sc.EnvID).Scan(&oldHash)
+	if errors.Is(err, db.ErrNoRows) {
+		return newErr(404, "not_found")
+	}
+	if err != nil {
+		return unavailable("contact_update", err)
+	}
+	if !bytes.Equal(oldHash, newHash) {
+		var taken int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM contacts WHERE environment_id=$1 AND email_hash=$2 AND id<>$3`, sc.EnvID, newHash, id).Scan(&taken); err != nil {
+			return unavailable("contact_update", err)
+		}
+		if taken > 0 {
+			return newErr(409, "contact_exists")
+		}
+	}
+	sealed, err := s.Box.Seal(mustJSON(contactData{Email: email, Name: name}), []byte("contact:"+id))
+	if err != nil {
+		return unavailable("seal", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE contacts SET email_hash=$2, email_masked=$3, email_domain=$4, data_enc=$5, updated_at=now() WHERE id=$1`,
+		id, newHash, maskEmail(email), email[strings.LastIndexByte(email, '@')+1:], sealed); err != nil {
+		return unavailable("contact_update", err)
+	}
+	for _, l := range in.Lists {
+		if l == "" {
+			continue
+		}
+		if err := addMemberTx(ctx, tx, sc, l, id); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return unavailable("commit", err)
+	}
+	return nil
 }
 
 func (s *Service) DeleteContact(ctx context.Context, sc *Scope, id string) error {

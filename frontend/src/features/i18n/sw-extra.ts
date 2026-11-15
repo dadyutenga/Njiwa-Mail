@@ -178,6 +178,10 @@ export const swExtra: Record<string, string> = {
   "Import a file": "Ingiza faili",
   "CSV or JSON, with an email column.": "CSV au JSON, lenye safu ya barua pepe.",
   "Add one person": "Ongeza mtu mmoja",
+  "Edit contact": "Hariri mwasiliani",
+  "Delete contact": "Futa mwasiliani",
+  "Change the name or address. Choosing a list adds them to it and leaves their other lists as they are.":
+    "Badilisha jina au anwani. Kuchagua orodha kunamuongeza humo na kuacha orodha zake nyingine kama zilivyo.",
   "Type an address and put them on a list.": "Andika anwani na umuweke kwenye orodha.",
   "From your application": "Kutoka kwenye programu yako",
   "Sign-ups can be added with the API.": "Waliojisajili wanaweza kuongezwa kwa API.",
