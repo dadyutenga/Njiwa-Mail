@@ -180,7 +180,7 @@ func Run(args []string) {
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
-		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, SSOAllowedNetworks: cfg.SSOAllowedNetworks, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
 			TokenURL: cfg.CloudflareOAuthTokenURL, RevokeURL: cfg.CloudflareOAuthRevokeURL, Scope: cfg.CloudflareOAuthScope},
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
