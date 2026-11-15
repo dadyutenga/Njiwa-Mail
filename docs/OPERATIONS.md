@@ -417,6 +417,14 @@ using a bucket may cost money with your provider: that is your decision, nothing
   (`POST /admin/v1/users/{id}/sessions/revoke`), read the user's audit trail (`GET /admin/v1/users/{id}/audit`), reset a
   second factor and disable or re-password a user (`PATCH /admin/v1/users/{id}`).
 
+## Deleting many recipients
+
+`POST /admin/v1/w/{project}/{mode}/privacy/delete-bulk` (also on the Recipient privacy page) takes up to 500 addresses and
+removes everything stored about each in that environment: messages and their evidence, bounces, suppressions, inbound mail,
+contacts, form submissions and chats. Send `"dry_run": true` first to see a count per address without deleting. Addresses are
+returned masked, duplicates are handled once, one failing address does not stop the others, and the audit log keeps only
+counts (`privacy.delete_bulk`), never addresses.
+
 ## Website forms (off by default)
 
 Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer
