@@ -350,6 +350,20 @@ Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to
 - A hard bounce suppresses only when the DSN matches one of our message ids **and** names that message's own recipient.
 - To lift a suppression after the user fixed their mailbox: Suppressions → remove (a reason is required and audited).
 
+## Account lifecycle
+
+- Each user can change their own password (`POST /admin/v1/auth/password`, with the current one; every other session ends),
+  sign out all other devices, read their own activity (`GET /admin/v1/auth/audit`) and ask for their account to be deleted.
+  Failed attempts share one budget (10 per 15 minutes) so a stolen session cannot be used to guess the password.
+- Deleting an account needs the password (and the authenticator code when a second factor is on) and takes effect 14 days
+  later; the account works normally until then and the request can be cancelled. The scheduler job `account_deletions`
+  (hourly) removes due accounts. The last enabled user and the last installation operator cannot leave; if an account
+  became one of those during the grace period its request is cleared and `account.deletion_blocked` is audited.
+  Audit rows written by the user keep their email as the actor name.
+- Installation operators can list a user's sessions (`GET /admin/v1/users/{id}/sessions`), end them
+  (`POST /admin/v1/users/{id}/sessions/revoke`), read the user's audit trail (`GET /admin/v1/users/{id}/audit`), reset a
+  second factor and disable or re-password a user (`PATCH /admin/v1/users/{id}`).
+
 ## Website forms (off by default)
 
 Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer

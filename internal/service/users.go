@@ -303,6 +303,8 @@ type AdminUser struct {
 	// CSRF must be echoed in X-CSRF-Token on every state-changing request.
 	CSRF      string    `json:"csrf_token"`
 	ExpiresAt time.Time `json:"expires_at"`
+	// DeletionDueAt is set while the user's own request to delete the account is pending.
+	DeletionDueAt *time.Time `json:"deletion_due_at"`
 }
 
 func (s *Service) csrfFor(tokenHash []byte) string {
@@ -429,8 +431,8 @@ func (s *Service) Session(ctx context.Context, token string) (*AdminUser, error)
 	}
 	th := sha256.Sum256([]byte(token))
 	var u AdminUser
-	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, u.installation_operator, u.totp_enabled, s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
-WHERE s.token_hash=$1 AND s.expires_at > now() AND s.auth_version=u.auth_version AND NOT u.disabled AND u.role='admin'`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.Operator, &u.MFAEnabled, &u.ExpiresAt)
+	err := s.Pool.QueryRow(ctx, `SELECT u.id::text, u.email, u.role, u.installation_operator, u.totp_enabled, s.expires_at, u.deletion_due_at FROM sessions s JOIN users u ON u.id=s.user_id
+WHERE s.token_hash=$1 AND s.expires_at > now() AND s.auth_version=u.auth_version AND NOT u.disabled AND u.role='admin'`, th[:]).Scan(&u.ID, &u.Email, &u.Role, &u.Operator, &u.MFAEnabled, &u.ExpiresAt, &u.DeletionDueAt)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(401, "unauthenticated")
 	}

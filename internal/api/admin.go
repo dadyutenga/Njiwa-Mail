@@ -63,6 +63,50 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		return nil, svc.MFADisable(reqCtx(c), u, in.Password, in.Code)
 	})
 
+	// ---- account lifecycle for the signed-in user
+	h("POST /auth/password", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct {
+			Current string `json:"current_password"`
+			New     string `json:"new_password"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.ChangePassword(reqCtx(c), u, in.Current, in.New); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	})
+	h("POST /auth/sessions/revoke-others", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		n, err := svc.RevokeOtherSessions(reqCtx(c), u)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "auth.sessions_revoked", "user", u.ID, map[string]any{"sessions": n})
+		return map[string]int64{"revoked": n}, nil
+	})
+	h("GET /auth/audit", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		items, more, err := svc.UserAudit(reqCtx(c), u.ID, q(c, "action"), pageOf(c))
+		return list(c, items, more, err)
+	})
+	h("POST /auth/delete-account", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in struct {
+			Password string `json:"password"`
+			Code     string `json:"code"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		due, err := svc.RequestAccountDeletion(reqCtx(c), u, in.Password, in.Code)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"deletion_due_at": due}, nil
+	})
+	h("POST /auth/cancel-deletion", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return nil, svc.CancelAccountDeletion(reqCtx(c), u)
+	})
+
 	// ---- overview
 	h("GET /overview", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		st, err := svc.Stats(reqCtx(c))
@@ -635,6 +679,21 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		}
 		s.audit(c, u, "user.create", "user", id, map[string]any{"email": strings.ToLower(in.Email), "role": service.RoleAdmin, "installation_operator": operator})
 		return map[string]string{"id": id}, nil
+	}))
+	h("GET /users/{id}/sessions", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		items, err := svc.UserSessions(reqCtx(c), c.Params("id"))
+		return map[string]any{"items": items}, err
+	}))
+	h("POST /users/{id}/sessions/revoke", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		n, err := svc.RevokeUserSessions(reqCtx(c), u.Actor(), c.Params("id"))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]int64{"revoked": n}, nil
+	}))
+	h("GET /users/{id}/audit", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		items, more, err := svc.UserAudit(reqCtx(c), c.Params("id"), q(c, "action"), pageOf(c))
+		return list(c, items, more, err)
 	}))
 	h("PATCH /users/{id}", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
