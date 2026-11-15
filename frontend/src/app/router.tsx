@@ -40,6 +40,7 @@ import {
   Users,
   SingleSignOn,
   Announcements,
+  DailyReportEmail,
   Plans,
 } from "@/features/workspace/pages/Admin";
 import ProjectDetail from "@/features/mail/ProjectDetail";
@@ -115,6 +116,7 @@ const workspacePages: [string, ReactNode][] = [
   ["sso", <SingleSignOn />],
   ["analytics", <Analytics />],
   ["announcements", <Announcements />],
+  ["report-email", <DailyReportEmail />],
   ["plans", <Plans />],
   ["alerts", <Alerts />],
   ["system", <System />],

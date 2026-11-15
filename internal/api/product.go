@@ -56,6 +56,21 @@ func (s *Server) productRoutes(app *fiber.App) {
 		s.audit(c, u, "announcement.retract", "announcement", c.Params("id"), nil)
 		return nil, nil
 	})
+	// ---- the daily report by email (operators)
+	op(fiber.MethodGet, "/admin/v1/report-email", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.ReportEmailSettings(reqCtx(c))
+	})
+	op(fiber.MethodPut, "/admin/v1/report-email", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in service.ReportEmailInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.SetReportEmailSettings(reqCtx(c), u.Email, in); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "report_email.update", "report_email", "1", map[string]any{"enabled": in.Enabled, "recipients": len(in.Recipients)})
+		return nil, nil
+	})
 	// ---- usage plans (operators)
 	op(fiber.MethodGet, "/admin/v1/plans", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, err := svc.ListPlans(reqCtx(c))

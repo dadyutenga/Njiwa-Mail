@@ -526,6 +526,10 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 		if made {
 			slog.Info("daily report recorded")
 		}
+		if err != nil {
+			return err
+		}
+		_, err = svc.EmailDailyReport(ctx)
 		return err
 	})
 	every(time.Minute, "chat_emails", func() error {

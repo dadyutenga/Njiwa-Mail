@@ -295,6 +295,33 @@ the `Message-ID` and recipient, so a client's retry is not sent twice. Settings:
 checked in: the relay sends a heartbeat every 10 seconds, and "running" means one arrived in the last minute. That is
 evidence the process is up, not proof that the port is reachable from your application's network.
 
+## Announcements, the daily report and usage plans
+
+All three are operator pages in the dashboard (they are hidden from other users).
+
+**Announcements** show in every user's notification bell (title, optional message and a link that must be a path on this
+site or an https address). An operator sees how many users have read each one and can retract it; both are audited.
+Users dismiss them for themselves only.
+
+**The daily report.** Once a day (checked hourly, made once per UTC day so a restart never repeats it) the scheduler records
+the report for yesterday for every project and environment: messages by outcome, hard bounces, complaints, inbound mail and
+open alerts. It shows in every user's notifications. It can also be **emailed**: open *Daily report* in the dashboard, tick
+"Send the daily report by email", list up to 20 recipients and, if you want, choose the sender.
+
+- The mail is queued like any other message (source `automation`) from the chosen sender identity. With none chosen, the
+  default sender of a Live environment is used. If no sender exists at all, nothing is sent and the next hourly run tries
+  again, so add one first (Domains and senders).
+- It goes out at most once per day: the last day mailed is kept in `report_email_settings.last_emailed_day`. Turning the
+  setting off stops it; turning it on again mails the newest report from the last two days that has not been mailed.
+- The text says "submitted" means the mail server accepted the message, not that it reached an inbox. Whether the report
+  itself was delivered is shown in the Mail queue / delivery evidence like any other message.
+
+**Usage plans** are named sets of limits (messages per minute and per day, per recipient, bulk recipients and messages per
+day, **Live messages per month** and **contacts**). Assigning a plan to a project copies its limits to the project; editing
+a plan updates every project on it; a plan in use cannot be deleted. Over the monthly Live quota a request is
+`429 monthly_quota_exceeded` with `Retry-After` and reserves nothing; Sandbox traffic never counts. Over the contact limit,
+adding contacts is `422 contact_limit_reached`.
+
 ## Single sign-on (OpenID Connect)
 
 Operators add providers under "Single sign-on" in the dashboard (Google, Keycloak, authentik, any OpenID Connect provider).
