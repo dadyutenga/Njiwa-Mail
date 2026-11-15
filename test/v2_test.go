@@ -1050,9 +1050,9 @@ func TestAdminRolesCSRFAndAudit(t *testing.T) {
 	}
 	// Disabling a user ends their session at once.
 	np := e.login("new.person@njiwa.co.tz")
-	e.admOK(np, "GET", "/admin/v1/overview", nil)
+	e.admOK(np, "GET", "/admin/v1/projects", nil)
 	e.admOK(owner, "PATCH", "/admin/v1/users/"+str(nu.JSON, "id"), map[string]any{"disabled": true})
-	if r := e.adm(np, "GET", "/admin/v1/overview", nil); r.Code != 401 {
+	if r := e.adm(np, "GET", "/admin/v1/projects", nil); r.Code != 401 {
 		t.Fatalf("disabled user still has access: %d", r.Code)
 	}
 	if r := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "new.person@njiwa.co.tz", "password": adminPass}); r.Code != 401 || errCode(r) != "invalid_credentials" {

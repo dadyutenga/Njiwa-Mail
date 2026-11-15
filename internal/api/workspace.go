@@ -30,6 +30,20 @@ func (s *Server) ws(h wsFn) fiber.Handler {
 		if err != nil {
 			return nil, err
 		}
+		// Only members (and installation operators) may open a project. A stranger gets the same
+		// answer as for a project that does not exist, so names are not revealed.
+		role, err := s.Svc.ProjectRole(reqCtx(c), u, sc.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if role == "" {
+			return nil, &service.Error{Status: 404, Code: "project_not_found"}
+		}
+		need := NeededRole(string(c.Method()), strings.TrimPrefix(c.Route().Path, "/admin/v1/w/:project/:mode"))
+		if !service.RoleAtLeast(role, need) {
+			return nil, &service.Error{Status: 403, Code: "insufficient_role", Message: "this needs the " + need + " role in this project"}
+		}
+		sc.Role = role
 		return h(c, u, sc)
 	})
 }

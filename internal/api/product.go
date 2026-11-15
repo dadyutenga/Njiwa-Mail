@@ -1,6 +1,8 @@
 package api
 
 import (
+	"strings"
+
 	"encoding/json"
 
 	"github.com/gofiber/fiber/v3"
@@ -9,7 +11,13 @@ import (
 
 func (s *Server) productRoutes(app *fiber.App) {
 	svc := s.Svc
+	// Cross-project views are for installation operators; the notification inbox, the relay's
+	// connection details, the API reference and the user's own sessions are for everyone.
 	h := func(method, path string, fn adminFn) {
+		if !strings.HasPrefix(path, "/admin/v1/notifications") && path != "/admin/v1/relay" && path != "/admin/v1/docs" &&
+			!strings.HasPrefix(path, "/admin/v1/auth/") {
+			fn = s.op(fn)
+		}
 		route(app, method, path, s.adm(fn))
 	}
 	h(fiber.MethodGet, "/admin/v1/analytics", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
