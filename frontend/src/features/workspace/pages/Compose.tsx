@@ -174,6 +174,7 @@ export function ComposePanel({
   const [template, setTemplate] = useState(prefill?.template ?? "");
   const [vars, setVars] = useState<Record<string, string>>({});
   const [sendAt, setSendAt] = useState("");
+  const [webView, setWebView] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [draftId, setDraftId] = useState(prefill?.draftId ?? "");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -365,6 +366,7 @@ export function ComposePanel({
         body.html = html;
       }
       if (sendAt) body.send_at = new Date(sendAt).toISOString();
+      if (webView && !template) body.web_view = true;
       const r = await api.sendWithKey<{ id: string; status: string }>("/compose", idemKey, body);
       toast.success(
         r.status === "scheduled"
@@ -691,6 +693,24 @@ export function ComposePanel({
                 onChange={(e) => setSendAt(e.target.value)}
               />
             </Field>
+            {!template && (
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={webView}
+                  onChange={(e) => setWebView(e.target.checked)}
+                />
+                <span>
+                  {phrase('Add a "view in browser" link')}
+                  <span className="block text-xs text-muted-foreground">
+                    {phrase(
+                      "A copy of this message is kept for 30 days behind a private link. Do not use it for one-time codes or reset links.",
+                    )}
+                  </span>
+                </span>
+              </label>
+            )}
             <div className="flex flex-wrap items-center gap-3 border-t pt-4">
               <Button
                 type="submit"

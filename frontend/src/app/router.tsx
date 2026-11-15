@@ -26,6 +26,7 @@ import { Automations } from "@/features/workspace/pages/Automations";
 import { Bulk, CampaignDetail, NewCampaign } from "@/features/workspace/pages/Bulk";
 import { ContactDetail, Contacts, Lists, Segments } from "@/features/workspace/pages/Audience";
 import { ChatConversations, ChatWidgets } from "@/features/workspace/pages/Chat";
+import { CheckAddresses, RelayStatus } from "@/features/workspace/pages/Tools";
 import { FormFilters, FormInbox, Forms } from "@/features/workspace/pages/Forms";
 import { ApiDocs, ApiKeys, WebhookDetail, Webhooks } from "@/features/workspace/pages/Developers";
 import {
@@ -80,6 +81,8 @@ const workspacePages: [string, ReactNode][] = [
   ["forms/filters", <FormFilters />],
   ["lists", <Lists />],
   ["segments", <Segments />],
+  ["verify", <CheckAddresses />],
+  ["relay", <RelayStatus />],
   ["bulk", <Bulk />],
   ["bulk/new", <NewCampaign />],
   ["bulk/:id", <CampaignDetail />],
