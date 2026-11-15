@@ -86,6 +86,10 @@ type Config struct {
 	InboundAllowedSources         string // Mailcow host IPs / CIDRs allowed to connect to the listener
 	InboundMaxBytes               int
 	DataDir                       string
+	// AttachmentStore (ATTACHMENT_STORE) is "disk" (default: sealed files under DATA_DIR) or "s3"
+	// (an S3-compatible bucket, configured with the S3_* settings).
+	AttachmentStore string
+	S3              S3Config
 
 	// SMTP relay for applications (the relay role): RELAY_LISTEN_ADDR,
 	// RELAY_TLS_CERT and RELAY_TLS_KEY (PEM files), RELAY_IMPLICIT_TLS for
@@ -115,6 +119,12 @@ type Config struct {
 	LiveGlobalPerMinute, LiveGlobalPerHour int
 	LiveDomainPerMinute, LiveDomainPerHour int
 	LiveQueueMax                           int
+}
+
+// S3Config holds the S3_* settings.
+type S3Config struct {
+	Endpoint, Region, Bucket, AccessKey, SecretKey, KeyPrefix string
+	VirtualHosted, AllowHTTP                                  bool
 }
 
 func boolVar(name string) (bool, error) {
@@ -432,6 +442,28 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	c.DataDir = get("DATA_DIR", "/var/lib/njiwa-mail")
+	switch c.AttachmentStore = strings.ToLower(get("ATTACHMENT_STORE", "disk")); c.AttachmentStore {
+	case "disk":
+	case "s3":
+		c.S3.Endpoint, c.S3.Region, c.S3.Bucket = get("S3_ENDPOINT", ""), get("S3_REGION", ""), get("S3_BUCKET", "")
+		c.S3.AccessKey = get("S3_ACCESS_KEY_ID", "")
+		var serr error
+		if c.S3.SecretKey, serr = secret("S3_SECRET_ACCESS_KEY"); serr != nil {
+			return nil, serr
+		}
+		c.S3.KeyPrefix = get("S3_KEY_PREFIX", "")
+		if c.S3.VirtualHosted, err = boolVar("S3_VIRTUAL_HOSTED"); err != nil {
+			return nil, err
+		}
+		if c.S3.AllowHTTP, err = boolVar("S3_ALLOW_HTTP"); err != nil {
+			return nil, err
+		}
+		if c.S3.Region == "" || c.S3.Bucket == "" || c.S3.AccessKey == "" || c.S3.SecretKey == "" {
+			return nil, fmt.Errorf("ATTACHMENT_STORE=s3 needs S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (or S3_SECRET_ACCESS_KEY_FILE)")
+		}
+	default:
+		return nil, fmt.Errorf("ATTACHMENT_STORE must be disk or s3")
+	}
 	c.MailHostname = strings.ToLower(get("MAIL_HOSTNAME", ""))
 	c.OutboundIP = get("OUTBOUND_IP", "")
 	c.DKIMSelector = get("DKIM_SELECTOR", "dkim")

@@ -34,6 +34,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/installer/preflight"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/mtaagent"
+	"github.com/njiwa-tz/mail/internal/objstore"
 	"github.com/njiwa-tz/mail/internal/secure"
 	"github.com/njiwa-tz/mail/internal/service"
 	"github.com/njiwa-tz/mail/internal/transport"
@@ -81,6 +82,7 @@ Runtime:
   rekey [-check]              after changing ENCRYPTION_KEY (old key in ENCRYPTION_KEY_PREVIOUS): re-seal every sealed value with the
                               current key; -check only counts. Repeat until nothing is left, then drop ENCRYPTION_KEY_PREVIOUS
   attachments encrypt         seal inbound attachment files written before encryption at rest (safe to repeat)
+  attachments migrate         with ATTACHMENT_STORE=s3: move sealed attachment files from DATA_DIR to the bucket (safe to repeat)
 
 Provisioning (operator CLI only):
   project create -name N
@@ -175,7 +177,16 @@ func Run(args []string) {
 			die(err)
 		}
 	}
-	svc := service.New(pool, box, service.Options{MetadataRetention: cfg.MetadataRetention, CaptureRetention: cfg.CaptureRetention,
+	var objects objstore.Store
+	if cfg.AttachmentStore == "s3" {
+		o, oerr := objstore.New(objstore.Config{Endpoint: cfg.S3.Endpoint, Region: cfg.S3.Region, Bucket: cfg.S3.Bucket, AccessKey: cfg.S3.AccessKey,
+			SecretKey: cfg.S3.SecretKey, KeyPrefix: cfg.S3.KeyPrefix, VirtualHosted: cfg.S3.VirtualHosted, AllowHTTP: cfg.S3.AllowHTTP})
+		if oerr != nil {
+			die(oerr)
+		}
+		objects = o
+	}
+	svc := service.New(pool, box, service.Options{ObjectStore: objects, MetadataRetention: cfg.MetadataRetention, CaptureRetention: cfg.CaptureRetention,
 		UnknownPurge: cfg.UnknownPurge, MaxAttempts: cfg.MaxAttempts,
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
@@ -312,8 +323,28 @@ func Run(args []string) {
 			fmt.Printf("re-sealed %d values with the current key; run `rekey -check` to confirm, then remove ENCRYPTION_KEY_PREVIOUS\n", rep.Changed())
 		}
 	case "attachments":
+		if len(args) == 1 && args[0] == "migrate" {
+			total, skipped := 0, 0
+			for {
+				moved, skip, err := svc.MigrateAttachmentsToStore(ctx, 200)
+				if err != nil {
+					die(err)
+				}
+				total += moved
+				skipped = skip
+				if moved == 0 {
+					break
+				}
+			}
+			fmt.Printf("moved %d attachment files to the object store", total)
+			if skipped > 0 {
+				fmt.Printf("; %d files are not sealed yet (run `attachments encrypt` first, then migrate again)", skipped)
+			}
+			fmt.Println()
+			return
+		}
 		if len(args) == 0 || args[0] != "encrypt" {
-			die(errors.New("usage: attachments encrypt"))
+			die(errors.New("usage: attachments encrypt|migrate"))
 		}
 		total := 0
 		for {

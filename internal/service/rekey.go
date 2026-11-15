@@ -181,7 +181,7 @@ func (s *Service) rekeyColumn(ctx context.Context, sp sealedSpec, dryRun bool) (
 // (temp file, then rename, so a reader never sees a half-written file).
 func (s *Service) rekeyAttachmentFiles(ctx context.Context, dryRun bool) (RekeyColumn, error) {
 	out := RekeyColumn{Name: "inbound attachment files"}
-	if s.Opts.DataDir == "" {
+	if s.Opts.DataDir == "" && s.Opts.ObjectStore == nil {
 		return out, nil
 	}
 	last := ""
@@ -203,11 +203,7 @@ func (s *Service) rekeyAttachmentFiles(ctx context.Context, dryRun bool) (RekeyC
 		rows.Close()
 		for _, it := range batch {
 			last = it.id
-			full, err := attachmentPath(s.Opts.DataDir, it.rel)
-			if err != nil {
-				continue
-			}
-			raw, err := os.ReadFile(full)
+			raw, inStore, err := s.attachGet(ctx, it.rel)
 			if err != nil {
 				continue // purged
 			}
@@ -227,6 +223,16 @@ func (s *Service) rekeyAttachmentFiles(ctx context.Context, dryRun bool) (RekeyC
 				sealed, err := s.Box.Seal(pt, attachmentAAD(it.id))
 				if err != nil {
 					return out, err
+				}
+				if inStore { // an object is replaced in one request
+					if err := s.Opts.ObjectStore.Put(ctx, it.rel, sealed); err != nil {
+						return out, err
+					}
+					continue
+				}
+				full, err := attachmentPath(s.Opts.DataDir, it.rel)
+				if err != nil {
+					continue
 				}
 				tmp := filepath.Join(filepath.Dir(full), "."+filepath.Base(full)+".rekey")
 				if err := os.WriteFile(tmp, sealed, 0o600); err != nil {

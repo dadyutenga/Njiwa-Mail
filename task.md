@@ -354,7 +354,9 @@ with failover, managed MTA and its installer (Posta has none of these).
    per address now; a bulk "delete everything older than" for forms and chats follows retention only).
 7. [ ] **Platform admin views**: a list of scheduled jobs with their last run, a live platform metrics and events stream, an
    update check, shared SMTP servers that an operator offers to all projects.
-8. [ ] **Enterprise-style extras Posta has and we deliberately do not**: LDAP directory sign-in, a license system. S3 object
-   storage for attachments is a real gap: inbound attachments sit unencrypted under `DATA_DIR/attachments` (see OPERATIONS).
+8. [ ] **Enterprise-style extras Posta has and we deliberately do not**: LDAP directory sign-in, a license system. S3-compatible
+   object storage for inbound attachments is built (opt-in, `ATTACHMENT_STORE=s3`, see OPERATIONS) but has not been tried against a
+   live provider. Correction to an earlier version of this note: inbound attachments were never stored in clear; since F10 they are
+   sealed with `ENCRYPTION_KEY` before they are written, on disk or in a bucket.
 
 Each item is its own PR to `dev`, in this order, with tests and a visual check.

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/objstore"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -199,11 +200,11 @@ type ParsedInbound struct {
 func (s *Service) StoreInbound(ctx context.Context, it SpoolItem, p *ParsedInbound) (stored int, err error) {
 	hj, _ := json.Marshal(p.Headers)
 	retention := time.Duration(s.settingInt(ctx, "inbound_retention_days")) * 24 * time.Hour
-	var dirs []string
+	var written []string // message ids whose attachment files were written
 	defer func() {
 		if err != nil {
-			for _, d := range dirs {
-				os.RemoveAll(d)
+			for _, id := range written {
+				s.attachDeleteMessage(context.WithoutCancel(ctx), id)
 			}
 		}
 	}()
@@ -250,11 +251,7 @@ ON CONFLICT (spool_id, envelope_to) DO NOTHING`,
 			continue // already stored by an earlier, interrupted attempt
 		}
 		if len(p.Attachments) > 0 {
-			dir := s.attachmentDir(id)
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return 0, err
-			}
-			dirs = append(dirs, dir)
+			written = append(written, id)
 			for i, a := range p.Attachments {
 				name := fmt.Sprintf("%02d-%s", i, secure.NewUUID()) // generated: the sender's filename never touches the filesystem
 				aid := secure.NewUUID()
@@ -263,12 +260,13 @@ ON CONFLICT (spool_id, envelope_to) DO NOTHING`,
 				if err != nil {
 					return 0, err
 				}
-				if err := os.WriteFile(filepath.Join(dir, name), sealed, 0o600); err != nil {
+				rel := filepath.ToSlash(filepath.Join("attachments", id, name))
+				if err := s.attachPut(ctx, rel, sealed); err != nil {
 					return 0, err
 				}
 				sum := sha256.Sum256(a.Content)
 				if _, err := tx.Exec(ctx, `INSERT INTO inbound_attachments(id, inbound_message_id, filename, content_type, size, storage_path, sha256, encrypted) VALUES ($1,$2,$3,$4,$5,$6,$7,true)`,
-					aid, id, clean(a.Filename, 255), clean(a.ContentType, 200), len(a.Content), filepath.Join("attachments", id, name), hex.EncodeToString(sum[:])); err != nil {
+					aid, id, clean(a.Filename, 255), clean(a.ContentType, 200), len(a.Content), rel, hex.EncodeToString(sum[:])); err != nil {
 					return 0, err
 				}
 			}
@@ -318,9 +316,7 @@ WHERE bodies_purged_at IS NULL AND retention_expires_at < now() RETURNING id::te
 		return 0, 0, err
 	}
 	for _, id := range ids {
-		if s.Opts.DataDir != "" {
-			os.RemoveAll(s.attachmentDir(id))
-		}
+		s.attachDeleteMessage(ctx, id)
 	}
 	if len(ids) > 0 {
 		if _, err := s.Pool.Exec(ctx, `DELETE FROM inbound_attachments WHERE inbound_message_id = ANY($1::uuid[])`, ids); err != nil {
@@ -465,24 +461,29 @@ WHERE a.id=$1 AND m.id=$2 AND ($3='' OR m.environment_id=NULLIF($3,'')::uuid)`, 
 	if err != nil {
 		return nil, notFound(err)
 	}
-	if s.Opts.DataDir == "" {
+	if s.Opts.DataDir == "" && s.Opts.ObjectStore == nil {
 		return nil, newErr(404, "not_found")
 	}
-	full, err := attachmentPath(s.Opts.DataDir, rel)
-	if err != nil {
-		return nil, newErr(404, "not_found")
-	}
-	f.Path = full
 	if sealed {
-		raw, err := os.ReadFile(full)
-		if err != nil {
+		raw, _, err := s.attachGet(ctx, rel)
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, objstore.ErrNotFound) {
 			return nil, newErr(404, "not_found")
+		}
+		if err != nil {
+			return nil, unavailable("attachment_read", err)
 		}
 		if f.Data, err = s.Box.Open(raw, attachmentAAD(attachmentID)); err != nil {
 			return nil, unavailable("attachment_open", err)
 		}
 		f.Size = len(f.Data)
+		return &f, nil
 	}
+	// Files written before encryption at rest are plain files on the disk.
+	full, err := attachmentPath(s.Opts.DataDir, rel)
+	if err != nil {
+		return nil, newErr(404, "not_found")
+	}
+	f.Path = full
 	return &f, nil
 }
 

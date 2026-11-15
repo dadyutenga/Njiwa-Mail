@@ -368,10 +368,31 @@ encrypted, covered by `rekey`).
 Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to `DATA_DIR/spool` and records it before answering `250`; the parser runs afterwards.
 
 - A message that cannot be parsed after 5 attempts stays in `inbound_spool` with state `failed`, and its raw file is kept for review (`DATA_DIR/spool/<id>.eml`) until inbound retention.
-- Inbound bodies are encrypted in the database. **Attachments are stored unencrypted** under `DATA_DIR/attachments` with generated names: protect and back up that volume like the database.
+- Inbound bodies are encrypted in the database. Attachments are sealed with `ENCRYPTION_KEY` before they are written (see Encryption at rest below), under generated names in `DATA_DIR/attachments` or, if you choose, in an S3-compatible bucket (next section). Back the volume or the bucket up like the database.
 - Bounce types: `5.1.x` hard (recipient suppressed, source `hard_bounce`), `4.x.x` soft (recorded), `5.7.x` policy (alert, no suppression), anything else `unknown` (recorded for review; includes `5.2.x` mailbox-full).
 - A hard bounce suppresses only when the DSN matches one of our message ids **and** names that message's own recipient.
 - To lift a suppression after the user fixed their mailbox: Suppressions → remove (a reason is required and audited).
+
+## Attachment storage: disk or an S3-compatible bucket
+
+By default sealed inbound attachment files live under `DATA_DIR/attachments`. Set `ATTACHMENT_STORE=s3` to keep them in a bucket
+instead (AWS S3, MinIO, Ceph, Cloudflare R2, Backblaze B2 ...): `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` and
+`S3_SECRET_ACCESS_KEY` (or `S3_SECRET_ACCESS_KEY_FILE`) are required; `S3_ENDPOINT` names a non-AWS service (https only, no path),
+`S3_KEY_PREFIX` shares a bucket between installations, `S3_VIRTUAL_HOSTED=true` puts the bucket in the host name, and
+`S3_ALLOW_HTTP=true` permits a plain-http endpoint such as a local MinIO. Nothing is stored in a bucket unless you set this, and
+using a bucket may cost money with your provider: that is your decision, nothing here creates one.
+
+- The files are already sealed (AES-GCM, bound to the attachment id) before upload, so the provider never sees an attachment in
+  clear and losing `ENCRYPTION_KEY` makes them unreadable, as on disk. `rekey` re-seals objects in the bucket too.
+- The database row keeps the same `storage_path` either way, so switching needs no database change. With a bucket configured,
+  reads fall back to the disk for files that have not moved yet. `njiwa-mail attachments migrate` uploads every sealed file from
+  `DATA_DIR` to the bucket and removes the disk copy after each successful upload (repeatable; run `attachments encrypt` first if
+  it reports files that are not sealed). The raw inbound spool stays on the disk until parsed, so `DATA_DIR` is still needed.
+- Deleting a message, an address or a recipient (privacy request), and retention, remove the objects as well; a bucket that is
+  unreachable at that moment is logged and the objects are left (the rows are gone), so use a bucket lifecycle rule as a backstop.
+- An unreachable bucket answers downloads with 503, never "not found". Requests are signed with AWS Signature V4; the client is
+  checked against the signature example in AWS's documentation, and against a fake S3 in the tests, not against a live provider:
+  try it with a throwaway bucket before relying on it.
 
 ## Website forms (off by default)
 

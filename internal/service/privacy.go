@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -275,13 +274,8 @@ func (s *Service) DeleteRecipient(ctx context.Context, project, mode, email stri
 }
 
 func (s *Service) removeAttachmentDirs(messageIDs []string) {
-	if s.Opts.DataDir == "" {
-		return
-	}
 	for _, id := range messageIDs {
-		if uuidRe.MatchString(id) {
-			os.RemoveAll(s.attachmentDir(id))
-		}
+		s.attachDeleteMessage(context.Background(), id)
 	}
 }
 
