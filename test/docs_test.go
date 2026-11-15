@@ -60,6 +60,7 @@ var tableDocs = map[string]string{
 	"chat_messages":         "Live chat messages (bodies encrypted) with delivery and email follow-up marks.",
 	"chat_widgets":          "Live chat widgets: allowed origins, welcome text, announcement, home links, reply sender.",
 	"form_files":            "Files uploaded with a form submission (encrypted).",
+	"report_email_settings": "Operator settings for the daily report by email: recipients, sender, last day mailed.",
 	"form_filters":          "Workspace spam filters for forms: keyword, phrase, regex, email, domain or IP, with an action.",
 	"form_nonces":           "Single-use nonces handed to pages that post a form.",
 	"form_submissions":      "Contact form submissions: fields encrypted, sender masked, spam score and reasons, inbox state.",
