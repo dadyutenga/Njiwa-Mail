@@ -554,123 +554,193 @@ function MessageList({ preset, extended }: { preset?: { state?: string }; extend
     queryFn: () => api.get<Page>("/senders?limit=100"),
   });
   const scheduled = preset?.state === "scheduled";
+  const compose = useCompose();
   const active = [
     template && `template ${template}`,
     apiKey && `API key ${apiKey}`,
     campaign && "one announcement",
   ].filter(Boolean);
+  const narrowed = Boolean(state || source || sender || from || until || recipient || active.length);
+  const stateField = !preset?.state && (
+    <Field label={phrase("State")}>
+      <select className={selectClass} value={state} onChange={(e) => setState(e.target.value)}>
+        <option value="">{phrase("All states")}</option>
+        {STATES.map((x) => (
+          <option key={x} value={x}>
+            {x.replace("_", " ")}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+  const sourceField = (
+    <Field label={phrase("Source")}>
+      <select className={selectClass} value={source} onChange={(e) => setSource(e.target.value)}>
+        <option value="">{phrase("All sources")}</option>
+        {SOURCES.map(([v, l]) => (
+          <option key={v} value={v}>
+            {phrase(l)}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+  const senderField = (
+    <Field label={phrase("Sender")}>
+      <select className={selectClass} value={sender} onChange={(e) => setSender(e.target.value)}>
+        <option value="">{phrase("All senders")}</option>
+        {senders.data?.items.map((x) => (
+          <option key={s(x.id)} value={s(x.email)}>
+            {s(x.email)}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+  const fromField = (
+    <Field label={phrase("From date")}>
+      <input
+        type="date"
+        className={inputClass}
+        value={from}
+        onChange={(e) => setFrom(e.target.value)}
+      />
+    </Field>
+  );
+  const toField = (
+    <Field label={phrase("To date")}>
+      <input
+        type="date"
+        className={inputClass}
+        value={until}
+        onChange={(e) => setUntil(e.target.value)}
+      />
+    </Field>
+  );
+  const clearFilters = active.length > 0 || narrowed ? (
+    <p className="text-sm text-muted-foreground">
+      {active.length > 0 && (
+        <>
+          {phrase("Filtered by")} {active.join(", ")}
+          {" · "}
+        </>
+      )}
+      <Link className="text-primary" to="?">
+        {phrase("Clear filters")}
+      </Link>
+    </p>
+  ) : null;
   return (
     <>
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <SendingMode value={env} onChange={setEnv} />
-        {!preset?.state && (
-          <Field label={phrase("State")}>
-            <select
-              className={selectClass}
-              value={state}
-              onChange={(e) => setState(e.target.value)}
+      {extended ? (
+        <section className="mb-4 rounded-xl border bg-card p-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:items-end">
+            <SendingMode value={env} onChange={setEnv} />
+            <form
+              className="flex items-end gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setRecipient(rcpt.trim());
+              }}
             >
-              <option value="">{phrase("All states")}</option>
-              {STATES.map((x) => (
-                <option key={x} value={x}>
-                  {x.replace("_", " ")}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-        <Field label={phrase("Source")}>
-          <select
-            className={selectClass}
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-          >
-            <option value="">{phrase("All sources")}</option>
-            {SOURCES.map(([v, l]) => (
-              <option key={v} value={v}>
-                {phrase(l)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={phrase("Sender")}>
-          <select
-            className={selectClass}
-            value={sender}
-            onChange={(e) => setSender(e.target.value)}
-          >
-            <option value="">{phrase("All senders")}</option>
-            {senders.data?.items.map((x) => (
-              <option key={s(x.id)} value={s(x.email)}>
-                {s(x.email)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={phrase("From date")}>
-          <input
-            type="date"
-            className={inputClass}
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-          />
-        </Field>
-        <Field label={phrase("To date")}>
-          <input
-            type="date"
-            className={inputClass}
-            value={until}
-            onChange={(e) => setUntil(e.target.value)}
-          />
-        </Field>
-        {extended && (
-          <form
-            className="sm:col-span-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setRecipient(rcpt.trim());
-            }}
-          >
-            <Field
-              label={phrase("Recipient (full address)")}
-              hint={phrase("Matched exactly; addresses are stored only as a keyed hash.")}
-            >
-              <input
-                className={inputClass}
-                type="search"
-                value={rcpt}
-                onChange={(e) => setRcpt(e.target.value)}
-                onBlur={() => setRecipient(rcpt.trim())}
-              />
-            </Field>
-          </form>
-        )}
-      </div>
-      {active.length > 0 && (
-        <p className="mb-3 text-sm">
-          {phrase("Filtered by")} {active.join(", ")} ·{" "}
-          <Link className="text-primary" to="?">
-            {phrase("clear")}
-          </Link>
-        </p>
+              <Field
+                className="min-w-0 flex-1"
+                label={phrase("Recipient")}
+                hint={phrase("Full address, matched exactly. Stored only as a keyed hash.")}
+              >
+                <input
+                  className={inputClass}
+                  type="search"
+                  value={rcpt}
+                  placeholder="name@example.com"
+                  onChange={(e) => setRcpt(e.target.value)}
+                />
+              </Field>
+              <Button type="submit" variant="outline">
+                {phrase("Find")}
+              </Button>
+            </form>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {stateField}
+            {sourceField}
+            {senderField}
+            {fromField}
+            {toField}
+          </div>
+          {clearFilters && <div className="mt-3">{clearFilters}</div>}
+        </section>
+      ) : (
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <SendingMode value={env} onChange={setEnv} />
+          {stateField}
+          {sourceField}
+          {senderField}
+          {fromField}
+          {toField}
+          {clearFilters && <div className="sm:col-span-2 xl:col-span-6">{clearFilters}</div>}
+        </div>
       )}
       <DataState
         q={q}
         isEmpty={(d) => d.items.length === 0}
         empty={
-          <div className="rounded-xl border bg-card">
-            <Empty
-              title={scheduled ? phrase("Nothing is scheduled") : phrase("No messages match")}
-              description={phrase(
-                "Write a message with Compose, or send from your application with an API key.",
-              )}
-              action={
-                <Button asChild variant="outline">
-                  <Link to={to("api-docs")}>{phrase("API quick start")}</Link>
-                </Button>
-              }
-            />
-          </div>
+          extended ? (
+            <div className="rounded-xl border bg-card px-6 py-12">
+              <div className="mx-auto max-w-xl text-center">
+                <h2 className="text-lg font-semibold">
+                  {narrowed ? phrase("No messages match") : phrase("No messages yet")}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {narrowed
+                    ? phrase("Nothing matches these filters.")
+                    : phrase(
+                        "Messages appear here after you compose one, or after your application sends with an API key.",
+                      )}
+                </p>
+                <div className="mt-6 grid gap-3 text-left sm:grid-cols-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border bg-background p-4 transition hover:border-primary hover:bg-primary/5"
+                    onClick={() => compose.open()}
+                  >
+                    <span className="block font-medium">{phrase("Compose a message")}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {phrase("Write it here and send it from this project.")}
+                    </span>
+                  </button>
+                  <Link
+                    to={to("api-docs")}
+                    className="rounded-lg border bg-background p-4 transition hover:border-primary hover:bg-primary/5"
+                  >
+                    <span className="block font-medium">{phrase("Send with an API key")}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {phrase("Use the API from your own application.")}
+                    </span>
+                  </Link>
+                </div>
+                {narrowed && (
+                  <Button className="mt-4" variant="outline" asChild>
+                    <Link to="?">{phrase("Clear filters")}</Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-card">
+              <Empty
+                title={scheduled ? phrase("Nothing is scheduled") : phrase("No messages match")}
+                description={phrase(
+                  "Write a message with Compose, or send from your application with an API key.",
+                )}
+                action={
+                  <Button asChild variant="outline">
+                    <Link to={to("api-docs")}>{phrase("API quick start")}</Link>
+                  </Button>
+                }
+              />
+            </div>
+          )
         }
       >
         {(d) => (
@@ -789,13 +859,15 @@ export function Scheduled() {
 
 export function MessageLog() {
   const phrase = usePhrase();
+  const compose = useCompose();
   return (
     <>
       <PageHeader
         title={phrase("Message log")}
         description={phrase(
-          "Every message of this project and environment, from every source. Metadata only.",
+          "Every message in this project, with its state and source. Bodies are not kept here.",
         )}
+        action={<Button onClick={() => compose.open()}>{phrase("Compose")}</Button>}
       />
       <MessageList extended />
       <Sessions />

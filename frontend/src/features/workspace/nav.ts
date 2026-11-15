@@ -10,7 +10,6 @@ import {
   ClipboardCheck,
   ClipboardList,
   Contact,
-  Filter,
   FileText,
   FolderKanban,
   Gauge,
@@ -22,7 +21,6 @@ import {
   LayoutDashboard,
   ListChecks,
   LogIn,
-  ListPlus,
   Mailbox,
   Megaphone,
   MessageCircle,
@@ -79,9 +77,7 @@ export const navGroups: NavGroup[] = [
   {
     label: "Audience",
     items: [
-      { path: "contacts", label: "Contacts", icon: Contact },
-      { path: "lists", label: "Lists", icon: ListPlus },
-      { path: "segments", label: "Segments", icon: Filter },
+      { path: "contacts", label: "Audience", icon: Contact },
     ],
   },
   {

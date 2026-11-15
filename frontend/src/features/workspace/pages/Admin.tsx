@@ -263,6 +263,7 @@ export function Users() {
   const [password, setPassword] = useState("");
   const [operator, setOperator] = useState(true);
   const [error, setError] = useState("");
+  const [passwordFor, setPasswordFor] = useState<Row | null>(null);
   const q = useQuery({
     queryKey: ["users"],
     queryFn: () => admin.get<Page>("/users?limit=100"),
@@ -414,6 +415,9 @@ export function Users() {
                           ? phrase("Remove operator")
                           : phrase("Make operator")}
                       </ConfirmButton>
+                      <Button size="sm" variant="outline" onClick={() => setPasswordFor(r)}>
+                        {phrase("Change password")}
+                      </Button>
                       {!!r.mfa_enabled && (
                         <ConfirmButton
                           destructive
@@ -440,7 +444,94 @@ export function Users() {
           />
         )}
       </DataState>
+      <PasswordDialog user={passwordFor} onClose={() => setPasswordFor(null)} onSaved={refresh} />
     </>
+  );
+}
+
+function PasswordDialog({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: Row | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const phrase = usePhrase();
+  const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setNext("");
+    setAgain("");
+    setError("");
+  }, [user]);
+  const save = async () => {
+    if (!user) return;
+    if (next.length < 12) {
+      setError(phrase("The temporary password needs at least 12 characters."));
+      return;
+    }
+    if (next !== again) {
+      setError(phrase("The two new passwords are not the same."));
+      return;
+    }
+    setError("");
+    if (
+      await run(
+        () => admin.send(`/users/${s(user.id)}`, "PATCH", { password: next }),
+        phrase("Password changed. They were signed out."),
+      )
+    ) {
+      onSaved();
+      onClose();
+    }
+  };
+  return (
+    <Dialog open={!!user} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogTitle>{phrase("Change password")}</DialogTitle>
+        <DialogDescription>
+          {s(user?.email)}
+          {". "}
+          {phrase("Set a new password. They are signed out and must use it the next time they sign in.")}
+        </DialogDescription>
+        <div className="grid gap-3">
+          <Field label={phrase("New password")}>
+            <input
+              className={inputClass}
+              type="password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+            />
+          </Field>
+          <Field label={phrase("Repeat the new password")}>
+            <input
+              className={inputClass}
+              type="password"
+              autoComplete="new-password"
+              value={again}
+              onChange={(e) => setAgain(e.target.value)}
+            />
+          </Field>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button onClick={save} disabled={!next || !again}>
+              {phrase("Save")}
+            </Button>
+            <Button type="button" variant="outline" onClick={onClose}>
+              {phrase("Cancel")}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

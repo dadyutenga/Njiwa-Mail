@@ -24,7 +24,7 @@ import { Complaints, Mailboxes, Senders, Suppressions } from "@/features/workspa
 import { Templates } from "@/features/workspace/pages/Templates";
 import { Automations } from "@/features/workspace/pages/Automations";
 import { Bulk, CampaignDetail, NewCampaign } from "@/features/workspace/pages/Bulk";
-import { ContactDetail, Contacts, Lists, Segments } from "@/features/workspace/pages/Audience";
+import { ContactDetail, Contacts } from "@/features/workspace/pages/Audience";
 import { Members } from "@/features/workspace/pages/Members";
 import {
   ChatAnalytics,
@@ -89,8 +89,8 @@ const workspacePages: [string, ReactNode][] = [
   ["forms", <Forms />],
   ["forms/submissions", <FormInbox />],
   ["forms/filters", <FormFilters />],
-  ["lists", <Lists />],
-  ["segments", <Segments />],
+  ["lists", <Navigate to="../contacts" replace />],
+  ["segments", <Navigate to="../contacts" replace />],
   ["members", <Members />],
   ["verify", <CheckAddresses />],
   ["relay", <RelayStatus />],

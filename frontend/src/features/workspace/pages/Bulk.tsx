@@ -166,18 +166,13 @@ export function NewCampaign() {
     send_at: "",
     rate_per_minute: "60",
     list_id: "",
-    segment_id: "",
   });
   const [mode, setMode] = useState<"write" | "template">("write");
-  const [audience, setAudience] = useState<"paste" | "list" | "segment">("paste");
+  const [audience, setAudience] = useState<"paste" | "list">("paste");
   const [track, setTrack] = useState({ opens: false, clicks: false });
   const lists = useQuery({
     queryKey: key("lists"),
     queryFn: () => api.get<{ items: Row[] }>("/lists"),
-  });
-  const segments = useQuery({
-    queryKey: key("segments"),
-    queryFn: () => api.get<{ items: Row[] }>("/segments"),
   });
   const [report, setReport] = useState<Report | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -202,7 +197,6 @@ export function NewCampaign() {
     if (mode === "template" && !f.template_id) e.template = phrase("Choose a template.");
     if (audience === "paste" && !f.recipients.trim()) e.recipients = phrase("Add recipients.");
     if (audience === "list" && !f.list_id) e.recipients = phrase("Choose a list.");
-    if (audience === "segment" && !f.segment_id) e.recipients = phrase("Choose a segment.");
     const rate = Number(f.rate_per_minute);
     if (!Number.isInteger(rate) || rate < 1 || rate > 10000)
       e.rate = phrase("1 to 10000 per minute.");
@@ -213,11 +207,7 @@ export function NewCampaign() {
       const body = {
         name: f.name.trim(),
         sender_email: sender,
-        ...(audience === "paste"
-          ? { recipients: f.recipients }
-          : audience === "list"
-            ? { list_id: f.list_id }
-            : { segment_id: f.segment_id }),
+        ...(audience === "paste" ? { recipients: f.recipients } : { list_id: f.list_id }),
         ...(mode === "write" ? { track_opens: track.opens, track_clicks: track.clicks } : {}),
         rate_per_minute: rate,
         send_at: f.send_at ? new Date(f.send_at).toISOString() : "",
@@ -407,7 +397,6 @@ export function NewCampaign() {
                 [
                   ["paste", "Paste or upload"],
                   ["list", "A list"],
-                  ["segment", "A segment"],
                 ] as const
               ).map(([a, label]) => (
                 <button
@@ -427,7 +416,7 @@ export function NewCampaign() {
             </div>
             {audience !== "paste" ? (
               <Field
-                label={audience === "list" ? phrase("List") : phrase("Segment")}
+                label={phrase("List")}
                 error={errors.recipients}
                 hint={phrase(
                   "Only contacts who can receive marketing mail are included. Their name and attributes are the variables.",
@@ -435,16 +424,13 @@ export function NewCampaign() {
               >
                 <select
                   className={selectClass}
-                  value={audience === "list" ? f.list_id : f.segment_id}
-                  onChange={(e) =>
-                    set(audience === "list" ? "list_id" : "segment_id", e.target.value)
-                  }
+                  value={f.list_id}
+                  onChange={(e) => set("list_id", e.target.value)}
                 >
                   <option value="">{phrase("Choose…")}</option>
-                  {(audience === "list" ? lists.data?.items : segments.data?.items)?.map((x) => (
+                  {lists.data?.items.map((x) => (
                     <option key={s(x.id)} value={s(x.id)}>
-                      {s(x.name)}
-                      {audience === "list" ? ` (${s(x.members)})` : ""}
+                      {s(x.name)} ({s(x.members)})
                     </option>
                   ))}
                 </select>

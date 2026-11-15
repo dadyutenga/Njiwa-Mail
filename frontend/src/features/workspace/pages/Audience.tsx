@@ -74,9 +74,9 @@ export function Contacts() {
   return (
     <>
       <PageHeader
-        title={phrase("Contacts")}
+        title={phrase("Audience")}
         description={phrase(
-          "People who receive marketing mail. A bounce, a complaint or an unsubscribe is shown here and always respected.",
+          "The people you can mail, and the lists they belong to. A bounce, a complaint or an unsubscribe is shown here and always respected.",
         )}
         action={
           <span className="flex gap-2">
@@ -138,6 +138,7 @@ export function Contacts() {
           </form>
         </div>
       </section>
+      <Lists />
       <DataState
         q={page}
         isEmpty={(d) => d.items.length === 0}
@@ -853,7 +854,7 @@ export function ContactDetail() {
               </pre>
               <p className="mt-2 text-xs text-muted-foreground">
                 {phrase(
-                  "Attributes are for segments, such as a plan or a city. Do not store secrets in them.",
+                  "Attributes are extra details, such as a plan or a city. Do not store secrets in them.",
                 )}
               </p>
             </Section>
@@ -868,7 +869,7 @@ export function ContactDetail() {
 
 export function Lists() {
   const phrase = usePhrase();
-  const { env, setEnv, api, key, to } = useAudience();
+  const { api, key, to } = useAudience();
   const client = useQueryClient();
   const [name, setName] = useState("");
   const q = useQuery({
@@ -884,15 +885,11 @@ export function Lists() {
     client.invalidateQueries({ queryKey: key("lists") });
   };
   return (
-    <>
-      <PageHeader
-        title={phrase("Lists")}
-        description={phrase(
-          "Subscriber lists. Unsubscribing from a list's mail leaves that list only, unless the reader chooses all marketing mail.",
-        )}
-      />
+    <Section className="mb-4" title={phrase("Lists")}>
+      <p className="mb-3 text-sm text-muted-foreground">
+        {phrase("A named group of contacts. Unsubscribing from a list leaves that list only.")}
+      </p>
       <div className="mb-4 flex flex-wrap items-end gap-3">
-        <SendingMode value={env} onChange={setEnv} />
         <form
           className="flex items-end gap-2"
           onSubmit={(e) => {
@@ -970,252 +967,7 @@ export function Lists() {
           />
         )}
       </DataState>
-    </>
+    </Section>
   );
 }
 
-// ---------------------------------------------------------------- segments
-
-type Condition = { field: string; op: string; key?: string; value?: string };
-
-const fieldOps: Record<string, string[]> = {
-  status: ["eq", "neq"],
-  list: ["in", "not_in"],
-  domain: ["eq", "neq"],
-  attribute: ["eq", "neq", "contains", "exists", "not_exists"],
-  created: ["after", "before"],
-};
-
-export function Segments() {
-  const phrase = usePhrase();
-  const { env, setEnv, api, key } = useAudience();
-  const client = useQueryClient();
-  const [name, setName] = useState("");
-  const [match, setMatch] = useState<"all" | "any">("all");
-  const [conds, setConds] = useState<Condition[]>([{ field: "status", op: "eq", value: "active" }]);
-  const [preview, setPreview] = useState<Row | null>(null);
-  const [error, setError] = useState("");
-  const lists = useQuery({
-    queryKey: key("lists"),
-    queryFn: () => api.get<{ items: Row[] }>("/lists"),
-  });
-  const q = useQuery({
-    queryKey: key("segments"),
-    queryFn: () => api.get<{ items: Row[] }>("/segments"),
-  });
-  const rules = () => ({
-    match,
-    conditions: conds.map((c) =>
-      c.field === "created" && c.value ? { ...c, value: new Date(c.value).toISOString() } : c,
-    ),
-  });
-  const setCond = (i: number, c: Partial<Condition>) => {
-    setConds(conds.map((x, j) => (j === i ? { ...x, ...c } : x)));
-    setPreview(null);
-  };
-  const check = async () => {
-    setError("");
-    try {
-      setPreview(await api.send<Row>("/segments/preview", "POST", rules()));
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-  const save = async () => {
-    setError("");
-    try {
-      await api.send("/segments", "POST", { name: name.trim(), rules: rules() });
-      setName("");
-      client.invalidateQueries({ queryKey: key("segments") });
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-  return (
-    <>
-      <PageHeader
-        title={phrase("Segments")}
-        description={phrase(
-          "Audiences from rules, worked out again each time a campaign is created.",
-        )}
-      />
-      <div className="mb-4">
-        <SendingMode value={env} onChange={setEnv} />
-      </div>
-      <Section title={phrase("New segment")}>
-        <div className="grid gap-3">
-          <Field label={phrase("Name")}>
-            <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label={phrase("Match")}>
-            <select
-              className={selectClass}
-              value={match}
-              onChange={(e) => setMatch(e.target.value as "all" | "any")}
-            >
-              <option value="all">{phrase("All conditions")}</option>
-              <option value="any">{phrase("Any condition")}</option>
-            </select>
-          </Field>
-          {conds.map((c, i) => (
-            <div key={i} className="flex flex-wrap items-end gap-2">
-              <select
-                aria-label={phrase("Field")}
-                className={selectClass + " w-36"}
-                value={c.field}
-                onChange={(e) =>
-                  setCond(i, {
-                    field: e.target.value,
-                    op: fieldOps[e.target.value][0],
-                    value: "",
-                    key: "",
-                  })
-                }
-              >
-                {Object.keys(fieldOps).map((f) => (
-                  <option key={f} value={f}>
-                    {phrase(f)}
-                  </option>
-                ))}
-              </select>
-              {c.field === "attribute" && (
-                <input
-                  aria-label={phrase("Attribute")}
-                  className={inputClass + " w-32"}
-                  value={c.key ?? ""}
-                  onChange={(e) => setCond(i, { key: e.target.value })}
-                  placeholder="plan"
-                />
-              )}
-              <select
-                aria-label={phrase("Operator")}
-                className={selectClass + " w-36"}
-                value={c.op}
-                onChange={(e) => setCond(i, { op: e.target.value })}
-              >
-                {fieldOps[c.field].map((o) => (
-                  <option key={o} value={o}>
-                    {phrase(o.replace(/_/g, " "))}
-                  </option>
-                ))}
-              </select>
-              {c.field === "status" ? (
-                <select
-                  aria-label={phrase("Value")}
-                  className={selectClass + " w-40"}
-                  value={c.value}
-                  onChange={(e) => setCond(i, { value: e.target.value })}
-                >
-                  {["active", "unsubscribed", "bounced", "complained"].map((x) => (
-                    <option key={x} value={x}>
-                      {phrase(x)}
-                    </option>
-                  ))}
-                </select>
-              ) : c.field === "list" ? (
-                <select
-                  aria-label={phrase("Value")}
-                  className={selectClass + " w-48"}
-                  value={c.value}
-                  onChange={(e) => setCond(i, { value: e.target.value })}
-                >
-                  <option value="">{phrase("Choose…")}</option>
-                  {lists.data?.items.map((l) => (
-                    <option key={s(l.id)} value={s(l.id)}>
-                      {s(l.name)}
-                    </option>
-                  ))}
-                </select>
-              ) : c.op === "exists" || c.op === "not_exists" ? null : (
-                <input
-                  aria-label={phrase("Value")}
-                  type={c.field === "created" ? "datetime-local" : "text"}
-                  className={inputClass + " w-48"}
-                  value={c.value ?? ""}
-                  onChange={(e) => setCond(i, { value: e.target.value })}
-                />
-              )}
-              {conds.length > 1 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConds(conds.filter((_, j) => j !== i))}
-                >
-                  <Trash2 size={14} />
-                  <span className="sr-only">{phrase("Remove condition")}</span>
-                </Button>
-              )}
-            </div>
-          ))}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={conds.length >= 20}
-              onClick={() =>
-                setConds([...conds, { field: "attribute", op: "eq", key: "", value: "" }])
-              }
-            >
-              <Plus size={14} /> {phrase("Add condition")}
-            </Button>
-            <Button variant="outline" size="sm" onClick={check}>
-              {phrase("Preview")}
-            </Button>
-            <Button size="sm" onClick={save} disabled={!name.trim()}>
-              {phrase("Save segment")}
-            </Button>
-          </div>
-          {preview && (
-            <p role="status" className="text-sm">
-              {s(preview.matches)} {phrase("contacts match")} · {s(preview.sendable)}{" "}
-              {phrase("can receive marketing mail now")}
-            </p>
-          )}
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-        </div>
-      </Section>
-      <DataState q={q} isEmpty={(d) => d.items.length === 0} empty={null}>
-        {(d) => (
-          <Section className="mt-4" title={phrase("Saved segments")}>
-            <Table
-              rows={d.items}
-              rowKey={(r) => s(r.id)}
-              columns={[
-                { key: "name", label: phrase("Name") },
-                {
-                  key: "created_at",
-                  label: phrase("Created"),
-                  render: (r) => <Time value={r.created_at} relative />,
-                },
-                {
-                  key: "x",
-                  label: <span className="sr-only">{phrase("Actions")}</span>,
-                  render: (r) => (
-                    <ConfirmButton
-                      title={`${phrase("Delete")} ${s(r.name)}?`}
-                      description={phrase("Campaigns already created keep their recipients.")}
-                      confirm="Delete segment"
-                      onConfirm={async () => {
-                        await run(
-                          () => api.send(`/segments/${s(r.id)}`, "DELETE"),
-                          phrase("Segment deleted."),
-                        );
-                        client.invalidateQueries({ queryKey: key("segments") });
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </ConfirmButton>
-                  ),
-                },
-              ]}
-            />
-          </Section>
-        )}
-      </DataState>
-    </>
-  );
-}

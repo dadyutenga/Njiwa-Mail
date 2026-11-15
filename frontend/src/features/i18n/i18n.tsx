@@ -277,6 +277,13 @@ export const swPhrases: Record<string, string> = {
     "Mwendeshaji wa usakinishaji (anaweza kubadilisha miundombinu ya utumaji, watumiaji na mipangilio)",
   "Require two-step sign-in for every admin":
     "Lazimisha kuingia kwa hatua mbili kwa kila msimamizi",
+  "Change password": "Badilisha nenosiri",
+  "Set a new password. They are signed out and must use it the next time they sign in.":
+    "Weka nenosiri jipya. Wanatolewa na lazima walitumie wakati wanaoingia tena.",
+  "New password": "Nenosiri jipya",
+  "Repeat the new password": "Rudia nenosiri jipya",
+  "The two new passwords are not the same.": "Manenosiri mawili mapya hayafanani.",
+  "Password changed. They were signed out.": "Nenosiri limebadilishwa. Wametolewa.",
   Operator: "Mwendeshaji",
   "Two-step": "Hatua mbili",
   "Make operator": "Mfanye mwendeshaji",

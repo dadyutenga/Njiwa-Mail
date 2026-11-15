@@ -203,7 +203,6 @@ export const swExtra: Record<string, string> = {
   "Saved segments": "Makundi yaliyohifadhiwa",
   "Segment deleted.": "Kundi limefutwa.",
   Segment: "Kundi",
-  Segments: "Makundi",
   "Subscriber lists. Unsubscribing from a list's mail leaves that list only, unless the reader chooses all marketing mail.":
     "Orodha za wanaojiunga. Kujiondoa kwenye barua za orodha kunamtoa kwenye orodha hiyo tu, isipokuwa msomaji achague barua zote za masoko.",
   "The contacts stay; only the list and its memberships are deleted.":
@@ -226,6 +225,12 @@ export const swExtra: Record<string, string> = {
   unsubscribed: "amejiondoa",
   updated: "wamesasishwa",
   Audience: "Walengwa",
+  "The people you can mail, and the lists they belong to. A bounce, a complaint or an unsubscribe is shown here and always respected.":
+    "Watu unaoweza kuwatumia barua, na orodha walizo. Barua iliyorudishwa, malalamiko au kujiondoa kunaonekana hapa na kinaheshimiwa daima.",
+  "A named group of contacts. Unsubscribing from a list leaves that list only.":
+    "Kundi lenye jina la anwani. Kujiondoa kwenye orodha kunaondoka kwenye orodha hiyo tu.",
+  "Attributes are extra details, such as a plan or a city. Do not store secrets in them.":
+    "Sifa ni maelezo ya ziada, kama mpango au mji. Usihifadhi siri humo.",
   "Paste or upload": "Bandika au pakia",
   "A list": "Orodha",
   "A segment": "Kundi",
