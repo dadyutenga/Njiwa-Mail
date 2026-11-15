@@ -39,7 +39,26 @@ njiwa-mail user create -email you@example.com -role admin     # password is read
 njiwa-mail user password -email you@example.com               # reset a password; ends that user's sessions
 njiwa-mail user disable -email someone@example.com
 ```
-There is one user role, `admin`, plus an **installation-operator** permission. Operators manage delivery infrastructure (transport profiles, mail server, domain ownership), users and settings; other admins keep the project work (messages, templates, keys, domains of a project) and read inbound bodies and sandbox captures. `njiwa-mail user create` makes an operator unless `-operator=false` is passed; the admin API and the Users page create a non-operator unless `installation_operator: true` is sent (the Users page asks). `user operator -email E -on=false` changes it. The first user is always an operator and the last enabled operator cannot be demoted or disabled. Old `owner` inputs are accepted as an alias for admin.
+There is one user role, `admin`, plus an **installation-operator** permission. Operators manage delivery infrastructure (transport profiles, mail server, domain ownership), users and settings, and can open every project. Other users work only in the projects they belong to (see *Project members and roles* below). `njiwa-mail user create` makes an operator unless `-operator=false` is passed; the admin API and the Users page create a non-operator unless `installation_operator: true` is sent (the Users page asks). `user operator -email E -on=false` changes it. The first user is always an operator and the last enabled operator cannot be demoted or disabled. Old `owner` inputs are accepted as an alias for admin.
+
+**Project members and roles.** A project is opened only by its members and by installation operators (who count as owners
+everywhere and need no membership). Someone who is not a member gets the same "project not found" answer as for a project that does
+not exist. Roles, weakest first:
+
+| Role | May |
+|---|---|
+| viewer | Read everything in the project, run the read-only checks (address check, previews). |
+| developer | Also send mail and edit templates, contacts, lists, campaigns, drafts, and handle form submissions and chats. |
+| admin | Also API keys, domains and DNS, senders, webhooks, mailboxes, suppressions, form and chat settings, the environment settings (approved origins, recipient restriction) and the personal-data tools. |
+| owner | Also adds, changes and removes members. |
+
+Owners manage members under *Members* in the project (`GET/POST/PATCH/DELETE …/members`); only an owner can add an owner, and a project
+always keeps at least one owner. A member must already have an account: operators create users. A person who creates a project
+(`POST /admin/v1/projects`) owns it; a project created with `njiwa-mail project create` has no members, so only operators can open it
+until one is added. **On upgrade** (migration 0034) every existing non-operator user is made an owner of every existing project, because
+before this everyone could open everything: tighten it by changing roles. The older views that look across all projects
+(`/admin/v1/keys`, `/messages`, `/domains`, `/webhooks`, `/audit`, `/overview` and similar) are operator-only; project members use the
+project's own routes. Every change of membership is audited (`member.add`, `member.role`, `member.remove`).
 
 **Two-step sign-in (TOTP).** Each user can turn it on under Profile (authenticator app; ten one-time recovery codes are shown once). To require it for everyone, tick *Require two-step sign-in for every admin* in Settings (`require_mfa`): admins without it can then only enrol or sign out. Lost device and codes: an operator uses *Reset two-step* on the Users page, or `njiwa-mail user mfa-reset -email E` on the server.
 **What ends a user's sessions.** Every session records the account's credential state (`auth_version`, migration 0023). These end
