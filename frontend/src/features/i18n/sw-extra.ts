@@ -21,10 +21,17 @@ export const swExtra: Record<string, string> = {
     "Waruhusu watu kuingia kwa Google, Keycloak, authentik au mtoa huduma yeyote wa OpenID Connect. Akaunti yenye authenticator bado inaingiza msimbo wake.",
   "Linked users": "Watumiaji walioungwa",
   "No providers yet": "Bado hakuna watoa huduma",
+  "Add the provider people already use. They sign in with that account, then enter a second step if this installation requires one.":
+    "Ongeza mtoa huduma ambao watu wanatumia tayari. Wanaingia kwa akaunti hiyo, kisha wanaingiza hatua ya pili ikiwa usakinishaji huu unahitaji.",
   "Nobody can sign in with it any more. Accounts stay; their link to the provider is removed.":
     "Hakuna anayeweza kuingia nao tena. Akaunti zinabaki; uhusiano wao na mtoa huduma unaondolewa.",
   "Provider deleted.": "Mtoa huduma amefutwa.",
   "Register this return address with the provider:": "Sajili anwani hii ya kurudi kwa mtoa huduma:",
+  "Return address": "Anwani ya kurudi",
+  "First sign-in": "Kuingia kwa mara ya kwanza",
+  "Any existing account": "Akaunti yoyote iliyopo",
+  "Creates an account": "Inaunda akaunti",
+  "Existing accounts only": "Akaunti zilizopo tu",
   "Save provider": "Hifadhi mtoa huduma",
   "Separate with spaces or commas. Empty: any domain, for existing accounts only.":
     "Tenganisha kwa nafasi au koma. Tupu: kikoa chochote, kwa akaunti zilizopo tu.",

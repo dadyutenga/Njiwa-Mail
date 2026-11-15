@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, MinusCircle, Plus, XCircle } from "lucide-react";
+import { CheckCircle2, LogIn, MinusCircle, Plus, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
@@ -22,6 +22,7 @@ import { SendingMode, useSendingModeParam } from "../SendingMode";
 import { NewProjectDialog } from "../Layout";
 import {
   ConfirmButton,
+  CopyButton,
   DataState,
   Empty,
   emailOk,
@@ -2088,6 +2089,18 @@ export function SingleSignOn() {
       setError(errorMessage(e));
     }
   };
+  const openEdit = (r: Row) =>
+    setEdit({
+      id: s(r.id),
+      p: {
+        name: s(r.name),
+        issuer: s(r.issuer),
+        client_id: s(r.client_id),
+        client_secret: "",
+        domains: ((r.allowed_domains as string[]) ?? []).join(" "),
+        auto_create: r.auto_create === true,
+      },
+    });
   return (
     <>
       <PageHeader
@@ -2101,193 +2114,208 @@ export function SingleSignOn() {
           </Button>
         }
       />
-      <p className="mb-4 text-sm text-muted-foreground">
-        {phrase("Register this return address with the provider:")}{" "}
-        <code className="break-all">{redirect}</code>
-      </p>
-      {edit && (
-        <Section
-          className="mb-4"
-          title={edit.id ? phrase("Edit provider") : phrase("Add provider")}
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={phrase("Name")} hint={phrase("Shown on the sign-in button.")}>
-              <input
-                className={inputClass}
-                value={edit.p.name}
-                onChange={(e) => setEdit({ ...edit, p: { ...edit.p, name: e.target.value } })}
-              />
-            </Field>
-            <Field label={phrase("Issuer address")} hint="https://accounts.google.com">
-              <input
-                className={inputClass}
-                value={edit.p.issuer}
-                onChange={(e) => setEdit({ ...edit, p: { ...edit.p, issuer: e.target.value } })}
-              />
-            </Field>
-            <Field label={phrase("Client id")}>
-              <input
-                className={inputClass}
-                value={edit.p.client_id}
-                onChange={(e) => setEdit({ ...edit, p: { ...edit.p, client_id: e.target.value } })}
-              />
-            </Field>
-            <Field
-              label={phrase("Client secret")}
-              hint={edit.id ? phrase("Leave empty to keep the saved one.") : undefined}
-            >
-              <input
-                type="password"
-                autoComplete="off"
-                className={inputClass}
-                value={edit.p.client_secret}
-                onChange={(e) =>
-                  setEdit({ ...edit, p: { ...edit.p, client_secret: e.target.value } })
-                }
-              />
-            </Field>
-            <Field
-              label={phrase("Allowed email domains")}
-              hint={phrase(
-                "Separate with spaces or commas. Empty: any domain, for existing accounts only.",
-              )}
-              className="sm:col-span-2"
-            >
-              <input
-                className={inputClass}
-                value={edit.p.domains}
-                onChange={(e) => setEdit({ ...edit, p: { ...edit.p, domains: e.target.value } })}
-                placeholder="example.com"
-              />
-            </Field>
-            <label className="flex items-center gap-2 text-sm sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={edit.p.auto_create}
-                onChange={(e) =>
-                  setEdit({ ...edit, p: { ...edit.p, auto_create: e.target.checked } })
-                }
-              />
-              {phrase(
-                "Create an account on first sign-in (never an operator; needs allowed domains)",
-              )}
-            </label>
-          </div>
-          {error && (
-            <p role="alert" className="mt-2 text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          <div className="mt-3 flex gap-2">
-            <Button onClick={save} disabled={!edit.p.name.trim() || !edit.p.issuer.trim()}>
-              {phrase("Save provider")}
-            </Button>
-            <Button variant="outline" onClick={() => setEdit(null)}>
-              {phrase("Cancel")}
-            </Button>
-          </div>
-        </Section>
-      )}
+      <section className="mb-4 rounded-xl border bg-card p-4">
+        <h2 className="text-sm font-semibold">{phrase("Return address")}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {phrase("Register this return address with the provider:")}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <code className="min-w-0 flex-1 break-all rounded-md bg-muted px-3 py-2 text-xs">
+            {redirect}
+          </code>
+          <CopyButton text={redirect} label={phrase("Return address")} />
+        </div>
+      </section>
       <DataState
         q={q}
         isEmpty={(d) => d.items.length === 0}
-        empty={<Empty title={phrase("No providers yet")} />}
+        empty={
+          <div className="rounded-xl border bg-card p-6">
+            <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <LogIn size={18} aria-hidden />
+            </span>
+            <h2 className="mt-3 text-lg font-semibold">{phrase("No providers yet")}</h2>
+            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              {phrase(
+                "Add the provider people already use. They sign in with that account, then enter a second step if this installation requires one.",
+              )}
+            </p>
+            <Button className="mt-4" onClick={() => setEdit({ p: { ...emptyProvider } })}>
+              <Plus size={16} /> {phrase("Add provider")}
+            </Button>
+          </div>
+        }
       >
         {(d) => (
-          <Table
-            rows={d.items}
-            rowKey={(r) => s(r.id)}
-            columns={[
-              { key: "name", label: phrase("Name") },
-              {
-                key: "issuer",
-                label: phrase("Issuer address"),
-                render: (r) => <span className="break-all">{s(r.issuer)}</span>,
-              },
-              {
-                key: "allowed_domains",
-                label: phrase("Allowed email domains"),
-                render: (r) => ((r.allowed_domains as string[]) ?? []).join(", ") || "—",
-              },
-              { key: "linked_users", label: phrase("Linked users") },
-              {
-                key: "enabled",
-                label: phrase("State"),
-                render: (r) => (
-                  <StateBadge
-                    state={r.enabled ? "active" : "cancelled"}
-                    label={r.enabled ? phrase("enabled") : phrase("disabled")}
-                  />
-                ),
-              },
-              {
-                key: "x",
-                label: <span className="sr-only">{phrase("Actions")}</span>,
-                render: (r) => (
-                  <span className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        setEdit({
-                          id: s(r.id),
-                          p: {
-                            name: s(r.name),
-                            issuer: s(r.issuer),
-                            client_id: s(r.client_id),
-                            client_secret: "",
-                            domains: ((r.allowed_domains as string[]) ?? []).join(" "),
-                            auto_create: r.auto_create === true,
-                          },
-                        })
-                      }
-                    >
-                      {phrase("Edit")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        await run(
-                          () =>
-                            admin.send(`/sso-providers/${s(r.id)}`, "PUT", {
-                              name: r.name,
-                              issuer: r.issuer,
-                              client_id: r.client_id,
-                              allowed_domains: r.allowed_domains,
-                              auto_create: r.auto_create,
-                              enabled: !r.enabled,
-                            }),
-                          r.enabled ? phrase("Disabled.") : phrase("Enabled."),
-                        );
-                        client.invalidateQueries({ queryKey: ["sso-providers"] });
-                      }}
-                    >
-                      {r.enabled ? phrase("Disable") : phrase("Enable")}
-                    </Button>
-                    <ConfirmButton
-                      title={`${phrase("Delete")} ${s(r.name)}?`}
-                      description={phrase(
-                        "Nobody can sign in with it any more. Accounts stay; their link to the provider is removed.",
-                      )}
-                      confirm="Delete provider"
-                      onConfirm={async () => {
-                        await run(
-                          () => admin.send(`/sso-providers/${s(r.id)}`, "DELETE"),
-                          phrase("Provider deleted."),
-                        );
-                        client.invalidateQueries({ queryKey: ["sso-providers"] });
-                      }}
-                    >
-                      {phrase("Delete")}
-                    </ConfirmButton>
-                  </span>
-                ),
-              },
-            ]}
-          />
+          <ul className="grid gap-3">
+            {d.items.map((r) => {
+              const domains = (r.allowed_domains as string[]) ?? [];
+              return (
+                <li key={s(r.id)} className="rounded-xl border bg-card p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="font-semibold">{s(r.name)}</h2>
+                        <StateBadge
+                          state={r.enabled ? "active" : "cancelled"}
+                          label={r.enabled ? phrase("enabled") : phrase("disabled")}
+                        />
+                      </div>
+                      <p className="mt-1 break-all text-sm text-muted-foreground">{s(r.issuer)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openEdit(r)}>
+                        {phrase("Edit")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          await run(
+                            () =>
+                              admin.send(`/sso-providers/${s(r.id)}`, "PUT", {
+                                name: r.name,
+                                issuer: r.issuer,
+                                client_id: r.client_id,
+                                allowed_domains: r.allowed_domains,
+                                auto_create: r.auto_create,
+                                enabled: !r.enabled,
+                              }),
+                            r.enabled ? phrase("Disabled.") : phrase("Enabled."),
+                          );
+                          client.invalidateQueries({ queryKey: ["sso-providers"] });
+                        }}
+                      >
+                        {r.enabled ? phrase("Disable") : phrase("Enable")}
+                      </Button>
+                      <ConfirmButton
+                        title={`${phrase("Delete")} ${s(r.name)}?`}
+                        description={phrase(
+                          "Nobody can sign in with it any more. Accounts stay; their link to the provider is removed.",
+                        )}
+                        confirm="Delete provider"
+                        onConfirm={async () => {
+                          await run(
+                            () => admin.send(`/sso-providers/${s(r.id)}`, "DELETE"),
+                            phrase("Provider deleted."),
+                          );
+                          client.invalidateQueries({ queryKey: ["sso-providers"] });
+                        }}
+                      >
+                        {phrase("Delete")}
+                      </ConfirmButton>
+                    </div>
+                  </div>
+                  <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">
+                        {phrase("Allowed email domains")}
+                      </dt>
+                      <dd className="mt-1">{domains.join(", ") || phrase("Any existing account")}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">{phrase("Linked users")}</dt>
+                      <dd className="mt-1">{s(r.linked_users) || "0"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">{phrase("First sign-in")}</dt>
+                      <dd className="mt-1">
+                        {r.auto_create ? phrase("Creates an account") : phrase("Existing accounts only")}
+                      </dd>
+                    </div>
+                  </dl>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </DataState>
+      <Dialog open={!!edit} onOpenChange={(open) => !open && setEdit(null)}>
+        <DialogContent>
+          <DialogTitle>{edit?.id ? phrase("Edit provider") : phrase("Add provider")}</DialogTitle>
+          <DialogDescription>
+            {phrase("Shown on the sign-in button.")}
+          </DialogDescription>
+          {edit && (
+            <div className="grid max-h-[70vh] gap-3 overflow-y-auto pr-1">
+              <Field label={phrase("Name")}>
+                <input
+                  className={inputClass}
+                  value={edit.p.name}
+                  onChange={(e) => setEdit({ ...edit, p: { ...edit.p, name: e.target.value } })}
+                />
+              </Field>
+              <Field label={phrase("Issuer address")} hint="https://accounts.google.com">
+                <input
+                  className={inputClass}
+                  value={edit.p.issuer}
+                  onChange={(e) => setEdit({ ...edit, p: { ...edit.p, issuer: e.target.value } })}
+                />
+              </Field>
+              <Field label={phrase("Client id")}>
+                <input
+                  className={inputClass}
+                  value={edit.p.client_id}
+                  onChange={(e) => setEdit({ ...edit, p: { ...edit.p, client_id: e.target.value } })}
+                />
+              </Field>
+              <Field
+                label={phrase("Client secret")}
+                hint={edit.id ? phrase("Leave empty to keep the saved one.") : undefined}
+              >
+                <input
+                  type="password"
+                  autoComplete="off"
+                  className={inputClass}
+                  value={edit.p.client_secret}
+                  onChange={(e) =>
+                    setEdit({ ...edit, p: { ...edit.p, client_secret: e.target.value } })
+                  }
+                />
+              </Field>
+              <Field
+                label={phrase("Allowed email domains")}
+                hint={phrase(
+                  "Separate with spaces or commas. Empty: any domain, for existing accounts only.",
+                )}
+              >
+                <input
+                  className={inputClass}
+                  value={edit.p.domains}
+                  onChange={(e) => setEdit({ ...edit, p: { ...edit.p, domains: e.target.value } })}
+                  placeholder="example.com"
+                />
+              </Field>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={edit.p.auto_create}
+                  onChange={(e) =>
+                    setEdit({ ...edit, p: { ...edit.p, auto_create: e.target.checked } })
+                  }
+                />
+                {phrase(
+                  "Create an account on first sign-in (never an operator; needs allowed domains)",
+                )}
+              </label>
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button onClick={save} disabled={!edit.p.name.trim() || !edit.p.issuer.trim()}>
+                  {phrase("Save provider")}
+                </Button>
+                <Button variant="outline" onClick={() => setEdit(null)}>
+                  {phrase("Cancel")}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
