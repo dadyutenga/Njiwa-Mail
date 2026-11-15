@@ -32,6 +32,7 @@ import {
   Send,
   Server,
   Settings,
+  Reply,
   ScanSearch,
   ShieldBan,
   ShieldAlert,
@@ -96,6 +97,8 @@ export const navGroups: NavGroup[] = [
     items: [
       { path: "chat", label: "Live chat", icon: MessagesSquare, feature: "chat" },
       { path: "chat/conversations", label: "Conversations", icon: MessageCircle, feature: "chat" },
+      { path: "chat/snippets", label: "Canned replies", icon: Reply, feature: "chat" },
+      { path: "chat/analytics", label: "Chat analytics", icon: BarChart3, feature: "chat" },
     ],
   },
   {
