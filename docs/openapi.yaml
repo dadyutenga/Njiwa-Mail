@@ -468,14 +468,14 @@ paths:
       tags: [Chat]
       operationId: chatConfig
       summary: What the widget shows before a conversation starts
-      description: Title, welcome text, announcement and home links. CORS answers are given only to the chat's allowed origins.
+      description: Title, welcome text, announcement, home links and whether the chat only takes identified visitors (`identity_required`). CORS answers are given only to the chat's allowed origins.
       security: []
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       x-required-scopes: ['none: public']
       x-error-codes: [chat_disabled, not_found]
       responses:
-        '200': { description: Settings, content: { application/json: { schema: { type: object, properties: { title: { type: string }, welcome: { type: string }, offline_message: { type: string }, announcement: { type: string }, links: { type: array, items: { type: object, properties: { label: { type: string }, url: { type: string } } } } } } } } }
+        '200': { description: Settings, content: { application/json: { schema: { type: object, properties: { title: { type: string }, welcome: { type: string }, offline_message: { type: string }, announcement: { type: string }, identity_required: { type: boolean }, links: { type: array, items: { type: object, properties: { label: { type: string }, url: { type: string } } } } } } } } }
         '404': { $ref: '#/components/responses/Error' }
   /v1/chat/{id}/conversations:
     post:
@@ -496,9 +496,9 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object, required: [message], properties: { name: { type: string, maxLength: 80 }, email: { type: string }, message: { type: string, maxLength: 2000 } } }
+            schema: { type: object, required: [message], properties: { name: { type: string, maxLength: 80 }, email: { type: string }, message: { type: string, maxLength: 2000 }, identity: { type: string, description: 'Hex HMAC-SHA256 of the lower-cased email, made by the website own server with the identity secret of the chat. With it the email is trusted and the conversation is marked identified.' } } }
       x-required-scopes: ['none: public, protected by origin allowlist, limits and spam rules']
-      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, empty_message, message_too_long, spam_rejected, invalid_request, service_unavailable]
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, empty_message, message_too_long, spam_rejected, identity_invalid, identity_required, visitor_banned, invalid_request, service_unavailable]
       responses:
         '201': { description: Started, content: { application/json: { schema: { type: object, properties: { conversation_id: { type: string, format: uuid }, token: { type: string } } } } } }
         '403': { $ref: '#/components/responses/Error' }
@@ -536,7 +536,7 @@ paths:
           application/json:
             schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 2000 } } }
       x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
-      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, empty_message, message_too_long, conversation_full, spam_rejected, invalid_request, service_unavailable]
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, empty_message, message_too_long, conversation_full, spam_rejected, visitor_banned, invalid_request, service_unavailable]
       responses:
         '201': { description: Added, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } } }
         '403': { $ref: '#/components/responses/Error' }
@@ -579,7 +579,7 @@ paths:
           application/json:
             schema: { type: object, properties: { name: { type: string, maxLength: 80 }, email: { type: string } } }
       x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
-      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, invalid_request, service_unavailable]
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, identity_locked, visitor_banned, invalid_request, service_unavailable]
       responses:
         '200': { description: Saved, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
         '403': { $ref: '#/components/responses/Error' }

@@ -424,6 +424,16 @@ answer `404 chat_disabled`, the dashboard hides the Chat entries and the email f
   `X-Accel-Buffering: no`) and should allow responses of about 25 minutes; the widget reconnects by itself.
 - Messages and visitor details are encrypted (`chat_messages`, `chat_conversations`) and covered by `ENCRYPTION_KEY`
   rotation. The visitor IP is stored only as a keyed hash. Conversations are deleted by the retention job.
+- **Signed visitor identity.** Each chat has an identity secret (sealed, covered by `ENCRYPTION_KEY` rotation; shown once at creation
+  and again only when someone makes a new one under *Identity*). The website's own server signs a signed-in person's email with it
+  (`HMAC-SHA256`, hex) so the chat can trust the address: the conversation is marked identified and the visitor cannot change the
+  address. A wrong signature is refused (`identity_invalid`), not ignored. "Only identified visitors" refuses everyone else. Making a new
+  secret ends the old one for new conversations at once.
+- **Bans.** An agent can ban a visitor from a conversation: it is closed, and the address it came from and the email given (stored only as
+  keyed hashes) can no longer write or start a chat in that environment (`visitor_banned`); lifting the ban undoes it. Behind a proxy,
+  set `TRUST_PROXY=true`, or every visitor shares the proxy's address and one ban would block everyone.
+- **Canned replies** (up to 100 per environment) and **chat analytics** (conversations, answered and unanswered, time to the first answer)
+  are in the dashboard under Chat.
 - Answers a visitor's page never received are emailed by the scheduler (once a minute) to the address the visitor left,
   through the normal sending path; they are "submitted", never "delivered", until the delivery evidence says so. The
   sender is the chat's reply sender or the environment's default sender; without one the answer stays pending and the

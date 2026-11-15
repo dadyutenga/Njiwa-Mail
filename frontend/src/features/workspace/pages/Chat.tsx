@@ -54,6 +54,7 @@ type Draft = {
   links: string; // "Label | https://…" per line
   reply_from: string;
   enabled: boolean;
+  require_identity: boolean;
 };
 
 const blank: Draft = {
@@ -66,6 +67,7 @@ const blank: Draft = {
   links: "",
   reply_from: "",
   enabled: true,
+  require_identity: false,
 };
 
 const parseLinks = (v: string) =>
@@ -89,6 +91,7 @@ export function ChatWidgets() {
   const client = useQueryClient();
   const [editing, setEditing] = useState<{ id?: string; draft: Draft } | null>(null);
   const [embed, setEmbed] = useState<Row | null>(null);
+  const [secret, setSecret] = useState<{ id: string; name: string; secret: string } | null>(null);
   const list = useQuery({
     queryKey: key("chat-widgets"),
     queryFn: () => api.get<{ items: Row[] }>("/chat/widgets"),
@@ -153,6 +156,28 @@ export function ChatWidgets() {
                     <Button size="sm" variant="outline" onClick={() => setEmbed(r)}>
                       {phrase("Embed")}
                     </Button>
+                    <ConfirmButton
+                      title={phrase("Make a new identity secret?")}
+                      description={phrase(
+                        "The new secret is shown once. Signatures made with the old one stop working for new conversations at once, so update your website first or right after.",
+                      )}
+                      confirm="New secret"
+                      destructive={false}
+                      onConfirm={async () => {
+                        const x = await run(
+                          () =>
+                            api.send<{ identity_secret: string }>(
+                              `/chat/widgets/${s(r.id)}/identity-secret`,
+                              "POST",
+                            ),
+                          "",
+                        );
+                        if (x)
+                          setSecret({ id: s(r.id), name: s(r.name), secret: x.identity_secret });
+                      }}
+                    >
+                      {phrase("Identity")}
+                    </ConfirmButton>
                     <Button
                       size="sm"
                       variant="outline"
@@ -171,6 +196,7 @@ export function ChatWidgets() {
                               .join("\n"),
                             reply_from: s(r.reply_from),
                             enabled: !!r.enabled,
+                            require_identity: !!r.require_identity,
                           },
                         })
                       }
@@ -203,12 +229,41 @@ export function ChatWidgets() {
       <WidgetDialog
         state={editing}
         onClose={() => setEditing(null)}
-        onSaved={() => {
+        onSaved={(created) => {
           setEditing(null);
+          if (created) setSecret(created);
           refresh();
         }}
         api={api}
       />
+      <Dialog open={!!secret} onOpenChange={(v) => !v && setSecret(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogTitle>{phrase("Identity secret")}</DialogTitle>
+          <DialogDescription>
+            {phrase(
+              "Shown only now. Keep it on your server, never in a web page. With it your server can vouch for who a visitor is.",
+            )}
+          </DialogDescription>
+          {secret && (
+            <div className="grid gap-3">
+              <pre className="overflow-auto rounded-lg border bg-muted p-3 text-xs">
+                {secret.secret}
+              </pre>
+              <div className="flex justify-end">
+                <CopyButton text={secret.secret} />
+              </div>
+              <p className="text-sm">
+                {phrase(
+                  "For a signed-in person, compute HMAC-SHA256 of their lower-case email with this secret (hex) and put it in the page before the script tag:",
+                )}
+              </p>
+              <pre className="overflow-auto rounded-lg border bg-muted p-3 text-xs">{`<script>
+  window.njiwaChat = { email: "neema@example.com", name: "Neema", identity: "<hex from your server>" };
+</script>`}</pre>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!embed} onOpenChange={(v) => !v && setEmbed(null)}>
         <DialogContent className="max-w-2xl">
           <DialogTitle>{phrase("Add the chat to your website")}</DialogTitle>
@@ -241,7 +296,7 @@ function WidgetDialog({
 }: {
   state: { id?: string; draft: Draft } | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (created?: { id: string; name: string; secret: string }) => void;
   api: ReturnType<typeof useSendingEnvironment>["api"];
 }) {
   const phrase = usePhrase();
@@ -265,11 +320,21 @@ function WidgetDialog({
       links: parseLinks(f.links),
       reply_from: f.reply_from.trim(),
       enabled: f.enabled,
+      require_identity: f.require_identity,
     };
     try {
-      if (state?.id) await api.send(`/chat/widgets/${state.id}`, "PUT", body);
-      else await api.send("/chat/widgets", "POST", body);
-      onSaved();
+      if (state?.id) {
+        await api.send(`/chat/widgets/${state.id}`, "PUT", body);
+        onSaved();
+      } else {
+        // The identity secret of a new chat is shown once, right after it is created.
+        const r = await api.send<{ id: string; identity_secret: string }>(
+          "/chat/widgets",
+          "POST",
+          body,
+        );
+        onSaved({ id: r.id, name: f.name.trim(), secret: r.identity_secret });
+      }
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -367,6 +432,22 @@ function WidgetDialog({
               onChange={(e) => setF({ ...f, enabled: e.target.checked })}
             />
             {phrase("Show the chat on your websites")}
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={f.require_identity}
+              onChange={(e) => setF({ ...f, require_identity: e.target.checked })}
+            />
+            <span>
+              {phrase("Only identified visitors")}
+              <span className="block text-xs text-muted-foreground">
+                {phrase(
+                  "Refuse visitors your website has not vouched for with a signed identity. See Identity on the chat.",
+                )}
+              </span>
+            </span>
           </label>
           {error && (
             <p role="alert" className="text-sm text-destructive">
@@ -478,6 +559,14 @@ export function ChatConversations() {
                           )}
                         />
                         {s(r.visitor) || s(r.email_masked) || phrase("Visitor")}
+                        {r.identity_verified ? (
+                          <span className="text-xs font-normal text-muted-foreground">✓</span>
+                        ) : null}
+                        {r.banned ? (
+                          <span className="text-xs font-normal text-destructive">
+                            {phrase("banned")}
+                          </span>
+                        ) : null}
                       </span>
                       {n(r.unread) > 0 && (
                         <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
@@ -520,6 +609,10 @@ function Thread({ id, onGone }: { id: string; onGone: () => void }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const end = useRef<HTMLDivElement>(null);
+  const snippets = useQuery({
+    queryKey: key("chat-snippets"),
+    queryFn: () => api.get<{ items: Row[] }>("/chat/snippets"),
+  });
   const q = useQuery({
     queryKey: key("chat-conversation", id),
     queryFn: () => api.get<Row>(`/chat/conversations/${id}`),
@@ -566,6 +659,38 @@ function Thread({ id, onGone }: { id: string; onGone: () => void }) {
             >
               {phrase(d.state === "open" ? "Close" : "Reopen")}
             </Button>
+            {d.banned ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  await run(
+                    () => api.send(`/chat/conversations/${id}/ban`, "DELETE"),
+                    phrase("Ban lifted"),
+                  );
+                  refresh();
+                }}
+              >
+                {phrase("Lift ban")}
+              </Button>
+            ) : (
+              <ConfirmButton
+                title={phrase("Ban this visitor?")}
+                description={phrase(
+                  "The conversation is closed. This address and this email can no longer write or start a chat. You can lift the ban later.",
+                )}
+                confirm="Ban"
+                onConfirm={async () => {
+                  await run(
+                    () => api.send(`/chat/conversations/${id}/ban`, "POST", {}),
+                    phrase("Visitor banned"),
+                  );
+                  refresh();
+                }}
+              >
+                {phrase("Ban")}
+              </ConfirmButton>
+            )}
             <ConfirmButton
               title={phrase("Delete this conversation?")}
               description={phrase("The messages are deleted permanently.")}
@@ -590,6 +715,8 @@ function Thread({ id, onGone }: { id: string; onGone: () => void }) {
           <div className="grid gap-3">
             <p className="text-xs text-muted-foreground">
               {s(d?.widget)} · {d?.online ? phrase("online now") : phrase("not on the page")}
+              {d?.identity_verified ? ` · ${phrase("identified by the website")}` : ""}
+              {d?.banned ? ` · ${phrase("banned")}` : ""}
               {s(d?.visitor_email) && ` · ${s(d?.visitor_email)}`}
               {!s(d?.visitor_email) &&
                 ` · ${phrase("no email address: an answer cannot reach them after they leave")}`}
@@ -625,6 +752,24 @@ function Thread({ id, onGone }: { id: string; onGone: () => void }) {
               })}
               <div ref={end} />
             </div>
+            {(snippets.data?.items.length ?? 0) > 0 && (
+              <select
+                className={selectClass}
+                aria-label={phrase("Insert a canned reply")}
+                value=""
+                onChange={(e) => {
+                  const x = snippets.data?.items.find((i) => s(i.id) === e.target.value);
+                  if (x) setText((t) => (t ? t + "\n" : "") + s(x.body));
+                }}
+              >
+                <option value="">{phrase("Insert a canned reply…")}</option>
+                {snippets.data?.items.map((i) => (
+                  <option key={s(i.id)} value={s(i.id)}>
+                    {s(i.title)}
+                  </option>
+                ))}
+              </select>
+            )}
             <textarea
               className={textareaClass}
               rows={3}
@@ -649,5 +794,236 @@ function Thread({ id, onGone }: { id: string; onGone: () => void }) {
         )}
       </DataState>
     </Section>
+  );
+}
+
+// ---------------------------------------------------------------- canned replies
+
+export function ChatSnippets() {
+  const phrase = usePhrase();
+  const { env, setEnv, api, key } = useChatEnv();
+  const client = useQueryClient();
+  const [f, setF] = useState({ title: "", body: "" });
+  const [editing, setEditing] = useState<string>("");
+  const [error, setError] = useState("");
+  const list = useQuery({
+    queryKey: key("chat-snippets"),
+    queryFn: () => api.get<{ items: Row[] }>("/chat/snippets"),
+  });
+  const refresh = () => client.invalidateQueries({ queryKey: key("chat-snippets") });
+  const save = async () => {
+    setError("");
+    try {
+      if (editing) await api.send(`/chat/snippets/${editing}`, "PUT", f);
+      else await api.send("/chat/snippets", "POST", f);
+      setF({ title: "", body: "" });
+      setEditing("");
+      refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <>
+      <PageHeader
+        title={phrase("Canned replies")}
+        description={phrase(
+          "Texts you use often. In a conversation, pick one to put it in your answer, then change it if you like.",
+        )}
+      />
+      <div className="mb-4">
+        <SendingMode value={env} onChange={setEnv} />
+      </div>
+      <Section title={phrase(editing ? "Edit canned reply" : "New canned reply")} className="mb-4">
+        <div className="grid max-w-2xl gap-3">
+          <Field label={phrase("Title")}>
+            <input
+              className={inputClass}
+              value={f.title}
+              onChange={(e) => setF({ ...f, title: e.target.value })}
+            />
+          </Field>
+          <Field label={phrase("Text")}>
+            <textarea
+              className={textareaClass}
+              rows={4}
+              value={f.body}
+              onChange={(e) => setF({ ...f, body: e.target.value })}
+            />
+          </Field>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button onClick={save} disabled={!f.title.trim() || !f.body.trim()}>
+              {phrase("Save")}
+            </Button>
+            {editing && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditing("");
+                  setF({ title: "", body: "" });
+                }}
+              >
+                {phrase("Cancel")}
+              </Button>
+            )}
+          </div>
+        </div>
+      </Section>
+      <DataState
+        q={list}
+        isEmpty={(d) => d.items.length === 0}
+        empty={
+          <div className="rounded-xl border bg-card">
+            <Empty
+              title={phrase("No canned replies")}
+              description={phrase("Add the answers you give again and again.")}
+            />
+          </div>
+        }
+      >
+        {(d) => (
+          <Table
+            rows={d.items}
+            rowKey={(r) => s(r.id)}
+            columns={[
+              { key: "title", label: phrase("Title"), render: (r) => <b>{s(r.title)}</b> },
+              {
+                key: "body",
+                label: phrase("Text"),
+                render: (r) => <span className="line-clamp-2">{s(r.body)}</span>,
+              },
+              {
+                key: "id",
+                label: "",
+                render: (r) => (
+                  <span className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setEditing(s(r.id));
+                        setF({ title: s(r.title), body: s(r.body) });
+                      }}
+                    >
+                      {phrase("Edit")}
+                    </Button>
+                    <ConfirmButton
+                      title={phrase("Delete this canned reply?")}
+                      description={phrase("Answers already sent are not changed.")}
+                      confirm="Delete"
+                      onConfirm={async () => {
+                        await run(() => api.send(`/chat/snippets/${s(r.id)}`, "DELETE"), "");
+                        refresh();
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </ConfirmButton>
+                  </span>
+                ),
+              },
+            ]}
+          />
+        )}
+      </DataState>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- analytics
+
+const fmtSeconds = (v: unknown) => {
+  if (v === null || v === undefined) return "—";
+  const x = Math.round(Number(v));
+  if (x < 90) return `${x} s`;
+  if (x < 5400) return `${Math.round(x / 60)} min`;
+  return `${(x / 3600).toFixed(1)} h`;
+};
+
+export function ChatAnalytics() {
+  const phrase = usePhrase();
+  const { env, setEnv, api, key } = useChatEnv();
+  const [days, setDays] = useParam("days", "30");
+  const q = useQuery({
+    queryKey: key("chat-analytics", days),
+    queryFn: () => api.get<Row>(`/chat/analytics?days=${days || "30"}`),
+  });
+  return (
+    <>
+      <PageHeader
+        title={phrase("Chat analytics")}
+        description={phrase(
+          "How many people wrote, how many you answered, and how long the first answer took.",
+        )}
+      />
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <SendingMode value={env} onChange={setEnv} />
+        <Field label={phrase("Period")}>
+          <select
+            className={selectClass}
+            value={days || "30"}
+            onChange={(e) => setDays(e.target.value)}
+          >
+            {["7", "30", "90"].map((x) => (
+              <option key={x} value={x}>
+                {`${x} ${phrase("days")}`}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <DataState q={q}>
+        {(d) => {
+          const t = (d.totals ?? {}) as Row;
+          const m = (d.messages ?? {}) as Row;
+          const cards: [string, string][] = [
+            [phrase("Conversations"), s(t.conversations)],
+            [phrase("Answered"), s(t.answered)],
+            [phrase("Not answered"), s(t.unanswered)],
+            [phrase("First answer, median"), fmtSeconds(t.first_answer_p50_seconds)],
+            [phrase("First answer, slowest 10%"), fmtSeconds(t.first_answer_p90_seconds)],
+            [phrase("Identified by the website"), s(t.identified)],
+            [phrase("Messages from visitors"), s(m.from_visitors)],
+            [phrase("Answers sent"), s(m.from_agents)],
+            [phrase("Answers sent by email"), s(m.answers_emailed)],
+          ];
+          return (
+            <>
+              <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                {cards.map(([label, value]) => (
+                  <div key={label} className="rounded-xl border bg-card p-4">
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="mt-1 text-2xl font-semibold">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <Section title={phrase("Conversations per day")}>
+                {((d.daily as Row[]) ?? []).length === 0 ? (
+                  <Empty title={phrase("No conversations in this period")} />
+                ) : (
+                  <Table
+                    rows={d.daily as Row[]}
+                    rowKey={(r) => s(r.day)}
+                    columns={[
+                      { key: "day", label: phrase("Day") },
+                      { key: "conversations", label: phrase("Conversations") },
+                    ]}
+                  />
+                )}
+              </Section>
+              <p className="mt-3 text-xs text-muted-foreground">
+                {phrase(
+                  "The first answer is timed from the visitor's first message to the first answer from an agent. A conversation nobody answered is counted, not timed.",
+                )}
+              </p>
+            </>
+          );
+        }}
+      </DataState>
+    </>
   );
 }

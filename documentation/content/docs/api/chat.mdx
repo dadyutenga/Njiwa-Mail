@@ -30,6 +30,44 @@ a page whose website is not on the allowlist.
 You normally never call these yourself: the widget does. If you build your own chat window, send the `token` from the first
 call as `Authorization: Bearer <token>` on every later call. It is shown once and stored only as a hash.
 
+## Knowing who the visitor is
+
+By default a visitor types an email address and nothing proves it is theirs. If your website knows who is signed in, your server
+can vouch for them, and the chat then marks the conversation **identified** in the dashboard and locks the address.
+
+1. Open the chat in the dashboard and copy its **identity secret** (shown once when you create the chat; "New secret" makes
+   another and ends the old one). Keep it on your server. Never put it in a page.
+2. When you render a page for a signed-in person, compute `HMAC-SHA256(secret, lower-cased email)` as lowercase hex and give it to the widget
+   **before** the script tag:
+
+```html
+<script>
+  window.njiwaChat = { email: "neema@example.com", name: "Neema", identity: "<hex made by your server>" };
+</script>
+<script src="https://mail.example.com/v1/chat/CHAT_ID/widget.js" async></script>
+```
+
+```ts
+// Node.js, on your server
+import { createHmac } from "node:crypto";
+
+export function chatIdentity(email: string): string {
+  return createHmac("sha256", process.env.CHAT_IDENTITY_SECRET ?? "")
+    .update(email.toLowerCase())
+    .digest("hex");
+}
+```
+
+A wrong signature, or a signature without an email, is refused with `identity_invalid`, so a mistake on your side shows up instead of
+silently losing verification. Tick "Only identified visitors" in the chat's settings to refuse everyone else (`identity_required`).
+
+## Banning a visitor
+
+In a conversation, an agent can **ban** the visitor. The conversation is closed, the visitor can no longer write in it, and neither the
+address it came from nor the email given can start another chat in that environment (`visitor_banned`). Only keyed hashes are kept.
+Lifting the ban undoes it. Agents can also keep **canned replies** and see **chat analytics** (conversations, answered and unanswered,
+and how long the first answer took).
+
 ## What protects a chat
 
 - **Origin allowlist.** A browser's `Origin` must be one of the chat's allowed websites, otherwise `403 origin_not_allowed`.

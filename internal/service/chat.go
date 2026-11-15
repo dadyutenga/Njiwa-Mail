@@ -62,6 +62,8 @@ type ChatWidgetInput struct {
 	Links          []ChatLink `json:"links"`
 	ReplyFrom      string     `json:"reply_from"`
 	Enabled        *bool      `json:"enabled"`
+	// RequireIdentity refuses visitors who cannot show a valid signed identity (see ChatIdentityHash).
+	RequireIdentity bool `json:"require_identity"`
 }
 
 func (in *ChatWidgetInput) check() error {
@@ -111,28 +113,35 @@ func (in *ChatWidgetInput) check() error {
 	return nil
 }
 
-const chatWidgetCols = `name, allowed_origins, title, welcome, offline_message, announcement, links, reply_from, enabled`
+const chatWidgetCols = `name, allowed_origins, title, welcome, offline_message, announcement, links, reply_from, enabled, require_identity`
 
-func (s *Service) CreateChatWidget(ctx context.Context, sc *Scope, in ChatWidgetInput) (string, error) {
+// CreateChatWidget makes a chat and returns its id and its identity secret. The secret is shown
+// this once; the server keeps it sealed.
+func (s *Service) CreateChatWidget(ctx context.Context, sc *Scope, in ChatWidgetInput) (string, string, error) {
 	if err := s.chatOn(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := in.check(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	links, _ := json.Marshal(in.Links)
 	enabled := in.Enabled == nil || *in.Enabled
-	var id string
-	err := s.Pool.QueryRow(ctx, `INSERT INTO chat_widgets(project_id, environment_id, `+chatWidgetCols+`) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	id := secure.NewUUID()
+	secret, sealed, err := s.newIdentitySecret(id)
+	if err != nil {
+		return "", "", err
+	}
+	var got string
+	err = s.Pool.QueryRow(ctx, `INSERT INTO chat_widgets(id, project_id, environment_id, identity_secret_enc, `+chatWidgetCols+`) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 ON CONFLICT (environment_id, name) DO NOTHING RETURNING id::text`,
-		sc.ProjectID, sc.EnvID, in.Name, in.AllowedOrigins, in.Title, in.Welcome, in.OfflineMessage, in.Announcement, links, in.ReplyFrom, enabled).Scan(&id)
+		id, sc.ProjectID, sc.EnvID, sealed, in.Name, in.AllowedOrigins, in.Title, in.Welcome, in.OfflineMessage, in.Announcement, links, in.ReplyFrom, enabled, in.RequireIdentity).Scan(&got)
 	if errors.Is(err, db.ErrNoRows) {
-		return "", &Error{Status: 409, Code: "chat_exists", Message: "a chat with this name exists"}
+		return "", "", &Error{Status: 409, Code: "chat_exists", Message: "a chat with this name exists"}
 	}
 	if err != nil {
-		return "", unavailable("chat_create", err)
+		return "", "", unavailable("chat_create", err)
 	}
-	return id, nil
+	return got, secret, nil
 }
 
 func (s *Service) UpdateChatWidget(ctx context.Context, sc *Scope, id string, in ChatWidgetInput) error {
@@ -147,8 +156,8 @@ func (s *Service) UpdateChatWidget(ctx context.Context, sc *Scope, id string, in
 	}
 	links, _ := json.Marshal(in.Links)
 	enabled := in.Enabled == nil || *in.Enabled
-	tag, err := s.Pool.Exec(ctx, `UPDATE chat_widgets SET (`+chatWidgetCols+`) = ($3,$4,$5,$6,$7,$8,$9,$10,$11) WHERE id=$1 AND environment_id=$2`,
-		id, sc.EnvID, in.Name, in.AllowedOrigins, in.Title, in.Welcome, in.OfflineMessage, in.Announcement, links, in.ReplyFrom, enabled)
+	tag, err := s.Pool.Exec(ctx, `UPDATE chat_widgets SET (`+chatWidgetCols+`) = ($3,$4,$5,$6,$7,$8,$9,$10,$11,$12) WHERE id=$1 AND environment_id=$2`,
+		id, sc.EnvID, in.Name, in.AllowedOrigins, in.Title, in.Welcome, in.OfflineMessage, in.Announcement, links, in.ReplyFrom, enabled, in.RequireIdentity)
 	if err != nil {
 		if strings.Contains(err.Error(), "chat_widgets_environment_id_name_key") {
 			return &Error{Status: 409, Code: "chat_exists", Message: "a chat with this name exists"}
@@ -183,6 +192,7 @@ func (s *Service) ListChatWidgets(ctx context.Context, sc *Scope) ([]map[string]
 		return nil, err
 	}
 	return s.maps(ctx, `SELECT w.id::text AS id, `+chatWidgetCols+`, w.created_at,
+  (w.identity_secret_enc IS NOT NULL) AS has_identity_secret,
   (SELECT count(*) FROM chat_conversations c WHERE c.widget_id=w.id) AS conversations,
   (SELECT count(*) FROM chat_messages m JOIN chat_conversations c ON c.id=m.conversation_id
      WHERE c.widget_id=w.id AND m.sender='visitor' AND NOT m.seen_by_agent) AS unread
@@ -194,6 +204,7 @@ FROM chat_widgets w WHERE w.environment_id=$1 ORDER BY w.name`, sc.EnvID)
 type chatWidget struct {
 	ID, EnvID, ProjectID string
 	Origins              []string
+	RequireIdentity      bool
 }
 
 func (s *Service) chatWidget(ctx context.Context, id string) (*chatWidget, error) {
@@ -201,8 +212,8 @@ func (s *Service) chatWidget(ctx context.Context, id string) (*chatWidget, error
 		return nil, errChatFound
 	}
 	w := chatWidget{ID: id}
-	err := s.Pool.QueryRow(ctx, `SELECT environment_id::text, project_id::text, allowed_origins FROM chat_widgets WHERE id=$1 AND enabled`, id).
-		Scan(&w.EnvID, &w.ProjectID, &w.Origins)
+	err := s.Pool.QueryRow(ctx, `SELECT environment_id::text, project_id::text, allowed_origins, require_identity FROM chat_widgets WHERE id=$1 AND enabled`, id).
+		Scan(&w.EnvID, &w.ProjectID, &w.Origins, &w.RequireIdentity)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, errChatFound
 	}
@@ -253,8 +264,9 @@ func (s *Service) ChatConfig(ctx context.Context, id string) (map[string]any, er
 	}
 	var title, welcome, offline, announcement string
 	var links []byte
-	err := s.Pool.QueryRow(ctx, `SELECT title, welcome, offline_message, announcement, links FROM chat_widgets WHERE id=$1 AND enabled`, id).
-		Scan(&title, &welcome, &offline, &announcement, &links)
+	var requireID bool
+	err := s.Pool.QueryRow(ctx, `SELECT title, welcome, offline_message, announcement, links, require_identity FROM chat_widgets WHERE id=$1 AND enabled`, id).
+		Scan(&title, &welcome, &offline, &announcement, &links, &requireID)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, errChatFound
 	}
@@ -266,12 +278,15 @@ func (s *Service) ChatConfig(ctx context.Context, id string) (map[string]any, er
 	if ls == nil {
 		ls = []ChatLink{}
 	}
-	return map[string]any{"title": title, "welcome": welcome, "offline_message": offline, "announcement": announcement, "links": ls}, nil
+	return map[string]any{"title": title, "welcome": welcome, "offline_message": offline, "announcement": announcement, "links": ls,
+		"identity_required": requireID}, nil
 }
 
 type ChatStart struct {
 	WidgetID, Origin, Referer, IP string
 	Name, Email, Message          string
+	// Identity is the site's own signature of the email (ChatIdentityHash); with it the email is trusted.
+	Identity string
 }
 
 type ChatStarted struct {
@@ -314,6 +329,12 @@ func (s *Service) StartChat(ctx context.Context, p ChatStart) (*ChatStarted, err
 		return nil, err
 	}
 	ipk := s.chatIPKey(p.IP)
+	ipHash := s.Box.MAC("form-ip", []byte(cleanIP(p.IP)))
+	if banned, err := s.chatBanned(ctx, w.EnvID, ipHash, nil); err != nil {
+		return nil, err
+	} else if banned {
+		return nil, newErr(403, "visitor_banned")
+	}
 	for _, b := range []struct {
 		key    string
 		window time.Duration
@@ -339,6 +360,18 @@ func (s *Service) StartChat(ctx context.Context, p ChatStart) (*ChatStarted, err
 			return nil, &Error{Status: 422, Code: "invalid_email", Message: "enter a valid email address or leave it empty"}
 		}
 		v.Email = e
+		if banned, err := s.chatBanned(ctx, w.EnvID, nil, s.Box.MAC("recipient", []byte(e))); err != nil {
+			return nil, err
+		} else if banned {
+			return nil, newErr(403, "visitor_banned")
+		}
+	}
+	verified, err := s.checkChatIdentity(ctx, w.ID, v.Email, p.Identity)
+	if err != nil {
+		return nil, err
+	}
+	if !verified && w.RequireIdentity {
+		return nil, &Error{Status: 422, Code: "identity_required", Message: "this chat is for signed-in visitors of the website"}
 	}
 	if err := s.chatSpam(ctx, w.EnvID, msg, v, p.IP); err != nil {
 		return nil, err
@@ -366,8 +399,8 @@ func (s *Service) StartChat(ctx context.Context, p ChatStart) (*ChatStarted, err
 		return nil, unavailable("begin", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO chat_conversations(id, widget_id, environment_id, token_hash, visitor_enc, email_hash, email_masked, ip_hash)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, id, w.ID, w.EnvID, th[:], venc, emailHash, maskedOrEmpty(v.Email), s.Box.MAC("form-ip", []byte(cleanIP(p.IP)))); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO chat_conversations(id, widget_id, environment_id, token_hash, visitor_enc, email_hash, email_masked, ip_hash, identity_verified)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id, w.ID, w.EnvID, th[:], venc, emailHash, maskedOrEmpty(v.Email), ipHash, verified); err != nil {
 		return nil, unavailable("chat_start", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO chat_messages(id, conversation_id, environment_id, sender, body_enc) VALUES ($1,$2,$3,'visitor',$4)`, msgID, id, w.EnvID, benc); err != nil {
@@ -435,6 +468,7 @@ type chatConv struct {
 	ID, WidgetID, EnvID, State string
 	Origins                    []string
 	Count                      int
+	Banned, Verified           bool
 }
 
 // chatSession finds the conversation a token belongs to. A wrong token and an
@@ -449,10 +483,10 @@ func (s *Service) chatSession(ctx context.Context, widgetID, convID, token strin
 	th := sha256.Sum256([]byte(token))
 	c := chatConv{ID: convID, WidgetID: widgetID}
 	err := s.Pool.QueryRow(ctx, `SELECT c.environment_id::text, c.state, w.allowed_origins,
-  (SELECT count(*) FROM chat_messages m WHERE m.conversation_id=c.id)
+  (SELECT count(*) FROM chat_messages m WHERE m.conversation_id=c.id), c.banned_at IS NOT NULL, c.identity_verified
 FROM chat_conversations c JOIN chat_widgets w ON w.id=c.widget_id
 WHERE c.id=$1 AND c.widget_id=$2 AND c.token_hash=$3 AND w.enabled`, convID, widgetID, th[:]).
-		Scan(&c.EnvID, &c.State, &c.Origins, &c.Count)
+		Scan(&c.EnvID, &c.State, &c.Origins, &c.Count, &c.Banned, &c.Verified)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, errChatFound
 	}
@@ -474,6 +508,9 @@ func (s *Service) SendChatVisitor(ctx context.Context, p ChatSend) (string, erro
 	}
 	if err := checkChatOrigin(c.Origins, p.Origin, p.Referer); err != nil {
 		return "", err
+	}
+	if c.Banned {
+		return "", newErr(403, "visitor_banned")
 	}
 	for _, b := range []struct {
 		key    string
@@ -529,6 +566,13 @@ func (s *Service) SetChatContact(ctx context.Context, widgetID, convID, token, o
 	}
 	if err := checkChatOrigin(c.Origins, origin, referer); err != nil {
 		return err
+	}
+	if c.Banned {
+		return newErr(403, "visitor_banned")
+	}
+	if c.Verified {
+		// The site vouched for this visitor's address; the visitor cannot swap it for another.
+		return &Error{Status: 422, Code: "identity_locked", Message: "this visitor was identified by the website"}
 	}
 	if err := s.formLimit(ctx, "ch:contact:"+c.ID+":hour", time.Hour, 10); err != nil {
 		return err
@@ -652,7 +696,7 @@ func (s *Service) ListChatConversations(ctx context.Context, sc *Scope, f ChatCo
 		return nil, false, badRequest("state is open or closed")
 	}
 	items, more, err := s.page(ctx, pg, `SELECT c.id::text AS id, c.widget_id::text AS widget_id, w.name AS widget, c.state, c.email_masked, c.created_at, c.last_message_at,
-  c.visitor_seen_at, u.email AS assigned_to,
+  c.visitor_seen_at, c.identity_verified, (c.banned_at IS NOT NULL) AS banned, u.email AS assigned_to,
   (SELECT count(*) FROM chat_messages m WHERE m.conversation_id=c.id AND m.sender='visitor' AND NOT m.seen_by_agent) AS unread,
   (SELECT m.id::text FROM chat_messages m WHERE m.conversation_id=c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_id
 FROM chat_conversations c JOIN chat_widgets w ON w.id=c.widget_id LEFT JOIN users u ON u.id=c.assigned_to
@@ -696,7 +740,7 @@ func (s *Service) GetChatConversation(ctx context.Context, sc *Scope, id string)
 		return nil, errChatFound
 	}
 	m, err := s.one(ctx, `SELECT c.id::text AS id, c.widget_id::text AS widget_id, w.name AS widget, w.reply_from, c.state, c.email_masked, c.created_at,
-  c.last_message_at, c.visitor_seen_at, c.assigned_to::text AS assigned_to_id, u.email AS assigned_to, c.visitor_enc
+  c.last_message_at, c.visitor_seen_at, c.identity_verified, (c.banned_at IS NOT NULL) AS banned, c.assigned_to::text AS assigned_to_id, u.email AS assigned_to, c.visitor_enc
 FROM chat_conversations c JOIN chat_widgets w ON w.id=c.widget_id LEFT JOIN users u ON u.id=c.assigned_to
 WHERE c.id=$1 AND c.environment_id=$2`, id, sc.EnvID)
 	if err != nil {

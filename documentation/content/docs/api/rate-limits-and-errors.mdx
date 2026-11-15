@@ -99,6 +99,10 @@ All of them answer `429 rate_limited` (or `503 queue_full`). Wait `Retry-After` 
 | `chat_disabled` | 404 | Chat: the operator has not turned live chat on |
 | `empty_message` | 422 | Chat: the message is empty |
 | `message_too_long` | 422 | Chat: a message is longer than 2000 characters |
+| `identity_invalid` | 422 | Chat: the signed identity does not match the email address (or no email was sent with it) |
+| `identity_required` | 422 | Chat: this chat only takes visitors the website has identified |
+| `identity_locked` | 422 | Chat: the website identified this visitor, so the email cannot be changed |
+| `visitor_banned` | 403 | Chat: an agent banned this visitor |
 | `conversation_full` | 422 | Chat: the conversation has 300 messages; start a new one |
 | `invalid_json` | 400 | The body is not valid JSON |
 | `emails_required` | 422 | Address verification: no `email` or `emails` given |

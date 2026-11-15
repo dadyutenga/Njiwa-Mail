@@ -1,5 +1,6 @@
 import { swDns } from "./sw-dns";
 import { swChat } from "./sw-chat";
+import { swChatExtras } from "./sw-chat-extras";
 import { swFollowups } from "./sw-followups";
 import { swForms } from "./sw-forms";
 import { swMembers } from "./sw-members";
@@ -1165,4 +1166,5 @@ Object.assign(swExtra, swTools);
 Object.assign(swExtra, swForms);
 Object.assign(swExtra, swChat);
 Object.assign(swExtra, swMembers);
+Object.assign(swExtra, swChatExtras);
 Object.assign(swExtra, swFollowups);
