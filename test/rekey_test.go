@@ -76,6 +76,13 @@ func TestEncryptionKeyRotation(t *testing.T) {
 	contactID, _, err := e.svc.UpsertContact(ctx, liveScope, service.ContactInput{Email: "rotate@example.org", Name: "Rotated"})
 	e.must(err)
 
+	// An SSO provider's client secret, sealed under the old key.
+	ssoID := "11111111-2222-4333-8444-555555555555"
+	sealedSecret, err := e.box.Seal([]byte("idp-secret"), []byte("sso:"+ssoID))
+	e.must(err)
+	_, err = e.pool.Exec(ctx, `INSERT INTO sso_providers(id, name, issuer, client_id, client_secret_enc) VALUES ($1,'Rot','https://idp.example.com','c',$2)`, ssoID, sealedSecret)
+	e.must(err)
+
 	// Rotate: new key seals, old key still opens.
 	both, onlyNew := rotatedBoxes(t, oldKey)
 	e.svc.Box = both
@@ -128,6 +135,11 @@ func TestEncryptionKeyRotation(t *testing.T) {
 	}
 	if ct, err := e.svc.GetContact(ctx, liveScope, contactID); err != nil || ct["email"] != "rotate@example.org" || ct["name"] != "Rotated" {
 		t.Fatalf("contact with only the new key: %v %v", ct, err)
+	}
+	var ssoEnc []byte
+	e.must(e.pool.QueryRow(ctx, `SELECT client_secret_enc FROM sso_providers WHERE id=$1`, ssoID).Scan(&ssoEnc))
+	if pt, err := e.svc.Box.Open(ssoEnc, []byte("sso:"+ssoID)); err != nil || string(pt) != "idp-secret" {
+		t.Fatalf("SSO client secret with only the new key: %v", err)
 	}
 	e.runWorker() // opens the queued payload sealed under the old key
 	if e.count(`SELECT count(*) FROM messages WHERE source<>'automation' AND state='submitted'`) < 1 {

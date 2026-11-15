@@ -67,6 +67,13 @@ export const admin = {
       body: JSON.stringify(code ? { email, password, code } : { email, password }),
     }),
   me: () => adminRequest<AdminUser>("/auth/me"),
+  ssoProviders: () =>
+    adminRequest<{ items: { id: string; name: string }[] }>("/auth/sso/providers"),
+  ssoComplete: (pending: string, code: string) =>
+    adminRequest<AdminUser>("/auth/sso/complete", {
+      method: "POST",
+      body: JSON.stringify({ pending, code }),
+    }),
   logout: () => adminRequest<{ ok: boolean }>("/auth/logout", { method: "POST" }),
   forgot: (email: string) =>
     adminRequest<{ ok: boolean }>("/auth/forgot", {

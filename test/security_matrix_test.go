@@ -17,6 +17,10 @@ import (
 var publicRoutes = map[string]string{
 	"POST /admin/v1/auth/login":                     "login",
 	"POST /admin/v1/auth/forgot":                    "password reset request (always answers the same)",
+	"GET /admin/v1/auth/sso/providers":              "names of enabled sign-in providers, nothing else",
+	"GET /admin/v1/auth/sso/:id/start":              "redirects to the provider (TestSSOSignIn)",
+	"GET /admin/v1/auth/sso/callback":               "needs a one-time state and the provider's code (TestSSOSignIn)",
+	"POST /admin/v1/auth/sso/complete":              "needs a pending token and the authenticator code (TestSSOCreationMFAAndRefusals)",
 	"POST /admin/v1/auth/reset":                     "password reset with a single-use token",
 	"POST /console/login":                           "console login",
 	"GET /health/live":                              "liveness probe",

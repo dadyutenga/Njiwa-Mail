@@ -15,6 +15,7 @@ import (
 )
 
 const sealVersion byte = 1
+const maxInt = int(^uint(0) >> 1)
 
 // Box encrypts payloads with AES-256-GCM and computes keyed HMACs.
 type Box struct {
@@ -75,7 +76,11 @@ func (b *Box) Seal(plaintext, aad []byte) ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, 1+len(nonce)+len(plaintext)+b.aead.Overhead())
+	base := 1 + len(nonce) + b.aead.Overhead()
+	if len(plaintext) > maxInt-base {
+		return nil, errors.New("plaintext too large")
+	}
+	out := make([]byte, 0, base+len(plaintext))
 	out = append(out, sealVersion)
 	out = append(out, nonce...)
 	return b.aead.Seal(out, nonce, plaintext, aad), nil

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/oidc"
 	"github.com/njiwa-tz/mail/internal/verify"
 	"log/slog"
 	"regexp"
@@ -101,6 +102,8 @@ type Service struct {
 	queueMu    sync.Mutex
 	queueDepth int
 	queueAt    time.Time
+
+	oidc oidc.Client // OpenID Connect discovery and key cache
 
 	bdMu  sync.Mutex // per-domain return-path domains (D04), cached briefly
 	bdAt  time.Time
