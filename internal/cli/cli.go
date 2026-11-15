@@ -180,7 +180,7 @@ func Run(args []string) {
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
-		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
 			TokenURL: cfg.CloudflareOAuthTokenURL, RevokeURL: cfg.CloudflareOAuthRevokeURL, Scope: cfg.CloudflareOAuthScope},
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
@@ -432,6 +432,7 @@ func runInbound(ctx context.Context, cfg *config.Config, svc *service.Service) {
 // runRelay serves SMTP submission for applications (AUTH PLAIN with an API
 // key, TLS required).
 func runRelay(ctx context.Context, cfg *config.Config, svc *service.Service) {
+	go beat(ctx, svc, "relay", hostID())
 	if cfg.RelayTLSCert == "" || cfg.RelayTLSKey == "" {
 		die(errors.New("the relay needs RELAY_TLS_CERT and RELAY_TLS_KEY: AUTH is only offered over TLS"))
 	}
