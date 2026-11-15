@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -214,11 +215,18 @@ func TestChatConversationLifecycle(t *testing.T) {
 	if strings.Contains(resume.Raw, "event: message") {
 		t.Fatalf("resume repeated messages: %s", resume.Raw)
 	}
+	// The stream starts reading from "now" when its request is handled, which on a slow runner can
+	// be after the message was posted. A cursor taken before posting makes the test independent of
+	// that timing, and a longer window covers a slow POST.
+	cursor := strconv.FormatInt(time.Now().UnixNano(), 10) + ":"
+	oldMax := e.srv.StreamMax
+	e.srv.StreamMax = 2 * time.Second
+	defer func() { e.srv.StreamMax = oldMax }()
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		e.chatCall("POST", conv+"/messages", token, map[string]any{"body": "Heard by the dashboard"}, siteOrigin)
 	}()
-	dr := e.raw("GET", wsBase+"/chat/conversations/stream", map[string]string{"Cookie": admin.cookie}, nil)
+	dr := e.raw("GET", wsBase+"/chat/conversations/stream", map[string]string{"Cookie": admin.cookie, "Last-Event-ID": cursor}, nil)
 	if dr.Code != 200 || !strings.Contains(dr.Raw, "event: message") || !strings.Contains(dr.Raw, "Heard by the dashboard") {
 		t.Fatalf("dashboard stream: %d %s", dr.Code, dr.Raw)
 	}
