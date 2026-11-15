@@ -444,13 +444,22 @@ func (s *Service) SubmitForm(ctx context.Context, p FormPost) (*FormResult, erro
 		state = "spam"
 	}
 	reasons, _ := json.Marshal(res.Reasons)
+	// Routing rules decide priority, tags and assignee. Quarantined messages are left alone.
+	outcome := RuleOutcome{Priority: "normal", Tags: []string{}}
+	if state != "spam" {
+		rules, err := s.loadFormRules(ctx, p.FormID)
+		if err != nil {
+			return nil, err
+		}
+		outcome = applyFormRules(rules, fields)
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return nil, unavailable("begin", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO form_submissions(id, form_id, environment_id, data_enc, sender_hash, sender_masked, ip_hash, spam_score, spam_reasons, action, state)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, p.FormID, f.EnvID, sealed, s.Box.MAC("recipient", []byte(email)), maskEmail(email), ipHash, res.Score, reasons, action, state); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO form_submissions(id, form_id, environment_id, data_enc, sender_hash, sender_masked, ip_hash, spam_score, spam_reasons, action, state, priority, tags, assigned_to)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,'')::uuid)`, id, p.FormID, f.EnvID, sealed, s.Box.MAC("recipient", []byte(email)), maskEmail(email), ipHash, res.Score, reasons, action, state, outcome.Priority, outcome.Tags, outcome.Assignee); err != nil {
 		return nil, unavailable("form_submit", err)
 	}
 	for _, fl := range p.Files {
@@ -628,7 +637,7 @@ func (s *Service) TestFormFilter(ctx context.Context, sc *Scope, in FormFilterIn
 // ---------------------------------------------------------------- inbox
 
 type FormSubmissionFilter struct {
-	FormID, State string
+	FormID, State, Tag, Priority string
 }
 
 func (s *Service) ListFormSubmissions(ctx context.Context, sc *Scope, f FormSubmissionFilter, pg Page) ([]map[string]any, bool, error) {
@@ -639,12 +648,13 @@ func (s *Service) ListFormSubmissions(ctx context.Context, sc *Scope, f FormSubm
 		return nil, false, errFormFound
 	}
 	items, more, err := s.page(ctx, pg, `SELECT x.id::text AS id, x.form_id::text AS form_id, f.name AS form, x.received_at, x.sender_masked, x.spam_score,
-  x.spam_reasons, x.action, x.state, u.email AS assigned_to, x.replied_at,
+  x.spam_reasons, x.action, x.state, x.priority, x.tags, u.email AS assigned_to, x.replied_at,
   (SELECT count(*) FROM form_files ff WHERE ff.submission_id=x.id) AS files
 FROM form_submissions x JOIN forms f ON f.id=x.form_id LEFT JOIN users u ON u.id=x.assigned_to
 WHERE x.environment_id=$1 AND ($2='' OR x.form_id=NULLIF($2,'')::uuid)
   AND (($3='' AND x.state<>'spam') OR ($3<>'' AND x.state=$3))
-ORDER BY x.received_at DESC`, sc.EnvID, f.FormID, f.State)
+  AND ($4='' OR $4=ANY(x.tags)) AND ($5='' OR x.priority=$5)
+ORDER BY x.received_at DESC`, sc.EnvID, f.FormID, f.State, strings.ToLower(f.Tag), f.Priority)
 	if err != nil {
 		return nil, false, err
 	}
@@ -680,7 +690,7 @@ func (s *Service) GetFormSubmission(ctx context.Context, sc *Scope, id string) (
 		return nil, errFormFound
 	}
 	m, err := s.one(ctx, `SELECT x.id::text AS id, x.form_id::text AS form_id, f.name AS form, f.reply_from, x.received_at, x.sender_masked, x.spam_score,
-  x.spam_reasons, x.action, x.state, x.assigned_to::text AS assigned_to_id, u.email AS assigned_to, x.replied_at
+  x.spam_reasons, x.action, x.state, x.priority, x.tags, x.assigned_to::text AS assigned_to_id, u.email AS assigned_to, x.replied_at
 FROM form_submissions x JOIN forms f ON f.id=x.form_id LEFT JOIN users u ON u.id=x.assigned_to
 WHERE x.id=$1 AND x.environment_id=$2`, id, sc.EnvID)
 	if err != nil {
