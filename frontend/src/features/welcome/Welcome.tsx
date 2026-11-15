@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { ArrowRight, Check, ChevronDown, Copy, Menu, Moon, Sun, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronDown, Copy, Menu, Moon, Sun, X } from "lucide-react";
 import { useAuth } from "@/features/auth/auth";
 import { BrandIcon } from "@/components/shared/BrandIcon";
 import { LanguageSwitcher } from "@/features/i18n/LanguageSwitcher";
@@ -245,27 +245,29 @@ function HowItWorks() {
         <div
           className="route-diagram"
           role="img"
-          aria-label={`${c.how.nodes.join(" to ")}. ${c.how.return}.`}
+          aria-label={`${c.how.outbound}. ${c.how.nodes.map((node) => `${node.title}. ${node.text}`).join(" ")} ${c.how.return}`}
         >
-          <svg viewBox="0 0 1100 210" preserveAspectRatio="none" aria-hidden="true">
-            <path className="route-path" d="M110 70 H990" />
-            <path className="return-path" d="M990 160 H110" />
-            <path
-              d="m980 60 12 10-12 10M120 150l-12 10 12 10"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="3"
-            />
-          </svg>
-          <div className="route-nodes">
+          <p className="route-direction">{c.how.outbound}</p>
+          <ol className="route-steps">
             {c.how.nodes.map((node, i) => (
-              <div className="route-node" key={node}>
-                <span className="route-number">0{i + 1}</span>
-                <strong>{node}</strong>
-              </div>
+              <li className="route-step" key={node.title}>
+                {i > 0 && (
+                  <span className="route-arrow" aria-hidden="true">
+                    <ArrowRight size={16} />
+                  </span>
+                )}
+                <div className="route-node">
+                  <span className="route-number">0{i + 1}</span>
+                  <strong>{node.title}</strong>
+                  <p>{node.text}</p>
+                </div>
+              </li>
             ))}
+          </ol>
+          <div className="route-return">
+            <ArrowLeft size={16} aria-hidden="true" />
+            <span>{c.how.return}</span>
           </div>
-          <div className="route-return">{c.how.return}</div>
         </div>
       </div>
     </section>

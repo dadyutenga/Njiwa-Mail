@@ -359,64 +359,86 @@
   background: var(--surface);
 }
 .route-diagram {
-  position: relative;
   margin-top: 64px;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 40px 34px 25px;
-  min-height: 245px;
+  border-radius: 16px;
+  padding: 28px;
+  background: var(--bg);
 }
-.route-diagram svg {
-  position: absolute;
-  inset: 27px 0 0;
-  width: 100%;
-  height: 165px;
+.route-direction {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--accent);
+  margin-bottom: 14px;
 }
-.route-path,
-.return-path {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 3;
-  stroke-dasharray: 12 8;
-}
-.return-path {
-  stroke: var(--accent-2);
-  stroke-width: 2;
-}
-.route-nodes {
+.route-steps {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 28px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.route-step {
   position: relative;
-  padding-top: 0;
+  min-width: 0;
+}
+.route-arrow {
+  position: absolute;
+  left: -14px;
+  top: 28px;
+  z-index: 1;
+  display: flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--line);
 }
 .route-node {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  min-height: 95px;
-  background: var(--bg);
+  align-items: flex-start;
+  height: 100%;
+  min-height: 148px;
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 14px;
+  border-radius: 12px;
+  padding: 18px 16px;
   color: var(--text);
+}
+.route-node strong {
+  margin-top: 10px;
+  font-size: 1.02rem;
+}
+.route-node p {
+  margin-top: 8px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--text-muted);
 }
 .route-number {
   font-size: 0.68rem;
   color: var(--accent);
   font-weight: 800;
   letter-spacing: 0.16em;
-  margin-bottom: 7px;
 }
 .route-return {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  border: 1px dashed var(--accent-2);
+  border-radius: 999px;
+  padding: 10px 16px;
   color: var(--accent-2);
-  font-size: 0.8rem;
+  font-size: 0.86rem;
   font-weight: 700;
-  margin-top: 45px;
 }
 .features-grid {
   display: grid;
@@ -630,21 +652,18 @@
   }
   .route-diagram {
     margin-top: 35px;
-    padding: 24px;
-    min-height: 0;
+    padding: 18px;
   }
-  .route-diagram svg {
-    display: none;
+  .route-steps {
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
-  .route-nodes {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+  .route-arrow {
+    left: 18px;
+    top: -16px;
   }
   .route-node {
-    min-height: 90px;
-  }
-  .route-return {
-    margin-top: 20px;
+    min-height: 0;
   }
   .status-grid,
   .developer-grid,

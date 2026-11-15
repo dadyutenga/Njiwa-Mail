@@ -25,8 +25,14 @@ export const content = {
     title: "A clear path for every message.",
     description:
       "Your app hands a message to Njiwa-Mail. Your mail server sends it onward. Replies and bounces find their way back.",
-    nodes: ["Your app", "Njiwa-Mail", "Your mail server", "Recipient"],
-    return: "Replies & bounces return",
+    outbound: "Outbound",
+    nodes: [
+      { title: "Your app", text: "Sends the message through the API or SMTP." },
+      { title: "Njiwa-Mail", text: "Queues it, applies the rules, and keeps the record." },
+      { title: "Your mail server", text: "Hands it to the recipient's mail server." },
+      { title: "Recipient", text: "The message arrives in their inbox." },
+    ],
+    return: "Replies and bounces come back the same way.",
   },
   features: {
     eyebrow: "02 / WHAT IT DOES",

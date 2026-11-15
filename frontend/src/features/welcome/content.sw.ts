@@ -27,8 +27,14 @@ export const contentSw = {
     title: "Njia wazi kwa kila ujumbe.",
     description:
       "Programu yako inakabidhi ujumbe kwa Njiwa-Mail. Seva yako ya barua pepe inautuma mbele. Majibu na barua zilizorejeshwa hurudi.",
-    nodes: ["Programu yako", "Njiwa-Mail", "Seva yako ya barua", "Mpokeaji"],
-    return: "Majibu na barua zilizorejeshwa hurudi",
+    outbound: "Kwenda",
+    nodes: [
+      { title: "Programu yako", text: "Inatuma ujumbe kupitia API au SMTP." },
+      { title: "Njiwa-Mail", text: "Inauweka foleni, inatumia kanuni, na inahifadhi kumbukumbu." },
+      { title: "Seva yako ya barua", text: "Inaukabidhi kwa seva ya barua ya mpokeaji." },
+      { title: "Mpokeaji", text: "Ujumbe unafika kwenye kikasha chake." },
+    ],
+    return: "Majibu na barua zilizorejeshwa hurudi kwa njia ile ile.",
   },
   features: {
     eyebrow: "02 / INACHOFANYA",
