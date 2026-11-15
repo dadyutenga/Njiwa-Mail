@@ -2092,3 +2092,126 @@ export function SingleSignOn() {
     </>
   );
 }
+
+export function DailyReportEmail() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const q = useQuery({
+    queryKey: ["report-email"],
+    queryFn: () => admin.get<Row>("/report-email"),
+  });
+  const [f, setF] = useState<{ enabled: boolean; recipients: string; sender: string } | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (q.data && !f) {
+      setF({
+        enabled: !!q.data.enabled,
+        recipients: ((q.data.recipients as string[]) ?? []).join("\n"),
+        sender: s(q.data.sender_identity_id),
+      });
+    }
+  }, [q.data, f]);
+  const save = async () => {
+    if (!f) return;
+    setError("");
+    try {
+      await admin.send("/report-email", "PUT", {
+        enabled: f.enabled,
+        recipients: f.recipients
+          .split(/[\n,;]/)
+          .map((x) => x.trim())
+          .filter(Boolean),
+        sender_identity_id: f.sender,
+      });
+      toast.success(phrase("Saved."));
+      client.invalidateQueries({ queryKey: ["report-email"] });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  const senders = (q.data?.senders as Row[]) ?? [];
+  return (
+    <>
+      <PageHeader
+        title={phrase("Daily report by email")}
+        description={phrase(
+          "Once a day, the report for yesterday (UTC) is also sent to these addresses. It is the same report as in the notifications.",
+        )}
+      />
+      <DataState q={q}>
+        {() =>
+          f && (
+            <Section>
+              <div className="grid max-w-xl gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={f.enabled}
+                    onChange={(e) => setF({ ...f, enabled: e.target.checked })}
+                  />
+                  {phrase("Send the daily report by email")}
+                </label>
+                <Field
+                  label={phrase("Recipients")}
+                  hint={phrase("One address per line. Up to 20.")}
+                >
+                  <textarea
+                    className={textareaClass}
+                    rows={4}
+                    value={f.recipients}
+                    onChange={(e) => setF({ ...f, recipients: e.target.value })}
+                  />
+                </Field>
+                <Field
+                  label={phrase("Send from")}
+                  hint={phrase(
+                    "A sender address that already exists in a project. If you choose none, the default sender of a Live environment is used.",
+                  )}
+                >
+                  <select
+                    className={selectClass}
+                    value={f.sender}
+                    onChange={(e) => setF({ ...f, sender: e.target.value })}
+                  >
+                    <option value="">
+                      {phrase("Automatic")}
+                      {q.data?.effective_sender ? ` (${s(q.data.effective_sender)})` : ""}
+                    </option>
+                    {senders.map((x) => (
+                      <option key={s(x.id)} value={s(x.id)}>
+                        {s(x.email)} · {s(x.project)} · {s(x.mode)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {!q.data?.effective_sender && (
+                  <p className="text-sm text-muted-foreground">
+                    {phrase(
+                      "No sender address exists yet. Add a sender to a project first, otherwise nothing can be sent.",
+                    )}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {phrase(
+                    "The email says how many messages were accepted by the mail server. That does not mean they reached an inbox.",
+                  )}
+                  {q.data?.last_emailed_day
+                    ? ` ${phrase("Last sent for")} ${s(q.data.last_emailed_day).slice(0, 10)}.`
+                    : ""}
+                </p>
+                {error && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {error}
+                  </p>
+                )}
+                <div>
+                  <Button onClick={save}>{phrase("Save")}</Button>
+                </div>
+              </div>
+            </Section>
+          )
+        }
+      </DataState>
+    </>
+  );
+}
