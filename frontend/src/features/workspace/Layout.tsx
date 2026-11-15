@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import {
@@ -17,7 +18,22 @@ import {
   useParams,
 } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Menu, PanelLeftClose, PenSquare, Plus, Search } from "lucide-react";
+import {
+  Check,
+  ChevronsUpDown,
+  FileText,
+  Globe,
+  KeyRound,
+  Mail,
+  Mailbox,
+  Menu,
+  PanelLeftClose,
+  PenSquare,
+  Plus,
+  Search,
+  UserRoundCheck,
+  type LucideIcon,
+} from "lucide-react";
 import { usePhrase } from "@/features/i18n/i18n";
 import { LanguageSwitcher } from "@/features/i18n/LanguageSwitcher";
 import { NotificationBell, ThemeToggle, UserMenu } from "@/components/shared/Toolbar";
@@ -304,6 +320,17 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
 
 type Hit = { kind: string; id: string; label: string; detail: string };
 
+const hitMeta: Record<string, { label: string; icon: LucideIcon }> = {
+  message: { label: "Messages", icon: Mail },
+  domain: { label: "Domains", icon: Globe },
+  sender: { label: "Senders", icon: UserRoundCheck },
+  template: { label: "Templates", icon: FileText },
+  api_key: { label: "API keys", icon: KeyRound },
+  mailbox: { label: "Mailboxes", icon: Mailbox },
+};
+
+const searchScopes = ["Pages", "Messages", "Domains", "Senders", "Templates", "API keys", "Mailboxes"];
+
 function GlobalSearch() {
   const phrase = usePhrase();
   const { api, to } = useWorkspace();
@@ -311,6 +338,7 @@ function GlobalSearch() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
+  const [active, setActive] = useState(0);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 250);
     return () => clearTimeout(t);
@@ -354,6 +382,42 @@ function GlobalSearch() {
     setQ("");
     navigate(path);
   };
+  const rows = [
+    ...pages.map((p) => ({
+      key: "page-" + p.path,
+      group: phrase("Pages"),
+      icon: p.icon,
+      label: phrase(p.label),
+      detail: "",
+      path: to(p.path),
+    })),
+    ...(hits.data?.items ?? []).map((h) => {
+      const meta = hitMeta[h.kind];
+      return {
+        key: h.kind + h.id,
+        group: phrase(meta?.label ?? h.kind),
+        icon: meta?.icon ?? Search,
+        label: h.label,
+        detail: h.detail,
+        path: target(h),
+      };
+    }),
+  ];
+  useEffect(() => setActive(0), [debounced, pages.length, hits.data]);
+  const current = rows.length ? Math.min(active, rows.length - 1) : 0;
+  const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (!rows.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActive((i) => Math.min(rows.length - 1, i + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((i) => Math.max(0, i - 1));
+    } else if (e.key === "Enter" && rows[current]) {
+      e.preventDefault();
+      goTo(rows[current].path);
+    }
+  };
   return (
     <>
       <Button
@@ -370,54 +434,96 @@ function GlobalSearch() {
         </kbd>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogTitle>{phrase("Search")}</DialogTitle>
-          <DialogDescription>
+        <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
+          <DialogTitle className="sr-only">{phrase("Search")}</DialogTitle>
+          <DialogDescription className="sr-only">
             {phrase(
               "Message ID or full recipient address, domains, senders, templates, API keys, mailboxes and pages.",
             )}
           </DialogDescription>
-          <input
-            autoFocus
-            className={inputClass}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            aria-label={phrase("Search")}
-          />
-          <ul className="max-h-80 space-y-1 overflow-auto" aria-live="polite">
-            {pages.map((p) => (
-              <li key={p.path}>
-                <button
-                  className="w-full rounded-md p-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-                  onClick={() => goTo(to(p.path))}
-                >
-                  <span className="mr-2 text-xs uppercase text-muted-foreground">
-                    {phrase("Page")}
-                  </span>
-                  {phrase(p.label)}
-                </button>
+          <div className="flex items-center gap-3 border-b px-4 pr-12">
+            <Search size={18} className="shrink-0 text-muted-foreground" aria-hidden />
+            <input
+              autoFocus
+              className="h-14 w-full bg-transparent text-base outline-none placeholder:text-muted-foreground"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={onSearchKey}
+              placeholder={phrase("Search pages, messages, and records")}
+              aria-label={phrase("Search")}
+              aria-activedescendant={rows[current] ? "search-" + rows[current].key : undefined}
+            />
+          </div>
+          <ul className="flex flex-wrap gap-1.5 px-4 py-3" aria-label={phrase("Search covers")}>
+            {searchScopes.map((scope) => (
+              <li
+                key={scope}
+                className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground"
+              >
+                {phrase(scope)}
               </li>
             ))}
-            {hits.data?.items.map((h) => (
-              <li key={h.kind + h.id}>
-                <button
-                  className="w-full rounded-md p-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-                  onClick={() => goTo(target(h))}
-                >
-                  <span className="mr-2 text-xs uppercase text-muted-foreground">
-                    {h.kind.replace("_", " ")}
-                  </span>
-                  {h.label}
-                  {h.detail && <span className="ml-2 text-muted-foreground">{h.detail}</span>}
-                </button>
+          </ul>
+          <ul className="max-h-80 overflow-auto px-2 pb-2" aria-live="polite" role="listbox">
+            {rows.map((row, i) => {
+              const Icon = row.icon;
+              const showGroup = i === 0 || rows[i - 1].group !== row.group;
+              return (
+                <li key={row.key} role="presentation">
+                  {showGroup && (
+                    <p className="px-2 pb-1 pt-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                      {row.group}
+                    </p>
+                  )}
+                  <button
+                    id={"search-" + row.key}
+                    role="option"
+                    aria-selected={i === current}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none",
+                      i === current ? "bg-primary/10" : "hover:bg-muted",
+                    )}
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => goTo(row.path)}
+                  >
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                      <Icon size={16} aria-hidden />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{row.label}</span>
+                      {row.detail && (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {row.detail}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+            {q.trim().length > 0 && q.trim().length < 2 && pages.length === 0 && (
+              <li className="px-3 py-6 text-center text-sm text-muted-foreground">
+                {phrase("Type at least two characters to search records. A page name can be shorter.")}
               </li>
-            ))}
+            )}
+            {debounced.length >= 2 && hits.isFetching && (
+              <li className="px-3 py-2 text-sm text-muted-foreground">{phrase("Searching…")}</li>
+            )}
             {debounced.length >= 2 && hits.data && !hits.data.items.length && !pages.length && (
-              <li className="p-2 text-sm text-muted-foreground">
+              <li className="px-3 py-6 text-center text-sm text-muted-foreground">
                 {phrase("Nothing found in this project and environment.")}
               </li>
             )}
+            {!q.trim() && (
+              <li className="px-3 py-6 text-center text-sm text-muted-foreground">
+                {phrase("Search a page by name, or a message, domain, sender, template, key, or mailbox.")}
+              </li>
+            )}
           </ul>
+          <div className="flex items-center justify-between border-t px-4 py-2 text-xs text-muted-foreground">
+            <span>{phrase("Arrow keys move. Enter opens.")}</span>
+            <span>Esc</span>
+          </div>
         </DialogContent>
       </Dialog>
     </>

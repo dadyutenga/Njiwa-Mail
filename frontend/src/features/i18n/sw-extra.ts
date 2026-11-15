@@ -606,6 +606,15 @@ export const swExtra: Record<string, string> = {
   "Message HTML (sandboxed)": "HTML ya ujumbe (kwenye sandbox)",
   "Message ID or full recipient address, domains, senders, templates, API keys, mailboxes and pages.":
     "Kitambulisho cha ujumbe au anwani kamili ya mpokeaji, vikoa, watumaji, violezo, funguo za API, visanduku vya barua na kurasa.",
+  "Search pages, messages, and records": "Tafuta kurasa, ujumbe, na rekodi",
+  "Search covers": "Utafutaji unashughulikia",
+  Pages: "Kurasa",
+  "Type at least two characters to search records. A page name can be shorter.":
+    "Andika angalau herufi mbili kutafuta rekodi. Jina la ukurasa linaweza kuwa fupi.",
+  "Searching…": "Inatafuta…",
+  "Search a page by name, or a message, domain, sender, template, key, or mailbox.":
+    "Tafuta ukurasa kwa jina, au ujumbe, kikoa, mtumaji, kiolezo, ufunguo, au kisanduku.",
+  "Arrow keys move. Enter opens.": "Mishale inasogeza. Enter inafungua.",
   "Message deleted.": "Ujumbe umefutwa.",
   "Message details": "Maelezo ya ujumbe",
   "Message metadata, delivery evidence, bounces, suppressions, captures and inbound mail (with its attachment files) for this recipient in this project and environment are removed. This cannot be undone.":
