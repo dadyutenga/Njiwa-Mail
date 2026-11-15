@@ -1,0 +1,28 @@
+---
+title: Usage plans
+description: Named sets of limits that an operator assigns to projects, and what happens when one is reached.
+---
+
+A **usage plan** is a named set of limits that an operator creates once and assigns to projects. It is for the operator of
+an installation who hosts several projects or customers; a single-project installation can ignore it.
+
+## The limits
+
+| Limit | Meaning | When it is reached |
+|---|---|---|
+| Messages per minute and per day | How fast a project may send. | `429 rate_limited`, with `Retry-After` |
+| Per recipient per minute and per hour | Protects one address from being flooded. | `429 rate_limited` |
+| Bulk recipients per campaign, bulk messages per day | The size of marketing campaigns. | The campaign is refused or paused |
+| **Live messages per month** | A monthly quota for Live traffic (`0` means unlimited). | `429 monthly_quota_exceeded`, with `Retry-After` |
+| **Contacts** | The most contacts a project may hold (`0` means unlimited). | `422 contact_limit_reached` |
+
+See [Rate limits and errors](/docs/api/rate-limits-and-errors) for the full list of codes.
+
+## How plans behave
+
+- Putting a project on a plan **copies** the plan's limits to the project. Editing the plan updates every project on it.
+  A plan that projects still use cannot be deleted.
+- The monthly quota counts **Live** messages only. Sandbox traffic never counts.
+- A request refused because of the monthly quota **reserves nothing**: it does not use up part of the quota, and the same
+  request can be sent again after `Retry-After`.
+- Contacts already in the project are never removed when the limit is lowered; only adding more is refused.

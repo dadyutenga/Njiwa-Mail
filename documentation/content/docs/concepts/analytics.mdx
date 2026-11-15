@@ -1,0 +1,35 @@
+---
+title: Analytics and the daily report
+description: How to read the Analytics page, what each number means and does not mean, and the daily report.
+---
+
+The **Analytics** page (in a project, per environment) compares a period with the one before it. Pick a range, and
+optionally a template or a sending domain.
+
+## What it shows
+
+| Block | What it tells you |
+|---|---|
+| **Totals** | Messages created, **accepted by the mail server** (`submitted`), **accepted by the recipient's server** (`remote_accepted`), failed or expired, hard bounces and complaints. Each has the change in percent against the previous period of the same length. |
+| **Per day** | The same counts for each UTC day in the period. |
+| **Timing** | The 50th, 90th and 99th percentile of the time from creation until the mail server accepted the message, and until the recipient's server did, where there is evidence of it. |
+| **Mailbox providers** | Results grouped by the recipient's provider (Gmail, Outlook, Yahoo, Zoho and so on). |
+
+Each table can be downloaded as CSV. Cells that start like a spreadsheet formula are protected, so opening the file in a
+spreadsheet never runs one.
+
+## What the numbers do not mean
+
+- **Submitted** means the mail server accepted the message for delivery. It does **not** mean the message reached an inbox.
+- **Accepted by the recipient's server** is shown only when the mail server log or a bounce or complaint report says so. It is
+  still not a promise of inbox placement: the recipient's server may file the message as spam.
+- **Providers** are worked out from the address's domain. A company domain hosted by Google or Microsoft counts as
+  *Other*, because the domain does not say who hosts the mailbox.
+- Open and click counts exist only for [marketing campaigns](/docs/concepts/marketing) that turned tracking on, and opens
+  are an estimate.
+
+## The daily report
+
+Once a day (UTC) the system records a report for yesterday across every project and environment: messages by outcome, hard
+bounces, complaints, inbound mail and open alerts. It appears in every user's notifications (the bell). An operator can also
+have it emailed to chosen addresses; the email states the same limits as above.

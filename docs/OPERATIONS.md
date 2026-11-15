@@ -291,7 +291,9 @@ SMTP from applications that cannot use the HTTP API yet. AUTH PLAIN over TLS onl
 the `Message-ID` and recipient, so a client's retry is not sent twice. Settings: `RELAY_LISTEN_ADDR`, `RELAY_TLS_CERT`,
 `RELAY_TLS_KEY`, `RELAY_IMPLICIT_TLS`. The Compose service listens on host port 2587 (`NJIWA_RELAY_PORT`) bound to
 `127.0.0.1` (`NJIWA_RELAY_BIND`), so it never takes 587 from a mail server on the same host. Guide: the docs portal's
-"SMTP relay" page.
+"SMTP relay" page. The dashboard's *SMTP relay* page (Developers) shows the connection settings and whether the relay has
+checked in: the relay sends a heartbeat every 10 seconds, and "running" means one arrived in the last minute. That is
+evidence the process is up, not proof that the port is reachable from your application's network.
 
 ## Single sign-on (OpenID Connect)
 
