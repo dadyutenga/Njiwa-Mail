@@ -46,6 +46,33 @@ Notifications go to the addresses you list, immediately or as an hourly or daily
 notify. **Spam filters** holds your own rules (keyword, phrase, regular expression, address, domain or IP) with an action
 of flag, quarantine or reject, and a dry run against past submissions before you save one.
 
+## Priority, tags and routing rules
+
+Every submission has a **priority** (low, normal, high) and up to ten **tags**. You can change both on a submission, and
+filter the inbox by tag or priority. **Rules** (the *Rules* button on a form) set them for you when a message arrives:
+
+- A rule has a condition on one field, or on any field: `contains`, `equals`, `regex`, `domain` (the sender's address)
+  or `exists` (the field is filled in).
+- When it matches it can set the priority, add tags and assign the submission to a user.
+- Rules run in the order you set (move them up and down). The last rule that sets a priority wins, tags from all
+  matching rules are added, and the first rule that names an assignee wins. A rule marked *skip the later rules* ends
+  the run.
+- Suspected spam is never labelled or assigned. **Try it** on a sample submission shows what the rules would do
+  without saving anything.
+
+Rules are managed from the dashboard; the dashboard's own routes are listed in `docs/ENDPOINTS.md` of the repository.
+
+## Spam marking, summary and export
+
+**Mark as spam** moves a submission out of the inbox; tick *Also block this sender* to add a filter that quarantines
+their next messages. **Not spam** brings it back and lifts that filter. The summary strip above the inbox counts the last
+30 days: submissions, unread, open high-priority, replied and spam, with
+counts per form and per day.
+
+**Export CSV** (with the same form, state, tag and priority filters as the inbox) downloads
+up to 20,000 submissions with their decrypted fields, so each export is written to the audit log. Cells that start like
+a spreadsheet formula are protected with a leading apostrophe. Spam is left out unless you ask for `state=spam`.
+
 ## What is kept
 
 Field values and files are encrypted at rest. The visitor's IP address is kept only as a keyed hash for rate limits and

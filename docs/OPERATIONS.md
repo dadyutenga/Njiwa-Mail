@@ -409,6 +409,9 @@ forms](../documentation/content/docs/api/forms.mdx).
 - Replies go through the normal sending path from the form's "reply from" address, which must be a verified sender; they
   are "submitted", never "delivered", until the delivery evidence says so.
 - Digest notifications (hourly / daily) are sent by the scheduler once a minute; quarantined messages never notify.
+- Routing rules (`form_rules`, at most 50 per form) set priority, tags and assignee on kept submissions; they hold no secrets.
+  The CSV export returns decrypted field values (at most 20,000 rows), so every export is written to the audit log as
+  `form_submission.export`.
 
 ## Live chat (off by default)
 

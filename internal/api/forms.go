@@ -233,9 +233,26 @@ func (s *Server) formRoutes(app *fiber.App) {
 		s.audit(c, u, "form_filter.delete", "form_filter", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
+	subFilter := func(c fiber.Ctx) service.FormSubmissionFilter {
+		return service.FormSubmissionFilter{FormID: c.Query("form"), State: c.Query("state"), Tag: c.Query("tag"), Priority: c.Query("priority")}
+	}
 	h("GET", "/forms/submissions", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
-		items, more, err := svc.ListFormSubmissions(ctx(c), sc, service.FormSubmissionFilter{FormID: c.Query("form"), State: c.Query("state")}, pageOf(c))
+		items, more, err := svc.ListFormSubmissions(ctx(c), sc, subFilter(c), pageOf(c))
 		return list(c, items, more, err)
+	})
+	h("GET", "/forms/submissions/summary", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		days, _ := strconv.Atoi(c.Query("days", "30"))
+		return svc.FormsSummary(ctx(c), sc, days)
+	})
+	h("GET", "/forms/submissions/export", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		b, err := svc.ExportFormSubmissions(ctx(c), sc, subFilter(c))
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "form_submission.export", "form_submission", "", scoped(sc, map[string]any{"form": c.Query("form"), "state": c.Query("state")}))
+		name := fmt.Sprintf("njiwa-%s-%s-form-submissions-%s.csv", sc.Project, sc.Mode, time.Now().UTC().Format("20060102"))
+		return rawResponse{header: map[string]string{"Content-Type": "text/csv; charset=utf-8",
+			"Content-Disposition": `attachment; filename="` + name + `"`}, body: b}, nil
 	})
 	h("GET", "/forms/submissions/stream", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if !svc.Opts.FormsEnabled {
@@ -264,14 +281,23 @@ func (s *Server) formRoutes(app *fiber.App) {
 	})
 	h("PATCH", "/forms/submissions/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
-			State      *string `json:"state"`
-			AssignedTo *string `json:"assigned_to"`
+			State      *string   `json:"state"`
+			AssignedTo *string   `json:"assigned_to"`
+			Tags       *[]string `json:"tags"`
+			Priority   *string   `json:"priority"`
 		}
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		if err := svc.UpdateFormSubmission(ctx(c), sc, c.Params("id"), in.State, in.AssignedTo); err != nil {
-			return nil, err
+		if in.State != nil || in.AssignedTo != nil {
+			if err := svc.UpdateFormSubmission(ctx(c), sc, c.Params("id"), in.State, in.AssignedTo); err != nil {
+				return nil, err
+			}
+		}
+		if in.Tags != nil || in.Priority != nil {
+			if err := svc.SetFormSubmissionLabels(ctx(c), sc, c.Params("id"), in.Tags, in.Priority); err != nil {
+				return nil, err
+			}
 		}
 		s.audit(c, u, "form_submission.update", "form_submission", c.Params("id"), scoped(sc, nil))
 		return nil, nil
@@ -281,6 +307,28 @@ func (s *Server) formRoutes(app *fiber.App) {
 			return nil, err
 		}
 		s.audit(c, u, "form_submission.delete", "form_submission", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("POST", "/forms/submissions/:id/spam", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			BlockSender bool `json:"block_sender"`
+		}
+		if len(c.Body()) > 0 {
+			if err := decode(c, &in); err != nil {
+				return nil, err
+			}
+		}
+		if err := svc.MarkFormSpam(ctx(c), sc, c.Params("id"), in.BlockSender); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "form_submission.spam", "form_submission", c.Params("id"), scoped(sc, map[string]any{"block_sender": in.BlockSender}))
+		return nil, nil
+	})
+	h("POST", "/forms/submissions/:id/not-spam", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.MarkFormNotSpam(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "form_submission.not_spam", "form_submission", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
 	h("POST", "/forms/submissions/:id/reply", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
@@ -305,6 +353,62 @@ func (s *Server) formRoutes(app *fiber.App) {
 		}
 		f.Size = len(f.Data)
 		return download(f), nil
+	})
+	h("GET", "/forms/:id/rules", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, err := svc.ListFormRules(ctx(c), sc, c.Params("id"))
+		return map[string]any{"items": items}, err
+	})
+	h("POST", "/forms/:id/rules", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.FormRuleInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateFormRule(ctx(c), sc, c.Params("id"), in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "form_rule.create", "form_rule", id, scoped(sc, map[string]any{"form": c.Params("id"), "name": in.Name}))
+		return map[string]string{"id": id}, nil
+	})
+	h("POST", "/forms/:id/rules/test", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Fields map[string]string `json:"fields"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		return svc.TestFormRules(ctx(c), sc, c.Params("id"), in.Fields)
+	})
+	h("PUT", "/forms/:id/rules/order", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			IDs []string `json:"ids"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.ReorderFormRules(ctx(c), sc, c.Params("id"), in.IDs); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "form_rule.reorder", "form", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("PUT", "/forms/:id/rules/:rid", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.FormRuleInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.UpdateFormRule(ctx(c), sc, c.Params("id"), c.Params("rid"), in); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "form_rule.update", "form_rule", c.Params("rid"), scoped(sc, map[string]any{"form": c.Params("id")}))
+		return nil, nil
+	})
+	h("DELETE", "/forms/:id/rules/:rid", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteFormRule(ctx(c), sc, c.Params("id"), c.Params("rid")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "form_rule.delete", "form_rule", c.Params("rid"), scoped(sc, map[string]any{"form": c.Params("id")}))
+		return nil, nil
 	})
 	h("PUT", "/forms/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.FormInput
