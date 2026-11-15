@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/njiwa-tz/mail/internal/db"
@@ -49,8 +52,99 @@ WHERE environment_id=$1 AND recipient_hash=$2 ORDER BY received_at`, eid, hash)
 	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM suppressions WHERE environment_id=$1 AND recipient_hash=$2`, eid, hash).Scan(&suppressed); err != nil {
 		return nil, unavailable("privacy_export", err)
 	}
+	contacts, err := s.exportContacts(ctx, eid, hash)
+	if err != nil {
+		return nil, err
+	}
+	forms, err := s.exportFormSubmissions(ctx, eid, hash)
+	if err != nil {
+		return nil, err
+	}
+	chats, err := s.exportChats(ctx, eid, hash)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{"email_masked": maskEmail(e), "exported_at": time.Now().UTC(), "suppressed": suppressed > 0,
-		"messages": msgs, "delivery_events": events, "bounces": bounces, "inbound": inb}, nil
+		"messages": msgs, "delivery_events": events, "bounces": bounces, "inbound": inb,
+		"contacts": contacts, "form_submissions": forms, "chats": chats}, nil
+}
+
+// What the person gave us themselves is exported in full: the contact's name and attributes
+// and the lists they are on, what they wrote in a form, and their chat messages. Message bodies
+// that Njiwa-Mail sent stay out of the export (they may hold other people's data).
+// These are read even when forms or chat are switched off, because the rows outlive the switch.
+func (s *Service) exportContacts(ctx context.Context, eid string, hash []byte) ([]map[string]any, error) {
+	rows, err := s.maps(ctx, `SELECT id::text AS id, data_enc, attributes, unsubscribed_at, created_at FROM contacts WHERE environment_id=$1 AND email_hash=$2`, eid, hash)
+	if err != nil {
+		return nil, unavailable("privacy_export", err)
+	}
+	for _, r := range rows {
+		id := fmt.Sprint(r["id"])
+		if enc, ok := r["data_enc"].([]byte); ok {
+			if pt, err := s.Box.Open(enc, []byte("contact:"+id)); err == nil {
+				var d contactData
+				if json.Unmarshal(pt, &d) == nil {
+					r["name"] = d.Name
+				}
+			}
+		}
+		delete(r, "data_enc")
+		lists, err := s.maps(ctx, `SELECT l.name AS name FROM contact_list_members m JOIN contact_lists l ON l.id=m.list_id WHERE m.contact_id=$1 ORDER BY l.name`, id)
+		if err != nil {
+			return nil, unavailable("privacy_export", err)
+		}
+		names := make([]string, 0, len(lists))
+		for _, l := range lists {
+			names = append(names, fmt.Sprint(l["name"]))
+		}
+		r["lists"] = names
+	}
+	return rows, nil
+}
+
+func (s *Service) exportFormSubmissions(ctx context.Context, eid string, hash []byte) ([]map[string]any, error) {
+	rows, err := s.maps(ctx, `SELECT x.id::text AS id, f.name AS form, x.received_at, x.state, x.action, x.spam_score
+FROM form_submissions x JOIN forms f ON f.id=x.form_id WHERE x.environment_id=$1 AND x.sender_hash=$2 ORDER BY x.received_at`, eid, hash)
+	if err != nil {
+		return nil, unavailable("privacy_export", err)
+	}
+	for _, r := range rows {
+		id := fmt.Sprint(r["id"])
+		if fields, err := s.submissionFields(ctx, id); err == nil {
+			r["fields"] = fields
+		}
+		files, err := s.maps(ctx, `SELECT filename, content_type, size FROM form_files WHERE submission_id=$1 ORDER BY filename`, id)
+		if err != nil {
+			return nil, unavailable("privacy_export", err)
+		}
+		r["files"] = files
+	}
+	return rows, nil
+}
+
+func (s *Service) exportChats(ctx context.Context, eid string, hash []byte) ([]map[string]any, error) {
+	rows, err := s.maps(ctx, `SELECT c.id::text AS id, w.name AS chat, c.created_at, c.state FROM chat_conversations c
+JOIN chat_widgets w ON w.id=c.widget_id WHERE c.environment_id=$1 AND c.email_hash=$2 ORDER BY c.created_at`, eid, hash)
+	if err != nil {
+		return nil, unavailable("privacy_export", err)
+	}
+	for _, r := range rows {
+		id := fmt.Sprint(r["id"])
+		msgs, err := s.maps(ctx, `SELECT id::text AS id, sender, body_enc, created_at FROM chat_messages WHERE conversation_id=$1 ORDER BY created_at, id`, id)
+		if err != nil {
+			return nil, unavailable("privacy_export", err)
+		}
+		for _, m := range msgs {
+			if enc, ok := m["body_enc"].([]byte); ok {
+				if pt, err := s.Box.Open(enc, []byte("chat-msg:"+fmt.Sprint(m["id"]))); err == nil {
+					m["body"] = string(pt)
+				}
+			}
+			delete(m, "body_enc")
+		}
+		r["messages"] = msgs
+	}
+	return rows, nil
 }
 
 // RecipientExportCSV flattens an export into one CSV: a row per record with
@@ -87,6 +181,30 @@ func RecipientExportCSV(x map[string]any) ([]byte, error) {
 	rows("inbound", "inbound", func(m map[string]any) []string {
 		return []string{cell(m["id"]), "", cell(m["received_at"]), "received", cell(m["subject"])}
 	})
+	rows("contact", "contacts", func(m map[string]any) []string {
+		lists, _ := m["lists"].([]string)
+		return []string{cell(m["id"]), "", cell(m["created_at"]), "contact", cell(m["name"]) + " lists: " + strings.Join(lists, ", ")}
+	})
+	rows("form_submission", "form_submissions", func(m map[string]any) []string {
+		fields, _ := m["fields"].(map[string]string)
+		keys := make([]string, 0, len(fields))
+		for k := range fields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, k+": "+fields[k])
+		}
+		return []string{cell(m["id"]), "", cell(m["received_at"]), cell(m["state"]), cell(m["form"]) + " | " + strings.Join(parts, "; ")}
+	})
+	chats, _ := x["chats"].([]map[string]any)
+	for _, c := range chats {
+		msgs, _ := c["messages"].([]map[string]any)
+		for _, m := range msgs {
+			_ = w.Write([]string{"chat_message", cell(m["id"]), cell(c["id"]), cell(m["created_at"]), cell(m["sender"]), cell(c["chat"]) + " | " + cell(m["body"])})
+		}
+	}
 	w.Flush()
 	return buf.Bytes(), w.Error()
 }
@@ -136,6 +254,18 @@ func (s *Service) DeleteRecipient(ctx context.Context, project, mode, email stri
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM suppressions WHERE environment_id=$1 AND recipient_hash=$2`, eid, hash); err != nil {
 		return unavailable("privacy_suppressions", err)
+	}
+	// What the person gave us themselves: their contact record (list memberships go with it), what
+	// they wrote in forms (with its files) and their chats (with their messages). Done whether or
+	// not forms or chat are switched on now: the rows outlive the switch.
+	if _, err := tx.Exec(ctx, `DELETE FROM contacts WHERE environment_id=$1 AND email_hash=$2`, eid, hash); err != nil {
+		return unavailable("privacy_contacts", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM form_submissions WHERE environment_id=$1 AND sender_hash=$2`, eid, hash); err != nil {
+		return unavailable("privacy_forms", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM chat_conversations WHERE environment_id=$1 AND email_hash=$2`, eid, hash); err != nil {
+		return unavailable("privacy_chats", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return unavailable("commit", err)
