@@ -241,10 +241,10 @@ is React).
 - [x] Fix: a contact's "Bounced" count counted every message.
 
 ### 12.4 Forms and live chat (PR 4)
-- [ ] Form endpoint (HTML, JSON, multipart, no JavaScript needed): origin allowlist, honeypot, single-use nonce, rate
+- [x] Form endpoint (HTML, JSON, multipart, no JavaScript needed): origin allowlist, honeypot, single-use nonce, rate
   limits, spam score with reasons and allow/flag/quarantine/reject, workspace filters with dry run, inbox states,
   manual replies through the normal pipeline, digests. Off by default.
-- [ ] Chat widget (one script tag), real-time answers from the dashboard, replies by email after the visitor leaves.
+- [x] Chat widget (one script tag), real-time answers from the dashboard, replies by email after the visitor leaves.
 
 ## 13. Leftover work (paused on the owner's request, 2026-11-14)
 
@@ -320,3 +320,41 @@ Original list:
   Segments and Bulk send only).
 - Contact attributes are stored in plain text by design (segments filter on them); revisit if a project needs
   encrypted attributes.
+
+## 14. Gap analysis against the Posta source (2026-11-15)
+
+The owner shared Posta's source (`goposta/posta`, collected in one file) and asked where Njiwa-Mail falls short. Method: Posta's
+262 routes, services and cron jobs were listed and each candidate was checked against Njiwa-Mail's `docs/ENDPOINTS.md` and code,
+not assumed. Already at least as good here (checked): template versions with publish, test send and preview; webhook
+deliveries with replay; session list and revoke; campaign actions; message retry; SSO (OIDC); usage plans; announcements and the
+notification inbox; webhook SSRF guard at connect time; inbound spam scoring; DNS evaluation, DKIM rotation, transport profiles
+with failover, managed MTA and its installer (Posta has none of these).
+
+### 14.1 Defects in Njiwa-Mail found by this comparison (fixed)
+- [x] **Privacy export and delete missed what people give us**: contacts, form submissions (with files) and chats were not
+  exported or deleted by `privacy/export` and `privacy/delete`. Fixed with a test that fails on the old code (PR "privacy coverage").
+- [x] **The OIDC client could be pointed at internal addresses** by a provider's discovery document (SSRF), and followed redirects
+  anywhere. It now connects only to public addresses, checked at connect time for redirects too; `SSO_ALLOWED_NETWORKS` allows a
+  provider on a private network. New `internal/netguard`.
+
+### 14.2 Larger gaps, in the order they matter
+1. [ ] **No per-project access control.** There is one role (`admin`) plus the installation-operator flag, and every signed-in
+   user can open every project (`ResolveScope` checks only that the project exists). Posta has workspace members with roles,
+   invitations and RBAC tests. Needed before one installation serves several customers: project membership (owner, admin,
+   developer, viewer), invitations, every `ws()` route checking membership and role, the project list filtered, tests for each.
+2. [ ] **Chat is basic next to Posta's**: no typing indicator or read receipts, no canned replies, no file attachments, no visitor
+   identification (a signed identity so the site can say who the visitor is and the email is trusted), no visitor attributes,
+   no ban of an abusive visitor, no agent presence, no chat analytics, no widget images or home-screen click counts, no key rotation.
+3. [ ] **Forms are basic next to Posta's**: no per-form routing rules or teams, no tags or priority on a submission, no spam/not-spam
+   marking that trains the filters, no export of submissions, no summary counts, no public key rotation.
+4. [ ] **Templates**: Posta has per-version localizations, stylesheets, languages, HTML import and template export/import.
+5. [ ] **Account lifecycle**: Posta has self-service password change, account deletion with a grace period (admins can cancel it),
+   admin disable of another user's 2FA and revoke of their sessions from the API, per-user audit log. Here most of this is CLI only.
+6. [ ] **Data export and import of a whole workspace**, and GDPR calls for forms and chats in the dashboard (the privacy page works
+   per address now; a bulk "delete everything older than" for forms and chats follows retention only).
+7. [ ] **Platform admin views**: a list of scheduled jobs with their last run, a live platform metrics and events stream, an
+   update check, shared SMTP servers that an operator offers to all projects.
+8. [ ] **Enterprise-style extras Posta has and we deliberately do not**: LDAP directory sign-in, a license system. S3 object
+   storage for attachments is a real gap: inbound attachments sit unencrypted under `DATA_DIR/attachments` (see OPERATIONS).
+
+Each item is its own PR to `dev`, in this order, with tests and a visual check.
