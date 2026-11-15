@@ -248,10 +248,26 @@ is React).
 
 ## 13. Leftover work (paused on the owner's request, 2026-11-14)
 
-Not started or not finished. Each item is its own PR to `dev`; none needs real infrastructure except where noted.
+Each item is its own PR to `dev`; none needs real infrastructure except where noted.
 
-### T13.1 OIDC / SSO sign-in (Google, Keycloak, authentik, any OIDC provider)
-Design agreed while starting it (no code kept):
+| Item | State |
+|---|---|
+| T13.1 OIDC / SSO sign-in | **Done**, merged (#20). Checking with one real provider is a joint test (see below). |
+| T13.2 Daily report by email | Open: needs the owner's decision on a system sender. |
+| T13.3 Forms | **Done**, merged (#21). Off unless `FORMS_ENABLED=true`. |
+| T13.4 Live chat | **Done**, merged (#22, then #21). Off unless `CHAT_ENABLED=true`. |
+| T13.5 Smaller follow-ups | Open. |
+
+Joint tests still to do, none of which can be done without infrastructure or a person:
+- T13.1: sign in once with a real provider (Google, Keycloak or authentik); the tests use a fake provider.
+- T13.3 / T13.4: a real mail round trip. Form replies, form digests and the chat email follow-up are tested by queueing
+  assertions only; no Live message to a real recipient was sent. Both features also need a verified sender in the
+  environment, or their emails stay pending (the scheduler logs it).
+- T13.4: the widget was run in a real browser against a local server (start, live answer, resume after reload); it has not
+  yet been run on a real website behind the production reverse proxy (streams must not be buffered).
+
+### T13.1 OIDC / SSO sign-in (Google, Keycloak, authentik, any OIDC provider) — DONE (#20)
+Design as built (`internal/oidc`, `internal/service/sso.go`, migration 0030):
 - Standard library only, no new dependency: discovery (`/.well-known/openid-configuration`, issuer must match, https
   endpoints only), authorization code flow with PKCE (S256), state and nonce, ID token verification for RS256
   (keys of 2048 bits or more) and ES256 with the provider's JWKS (refetched once for an unknown key id); checks iss, aud,
@@ -271,7 +287,9 @@ Design agreed while starting it (no code kept):
 The report is recorded and shown in every inbox, but not emailed. Needs an operator setting for recipients and a
 system sender (the same question as T9.8/password-reset mail); owner decision on which sender.
 
-### T13.3 Forms (PR 4, first half)
+### T13.3 Forms (PR 4, first half) — DONE (#21)
+Built as described below (migration 0031, `internal/service/forms*.go`, `formspam.go`, docs page `api/forms`).
+
 Form endpoint accepting HTML form posts, JSON and multipart (works without JavaScript); origin allowlist, honeypot,
 single-use nonce, rate limits per IP, form, sender and workspace; spam score with reasons and allow / flag /
 quarantine / reject; workspace filters (keyword, phrase, regex, email, domain, IP) with a dry run; inbox states,
@@ -279,8 +297,10 @@ assignment, attachments, live stream (reuse the SSE stream); manual replies thro
 auto-responder); immediate, hourly or daily digests to each form's addresses. Off by default (a setting, like
 `POSTA_MESSAGES_ENABLED` in the owner's list).
 
-### T13.4 Live chat (PR 4, second half)
-A chat widget added with one script tag, real-time answers from the dashboard (SSE or WebSocket), replies by email once
+### T13.4 Live chat (PR 4, second half) — DONE (#22, merged through #21)
+Built (migration 0032, `internal/service/chat.go`, `internal/api/chat.go` and `chat_widget.js`, docs page `api/chat`):
+visitors are held by a per-conversation session token, answers reach an open page over a stream and are emailed once if
+the page never received them. Original request: a chat widget added with one script tag, real-time answers from the dashboard (SSE or WebSocket), replies by email once
 the visitor has left, and a home screen for the site's own links and announcements.
 
 ### T13.5 Smaller follow-ups found along the way
