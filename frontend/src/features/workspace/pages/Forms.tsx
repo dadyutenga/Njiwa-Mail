@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Paperclip, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, Paperclip, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
@@ -100,6 +100,7 @@ export function Forms() {
   const client = useQueryClient();
   const [editing, setEditing] = useState<{ id?: string; draft: FormDraft } | null>(null);
   const [embed, setEmbed] = useState<Row | null>(null);
+  const [rulesFor, setRulesFor] = useState<Row | null>(null);
   const list = useQuery({
     queryKey: key("forms"),
     queryFn: () => api.get<{ items: Row[] }>("/forms"),
@@ -165,6 +166,9 @@ export function Forms() {
                     <Button size="sm" variant="outline" onClick={() => setEmbed(r)}>
                       {phrase("Embed")}
                     </Button>
+                    <Button size="sm" variant="outline" onClick={() => setRulesFor(r)}>
+                      {phrase("Rules")}
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -218,6 +222,7 @@ export function Forms() {
         }}
         api={api}
       />
+      <FormRulesDialog form={rulesFor} onClose={() => setRulesFor(null)} api={api} />
       <Dialog open={!!embed} onOpenChange={(v) => !v && setEmbed(null)}>
         <DialogContent className="max-w-2xl">
           <DialogTitle>{phrase("Embed on your website")}</DialogTitle>
@@ -392,6 +397,12 @@ function FormDialog({
 // ---------------------------------------------------------------- inbox
 
 const states = ["new", "open", "replied", "closed", "spam"];
+const priorities = ["high", "normal", "low"];
+const priorityState: Record<string, string> = {
+  high: "failed",
+  normal: "cancelled",
+  low: "cancelled",
+};
 
 export function FormInbox() {
   const phrase = usePhrase();
@@ -400,6 +411,8 @@ export function FormInbox() {
   const client = useQueryClient();
   const [form, setForm] = useParam("form");
   const [state, setState] = useParam("state");
+  const [tag, setTag] = useParam("tag");
+  const [priority, setPriority] = useParam("priority");
   const [open, setOpen] = useParam("m");
   const offset = useOffset();
   const forms = useQuery({
@@ -409,6 +422,18 @@ export function FormInbox() {
   const params = new URLSearchParams({ limit: "50", offset: String(offset) });
   if (form) params.set("form", form);
   if (state) params.set("state", state);
+  if (tag) params.set("tag", tag);
+  if (priority) params.set("priority", priority);
+  const exportHref = `/admin/v1${api.base}/forms/submissions/export?${(() => {
+    const q = new URLSearchParams(params);
+    q.delete("limit");
+    q.delete("offset");
+    return q;
+  })()}`;
+  const summary = useQuery({
+    queryKey: key("form-summary"),
+    queryFn: () => api.get<Row>("/forms/submissions/summary?days=30"),
+  });
   const page = useQuery({
     queryKey: key("form-submissions", params.toString()),
     queryFn: () => api.get<Page>(`/forms/submissions?${params}`),
@@ -435,8 +460,58 @@ export function FormInbox() {
           "Messages sent through your website forms. Suspected spam is kept apart and never notifies you.",
         )}
       />
+      {summary.data && (
+        <div
+          className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5"
+          aria-label={phrase("Last 30 days")}
+        >
+          {(
+            [
+              ["submissions", "Submissions"],
+              ["unread", "Unread"],
+              ["high_priority_open", "High priority, open"],
+              ["replied", "Replied"],
+              ["spam", "Spam"],
+            ] as const
+          ).map(([k, label]) => (
+            <div key={k} className="rounded-xl border bg-card p-3">
+              <div className="text-xs text-muted-foreground">{phrase(label)}</div>
+              <div className="text-xl font-semibold">
+                {n((summary.data.totals as Row | undefined)?.[k])}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <SendingMode value={env} onChange={setEnv} />
+        <Field label={phrase("Tag")}>
+          <input
+            className={inputClass}
+            value={tag}
+            onChange={(e) => setTag(e.target.value.trim())}
+            placeholder={phrase("Any")}
+          />
+        </Field>
+        <Field label={phrase("Priority")}>
+          <select
+            className={selectClass}
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+          >
+            <option value="">{phrase("Any")}</option>
+            {priorities.map((x) => (
+              <option key={x} value={x}>
+                {phrase(x)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Button variant="outline" asChild>
+          <a href={exportHref} download>
+            <Download size={14} /> {phrase("Export CSV")}
+          </a>
+        </Button>
         <Field label={phrase("Form")}>
           <select className={selectClass} value={form} onChange={(e) => setForm(e.target.value)}>
             <option value="">{phrase("All")}</option>
@@ -500,6 +575,33 @@ export function FormInbox() {
                   ),
                 },
                 {
+                  key: "priority",
+                  label: phrase("Priority"),
+                  render: (r) => (
+                    <StateBadge
+                      state={priorityState[s(r.priority)] ?? "cancelled"}
+                      label={phrase(s(r.priority) || "normal")}
+                    />
+                  ),
+                },
+                {
+                  key: "tags",
+                  label: phrase("Tags"),
+                  render: (r) => (
+                    <span className="flex flex-wrap gap-1">
+                      {((r.tags as string[]) ?? []).map((t) => (
+                        <button
+                          key={t}
+                          className="rounded bg-muted px-1.5 py-0.5 text-xs"
+                          onClick={() => setTag(t)}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </span>
+                  ),
+                },
+                {
                   key: "state",
                   label: phrase("State"),
                   render: (r) => (
@@ -541,6 +643,8 @@ function SubmissionDialog({ id, onClose }: { id: string; onClose: () => void }) 
   const client = useQueryClient();
   const [subject, setSubject] = useState("");
   const [text, setText] = useState("");
+  const [tags, setTags] = useState("");
+  const [block, setBlock] = useState(false);
   const [error, setError] = useState("");
   const q = useQuery({
     queryKey: key("form-submission", id),
@@ -551,11 +655,34 @@ function SubmissionDialog({ id, onClose }: { id: string; onClose: () => void }) 
     setSubject("");
     setText("");
     setError("");
+    setBlock(false);
   }, [id]);
+  useEffect(() => {
+    setTags(((q.data?.tags as string[]) ?? []).join(", "));
+  }, [q.data]);
   const refresh = () => {
     client.invalidateQueries({ queryKey: key("form-submission", id) });
     client.invalidateQueries({ queryKey: key("form-submissions") });
+    client.invalidateQueries({ queryKey: key("form-summary") });
     client.invalidateQueries({ queryKey: key("forms") });
+  };
+  const label = async (body: Record<string, unknown>) => {
+    await run(() => api.send(`/forms/submissions/${id}`, "PATCH", body), phrase("Updated"));
+    refresh();
+  };
+  const markSpam = async () => {
+    await run(
+      () => api.send(`/forms/submissions/${id}/spam`, "POST", { block_sender: block }),
+      phrase("Marked as spam"),
+    );
+    refresh();
+  };
+  const notSpam = async () => {
+    await run(
+      () => api.send(`/forms/submissions/${id}/not-spam`, "POST"),
+      phrase("Moved back to the inbox"),
+    );
+    refresh();
   };
   const setState = async (state: string) => {
     await run(() => api.send(`/forms/submissions/${id}`, "PATCH", { state }), phrase("Updated"));
@@ -621,6 +748,60 @@ function SubmissionDialog({ id, onClose }: { id: string; onClose: () => void }) 
                     {r}
                   </span>
                 ))}
+              </div>
+              <Section title={phrase("Priority and tags")}>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Field label={phrase("Priority")}>
+                    <select
+                      className={selectClass}
+                      value={s(d?.priority) || "normal"}
+                      onChange={(e) => label({ priority: e.target.value })}
+                    >
+                      {priorities.map((x) => (
+                        <option key={x} value={x}>
+                          {phrase(x)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field
+                    label={phrase("Tags")}
+                    hint={phrase("Separate with commas, up to 10.")}
+                    className="sm:col-span-2"
+                  >
+                    <span className="flex gap-2">
+                      <input
+                        className={inputClass}
+                        value={tags}
+                        onChange={(e) => setTags(e.target.value)}
+                      />
+                      <Button variant="outline" onClick={() => label({ tags: lines(tags) })}>
+                        {phrase("Save")}
+                      </Button>
+                    </span>
+                  </Field>
+                </div>
+              </Section>
+              <div className="flex flex-wrap items-center gap-2">
+                {s(d?.state) === "spam" ? (
+                  <Button size="sm" variant="outline" onClick={notSpam}>
+                    {phrase("Not spam")}
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" onClick={markSpam}>
+                      {phrase("Mark as spam")}
+                    </Button>
+                    <label className="flex items-center gap-1 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={block}
+                        onChange={(e) => setBlock(e.target.checked)}
+                      />
+                      {phrase("Also block this sender")}
+                    </label>
+                  </>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 {states.map((x) => (
@@ -688,6 +869,331 @@ function SubmissionDialog({ id, onClose }: { id: string; onClose: () => void }) 
             </div>
           )}
         </DataState>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------- routing rules
+
+const ruleOps = ["contains", "equals", "regex", "domain", "exists"];
+
+type RuleDraft = {
+  name: string;
+  field: string;
+  op: string;
+  value: string;
+  set_priority: string;
+  add_tags: string;
+  stop: boolean;
+};
+
+const blankRule: RuleDraft = {
+  name: "",
+  field: "",
+  op: "contains",
+  value: "",
+  set_priority: "",
+  add_tags: "",
+  stop: false,
+};
+
+function FormRulesDialog({
+  form,
+  onClose,
+  api,
+}: {
+  form: Row | null;
+  onClose: () => void;
+  api: ReturnType<typeof useSendingEnvironment>["api"];
+}) {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const id = form ? s(form.id) : "";
+  const [r, setR] = useState<RuleDraft>(blankRule);
+  const [sample, setSample] = useState("email: ann@example.org\nmessage: I would like a refund");
+  const [result, setResult] = useState<Row | null>(null);
+  const [error, setError] = useState("");
+  const q = useQuery({
+    queryKey: ["form-rules", api.base, id],
+    queryFn: () => api.get<{ items: Row[] }>(`/forms/${id}/rules`),
+    enabled: !!id,
+  });
+  useEffect(() => {
+    setR(blankRule);
+    setResult(null);
+    setError("");
+  }, [id]);
+  const refresh = () => client.invalidateQueries({ queryKey: ["form-rules", api.base, id] });
+  const add = async () => {
+    setError("");
+    try {
+      await api.send(`/forms/${id}/rules`, "POST", {
+        name: r.name.trim(),
+        field: r.field.trim(),
+        op: r.op,
+        value: r.value,
+        set_priority: r.set_priority,
+        add_tags: lines(r.add_tags),
+        stop: r.stop,
+      });
+      setR(blankRule);
+      refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  const move = async (i: number, dir: -1 | 1) => {
+    const ids = (q.data?.items ?? []).map((x) => s(x.id));
+    const j = i + dir;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    await run(() => api.send(`/forms/${id}/rules/order`, "PUT", { ids }), "");
+    refresh();
+  };
+  const test = async () => {
+    setError("");
+    setResult(null);
+    const fields: Record<string, string> = {};
+    for (const line of sample.split("\n")) {
+      const k = line.indexOf(":");
+      if (k > 0) fields[line.slice(0, k).trim()] = line.slice(k + 1).trim();
+    }
+    try {
+      setResult(await api.send<Row>(`/forms/${id}/rules/test`, "POST", { fields }));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <Dialog open={!!form} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogTitle>{phrase("Routing rules")}</DialogTitle>
+        <DialogDescription>
+          {phrase(
+            "Rules run in order on every kept submission: set a priority, add tags or assign it. Suspected spam is left alone.",
+          )}
+        </DialogDescription>
+        <DataState
+          q={q}
+          isEmpty={(d) => d.items.length === 0}
+          empty={<p className="text-sm text-muted-foreground">{phrase("No rules")}</p>}
+        >
+          {(d) => (
+            <Table
+              rows={d.items}
+              rowKey={(x) => s(x.id)}
+              columns={[
+                { key: "name", label: phrase("Name"), render: (x) => <b>{s(x.name)}</b> },
+                {
+                  key: "op",
+                  label: phrase("When"),
+                  render: (x) => (
+                    <span>
+                      {s(x.field) || phrase("any field")} {phrase(s(x.op))}{" "}
+                      {s(x.op) !== "exists" && <code>{s(x.value)}</code>}
+                    </span>
+                  ),
+                },
+                {
+                  key: "set_priority",
+                  label: phrase("Then"),
+                  render: (x) => (
+                    <span className="flex flex-wrap gap-1 text-xs">
+                      {s(x.set_priority) && <span>{phrase(s(x.set_priority))}</span>}
+                      {((x.add_tags as string[]) ?? []).map((t) => (
+                        <span key={t} className="rounded bg-muted px-1.5 py-0.5">
+                          {t}
+                        </span>
+                      ))}
+                      {s(x.assign_to_email) && <span>{s(x.assign_to_email)}</span>}
+                      {!!x.stop && <span>{phrase("then stop")}</span>}
+                    </span>
+                  ),
+                },
+                {
+                  key: "enabled",
+                  label: phrase("Enabled"),
+                  render: (x) => (
+                    <input
+                      type="checkbox"
+                      aria-label={phrase("Enabled")}
+                      checked={!!x.enabled}
+                      onChange={async (e) => {
+                        await run(
+                          () =>
+                            api.send(`/forms/${id}/rules/${s(x.id)}`, "PUT", {
+                              name: s(x.name),
+                              field: s(x.field),
+                              op: s(x.op),
+                              value: s(x.value),
+                              set_priority: s(x.set_priority),
+                              add_tags: x.add_tags,
+                              assign_to: s(x.assign_to),
+                              stop: !!x.stop,
+                              enabled: e.target.checked,
+                            }),
+                          "",
+                        );
+                        refresh();
+                      }}
+                    />
+                  ),
+                },
+                {
+                  key: "id",
+                  label: "",
+                  render: (x) => {
+                    const i = d.items.findIndex((y) => s(y.id) === s(x.id));
+                    return (
+                      <span className="flex justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-label={phrase("Move up")}
+                          disabled={i === 0}
+                          onClick={() => move(i, -1)}
+                        >
+                          <ArrowUp size={14} />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-label={phrase("Move down")}
+                          disabled={i === d.items.length - 1}
+                          onClick={() => move(i, 1)}
+                        >
+                          <ArrowDown size={14} />
+                        </Button>
+                        <ConfirmButton
+                          title={phrase("Delete this rule?")}
+                          description={phrase("Past submissions keep their labels.")}
+                          confirm="Delete"
+                          onConfirm={async () => {
+                            await run(
+                              () => api.send(`/forms/${id}/rules/${s(x.id)}`, "DELETE"),
+                              "",
+                            );
+                            refresh();
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </ConfirmButton>
+                      </span>
+                    );
+                  },
+                },
+              ]}
+            />
+          )}
+        </DataState>
+        <Section title={phrase("Add a rule")}>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <Field label={phrase("Name")}>
+              <input
+                className={inputClass}
+                value={r.name}
+                onChange={(e) => setR({ ...r, name: e.target.value })}
+              />
+            </Field>
+            <Field label={phrase("Field")} hint={phrase("Empty means any field.")}>
+              <input
+                className={inputClass}
+                value={r.field}
+                onChange={(e) => setR({ ...r, field: e.target.value })}
+              />
+            </Field>
+            <Field label={phrase("Condition")}>
+              <select
+                className={selectClass}
+                value={r.op}
+                onChange={(e) => setR({ ...r, op: e.target.value })}
+              >
+                {ruleOps.map((x) => (
+                  <option key={x} value={x}>
+                    {phrase(x)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label={phrase("Value")}>
+              <input
+                className={inputClass}
+                value={r.value}
+                disabled={r.op === "exists"}
+                onChange={(e) => setR({ ...r, value: e.target.value })}
+              />
+            </Field>
+            <Field label={phrase("Set priority")}>
+              <select
+                className={selectClass}
+                value={r.set_priority}
+                onChange={(e) => setR({ ...r, set_priority: e.target.value })}
+              >
+                <option value="">{phrase("Leave as is")}</option>
+                {priorities.map((x) => (
+                  <option key={x} value={x}>
+                    {phrase(x)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field
+              label={phrase("Add tags")}
+              hint={phrase("Separate with commas, up to 10.")}
+              className="sm:col-span-2"
+            >
+              <input
+                className={inputClass}
+                value={r.add_tags}
+                onChange={(e) => setR({ ...r, add_tags: e.target.value })}
+              />
+            </Field>
+            <label className="flex items-center gap-2 self-end text-sm">
+              <input
+                type="checkbox"
+                checked={r.stop}
+                onChange={(e) => setR({ ...r, stop: e.target.checked })}
+              />
+              {phrase("Skip the later rules")}
+            </label>
+          </div>
+          {error && (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="mt-3 flex justify-end">
+            <Button onClick={add} disabled={!r.name.trim()}>
+              {phrase("Add rule")}
+            </Button>
+          </div>
+        </Section>
+        <Section title={phrase("Try the rules")}>
+          <Field
+            label={phrase("A sample submission")}
+            hint={phrase("One field per line, as name: value.")}
+          >
+            <textarea
+              className={textareaClass}
+              rows={3}
+              value={sample}
+              onChange={(e) => setSample(e.target.value)}
+            />
+          </Field>
+          <div className="mt-2 flex items-center gap-3">
+            <Button variant="outline" onClick={test}>
+              {phrase("Try it")}
+            </Button>
+            {result && (
+              <p className="text-sm" role="status">
+                {phrase("Priority")}: {phrase(s(result.priority))} · {phrase("Tags")}:{" "}
+                {((result.tags as string[]) ?? []).join(", ") || "-"} · {phrase("Matched")}:{" "}
+                {((result.matched as string[]) ?? []).join(", ") || "-"}
+              </p>
+            )}
+          </div>
+        </Section>
       </DialogContent>
     </Dialog>
   );
