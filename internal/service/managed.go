@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"strings"
 
 	"github.com/njiwa-tz/mail/internal/db"
 	"github.com/njiwa-tz/mail/internal/mailer"
@@ -138,6 +139,52 @@ func (s *Service) openManagedProfile(cj, secEnc []byte) (mailer.SMTPConfig, bool
 	}
 	cfg = mailer.SMTPConfig{Host: c.Host, Port: c.Port, ServerName: c.ServerName, RootCAs: pool, ClientCert: &pair, HeloName: "njiwa-worker"}
 	return cfg, true, nil
+}
+
+// RecordManagedDomainKeys stores the public DKIM records from an approved
+// domain expansion. Private keys stay on the host. SMTP credentials and the
+// profile revision are left as they are: this does not change how mail connects.
+func (s *Service) RecordManagedDomainKeys(ctx context.Context, a Actor, receiptID, digest, selector string, records map[string]string) error {
+	if digest == "" || receiptID == "" || len(records) == 0 {
+		return badRequest("the domain result is incomplete")
+	}
+	for domain, value := range records {
+		if _, ok := NormalizeDomain(domain); !ok || !strings.HasPrefix(value, "v=DKIM1;") {
+			return badRequest("the domain result is incomplete")
+		}
+	}
+	raw, err := json.Marshal(records)
+	if err != nil {
+		return unavailable("domain_keys", err)
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return unavailable("domain_keys", err)
+	}
+	defer tx.Rollback(ctx)
+	var id string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM transport_profiles WHERE mode='managed_mta' AND status <> 'retired'
+ORDER BY is_active DESC, created_at LIMIT 1 FOR UPDATE`).Scan(&id)
+	if errors.Is(err, db.ErrNoRows) {
+		return badRequest("managed mail host is not recorded")
+	}
+	if err != nil {
+		return unavailable("domain_keys", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE transport_profiles SET config_json = jsonb_set(
+  jsonb_set(COALESCE(config_json, '{}'::jsonb), '{dkim_records}', COALESCE(config_json->'dkim_records', '{}'::jsonb) || $2::jsonb, true),
+  '{selector}', to_jsonb(CASE WHEN COALESCE(config_json->>'selector','') = '' THEN $3 ELSE config_json->>'selector' END), true),
+  updated_at=now() WHERE id=$1::uuid`, id, raw, selector); err != nil {
+		return unavailable("domain_keys", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO installer_receipts(profile_id, plan_digest, approved_by, action, result_code, verified_at, rollback_state)
+VALUES ($1::uuid,$2,$3,'apply','ok',now(),'available')`, id, digest, a.Name); err != nil {
+		return unavailable("domain_keys", err)
+	}
+	if err := audit(ctx, tx, a, "installer.domain_keys", "transport_profile", id, map[string]any{"receipt": receiptID, "digest": digest, "domains": len(records)}); err != nil {
+		return unavailable("audit", err)
+	}
+	return tx.Commit(ctx)
 }
 
 // managedDKIM is the DKIM record the managed signer uses for domain, if the

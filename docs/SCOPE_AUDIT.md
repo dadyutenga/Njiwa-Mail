@@ -1,5 +1,7 @@
 # Scope audit: the implementation against the corrected product scope
 
+Historical assessment. The current implementation assessment and corrective tasks are in [`SCOPE_AUDIT_CURRENT.md`](SCOPE_AUDIT_CURRENT.md).
+
 Audited: branch `dev` at `e77dec2` (after PR #27). It does **not** include the open PRs #28 to #37.
 Source of truth for the scope: the owner's "Product scope correction" statement, kept in [`PRODUCT_SCOPE.md`](PRODUCT_SCOPE.md).
 

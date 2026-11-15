@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePhrase } from "@/features/i18n/i18n";
-import { admin } from "@/lib/admin-api";
+import { admin, AdminError } from "@/lib/admin-api";
 import {
   CopyButton,
   DataState,
@@ -46,8 +47,14 @@ const rotationText: Record<string, string> = {
   retired: "The old selector was retired.",
 };
 
+type DomainPlan = { digest: string; selector: string; files: { path: string; change: string }[] };
+
 export function MailHost() {
   const phrase = usePhrase();
+  const qc = useQueryClient();
+  const [plan, setPlan] = useState<DomainPlan | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
   const q = useQuery({
     queryKey: ["mail-host"],
     queryFn: () => admin.get<MailHost>("/installation/mail-host"),
@@ -70,9 +77,65 @@ export function MailHost() {
                   {phrase("These verified sending domains have no DKIM key on the mail host yet:")}{" "}
                   <strong>{d.domains_missing_key.join(", ")}</strong>.{" "}
                   {phrase(
-                    "Run the installer again so it creates their keys, then publish the DKIM records it prints.",
+                    "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. The commands below remain when the host agent is not connected.",
                   )}
                 </p>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      setNote("");
+                      admin
+                        .send<DomainPlan>("/installation/domains/plan", "POST", {
+                          domains: d.domains_missing_key,
+                        })
+                        .then((p) => setPlan(p))
+                        .catch((e: unknown) =>
+                          setNote(e instanceof AdminError ? e.message : phrase("The host plan could not be prepared.")),
+                        )
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    {phrase("Prepare host plan")}
+                  </button>
+                  {plan && (
+                    <button
+                      type="button"
+                      className="rounded border px-3 py-1.5 text-xs disabled:opacity-50"
+                      disabled={busy}
+                      onClick={() => {
+                        setBusy(true);
+                        setNote("");
+                        admin
+                          .send("/installation/domains/apply", "POST", {
+                            domains: d.domains_missing_key,
+                            digest: plan.digest,
+                          })
+                          .then(async () => {
+                            setPlan(null);
+                            setNote(phrase("Keys created. Publish the DKIM records on the domain page."));
+                            await qc.invalidateQueries({ queryKey: ["mail-host"] });
+                          })
+                          .catch((e: unknown) =>
+                            setNote(
+                              e instanceof AdminError ? e.message : phrase("The host did not apply this plan."),
+                            ),
+                          )
+                          .finally(() => setBusy(false));
+                      }}
+                    >
+                      {phrase("Apply reviewed plan")} {plan.digest}
+                    </button>
+                  )}
+                </div>
+                {note && (
+                  <p role="status" className="mb-2 text-xs">
+                    {note}
+                  </p>
+                )}
                 <ol className="space-y-2 text-xs">
                   {d.suggested_commands.map((c) => (
                     <li key={c} className="flex items-start gap-2">

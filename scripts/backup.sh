@@ -5,7 +5,7 @@
 #
 # Always: the PostgreSQL database (pg_dump) and DATA_DIR (inbound attachments,
 # spool). On a managed-mode host, run as root, it also saves what the
-# installer created: Postfix and OpenDKIM configuration, the DKIM private keys,
+# installer created (requires BACKUP_MANAGED=1): Postfix and OpenDKIM configuration, the DKIM private keys,
 # the local CA and the worker's certificate, and the installer receipts.
 # BACKUP_QUEUE=1 also copies the Postfix queue; Postfix is stopped for the copy
 # (seconds) so the queue files are consistent, then started again.
@@ -17,7 +17,15 @@
 set -eu
 umask 077
 out=${1:-"./backup-$(date -u +%Y%m%dT%H%M%SZ)"}
-mkdir -p "$out"
+# Managed host capture is explicit: application backup never inspects mail keys.
+[ ! -e "$out" ] || { echo "backup output must be a new directory" >&2; exit 1; }
+[ "${BACKUP_QUEUE:-0}" != 1 ] || [ "${BACKUP_MANAGED:-0}" = 1 ] || { echo "BACKUP_QUEUE=1 requires BACKUP_MANAGED=1" >&2; exit 1; }
+if [ "${BACKUP_MANAGED:-0}" = 1 ]; then
+  [ "$(id -u)" = 0 ] || { echo "managed backup requires root" >&2; exit 1; }
+  python3 "$(dirname "$0")/recovery_guard.py" backup-plan "$out" --managed
+else
+  python3 "$(dirname "$0")/recovery_guard.py" backup-plan "$out"
+fi
 
 # PostgreSQL normally runs in a container and the host has no client tools. Without pg_dump, run the one from the same
 # image as the server (PG_IMAGE, on the Compose network PG_NETWORK) so the dump format always matches the server.
@@ -38,27 +46,20 @@ elif [ -n "${DATA_DIR:-}" ] && [ -d "$DATA_DIR" ]; then
   tar -C "$DATA_DIR" -czf "$out/data.tgz" .
 fi
 
-# Managed-mode host files, only those that exist.
-managed=""
-for p in /etc/postfix/main.cf /etc/postfix/master.cf /etc/postfix/njiwa /etc/opendkim.conf /etc/opendkim \
-         /etc/njiwa-mail /var/lib/njiwa-mail/installer /etc/systemd/system/njiwa-mail-firewall.service \
-         /etc/systemd/system/postfix@.service.d /etc/systemd/system/njiwa-mail-mta-agent.service \
-         /etc/systemd/system/njiwa-mail-mta-log.service; do
-  [ -e "$p" ] && managed="$managed ${p#/}"
-done
-if [ -n "$managed" ]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo "managed-mode files found but not running as root: they were NOT backed up" >&2
-  else
-    # shellcheck disable=SC2086
-    tar -C / --numeric-owner -czpf "$out/managed.tgz" $managed
-    if [ "${BACKUP_QUEUE:-0}" = "1" ] && [ -d /var/spool/postfix ]; then
-      running=0
-      postfix status >/dev/null 2>&1 && running=1
-      [ "$running" = 1 ] && postfix stop >/dev/null
-      tar -C / --numeric-owner --warning=no-file-ignored -czpf "$out/postfix-queue.tgz" var/spool/postfix || { [ "$running" = 1 ] && postfix start >/dev/null; exit 1; }
-      [ "$running" = 1 ] && postfix start >/dev/null
-    fi
+# The inventory contains only receipt-owned files, not whole /etc mail trees.
+if [ "${BACKUP_MANAGED:-0}" = 1 ]; then
+  tar -C / --numeric-owner --no-recursion -czpf "$out/managed.tgz" -T "$out/managed-paths.txt"
+  if [ "${BACKUP_QUEUE:-0}" = 1 ] && [ -d /var/spool/postfix ]; then
+    running=0
+    postfix status >/dev/null 2>&1 && running=1
+    restart_queue() { [ "$running" != 1 ] || postfix start >/dev/null; }
+    trap restart_queue EXIT
+    trap 'exit 1' HUP INT TERM
+    [ "$running" != 1 ] || postfix stop >/dev/null
+    tar -C / --numeric-owner --warning=no-file-ignored -czpf "$out/postfix-queue.tgz" var/spool/postfix
+    restart_queue
+    running=0
+    trap - EXIT HUP INT TERM
   fi
 fi
 

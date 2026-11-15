@@ -1,7 +1,7 @@
 # Njiwa-Mail: product scope and source of truth
 
 This is the owner's scope statement, kept verbatim. Where another document or the code disagrees with it, this document wins and the
-other one is wrong. The current state against it, with corrective tasks, is in [`SCOPE_AUDIT.md`](SCOPE_AUDIT.md).
+other one is wrong. The current state against it, with corrective tasks, is in [`SCOPE_AUDIT_CURRENT.md`](SCOPE_AUDIT_CURRENT.md).
 
 ## Product vision
 

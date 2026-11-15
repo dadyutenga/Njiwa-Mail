@@ -12,7 +12,12 @@
 # manifest is verified first and the restore stops if anything differs.
 set -eu
 src=${1:?usage: restore.sh BACKUP_DIR}
-( cd "$src" && sha256sum -c --quiet MANIFEST.sha256 ) || { echo "backup files do not match MANIFEST.sha256; not restoring" >&2; exit 1; }
+# Every archive, ownership boundary and target is checked before database writes.
+if [ "${RESTORE_MANAGED:-0}" = 1 ]; then
+  map_backend=$(python3 "$(dirname "$0")/recovery_guard.py" restore-check "$src" --managed)
+else
+  map_backend=$(python3 "$(dirname "$0")/recovery_guard.py" restore-check "$src")
+fi
 
 if [ "${PG_CLIENT:-}" != docker ] && command -v pg_restore >/dev/null 2>&1; then
   pg_restore --clean --if-exists --dbname="$DATABASE_URL" "$src/mail.dump"
@@ -53,7 +58,7 @@ if [ -f "$src/managed.tgz" ]; then
     tar -C / --numeric-owner -xzpf "$src/postfix-queue.tgz"
   fi
   for m in senders transport relay_clientcerts; do
-    [ -f "/etc/postfix/njiwa/$m" ] && postmap "hash:/etc/postfix/njiwa/$m"
+    [ -f "/etc/postfix/njiwa/$m" ] && postmap "$map_backend:/etc/postfix/njiwa/$m"
   done
   postfix check
   opendkim -n -x /etc/opendkim.conf

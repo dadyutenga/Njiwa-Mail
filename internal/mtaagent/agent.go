@@ -108,8 +108,9 @@ type Status struct {
 
 // Agent serves the control API.
 type Agent struct {
-	Runner Runner
-	Token  string
+	Runner  Runner
+	Token   string
+	Domains DomainManager
 	// Signer is the DKIM signing unit checked for Status (default opendkim).
 	Signer string
 	// Postfix is the unit checked for Status (default postfix).
@@ -138,6 +139,8 @@ func (a *Agent) Handler() http.Handler {
 	mux.HandleFunc("GET /status", a.guard(a.status))
 	mux.HandleFunc("POST /queue/{id}/{action}", a.guard(a.act))
 	mux.HandleFunc("POST /flush", a.guard(a.flush))
+	mux.HandleFunc("POST /domains/plan", a.guard(a.domains))
+	mux.HandleFunc("POST /domains/apply", a.guard(a.domains))
 	return mux
 }
 

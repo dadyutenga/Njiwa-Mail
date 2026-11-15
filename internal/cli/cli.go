@@ -1260,7 +1260,7 @@ func runMTAAgent(args []string) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	a := &mtaagent.Agent{Runner: mtaagent.ExecRunner{}, Token: token}
+	a := &mtaagent.Agent{Runner: mtaagent.ExecRunner{}, Token: token, Domains: &managed.DomainManager{Runner: execRunner{}}}
 	slog.Info("mta agent listening", "socket", *socket)
 	if err := a.Listen(ctx, *socket, mode, gid); err != nil {
 		die(err)
