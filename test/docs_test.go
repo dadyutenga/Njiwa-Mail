@@ -85,6 +85,7 @@ var tableDocs = map[string]string{
 	"settings":              "Operator-tunable settings (retention, limits, require_mfa…).",
 	"suppressions":          "Recipients mail is not sent to (hard bounce, complaint, manual).",
 	"template_contents":     "Localised content of a template version.",
+	"template_styles":       "Shared CSS stylesheets of a project; a template version keeps a snapshot of the CSS it was saved with.",
 	"template_versions":     "Draft and published versions of a template.",
 	"templates":             "Reusable message templates with variables.",
 	"transport_profiles":    "Ways of getting mail out: managed Postfix or an existing SMTP server (secrets sealed), one active.",

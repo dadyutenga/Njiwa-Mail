@@ -35,10 +35,55 @@ const (
 	MaxSubjectBytes = 300
 )
 
-// Locales supported by the service. "en" is the fallback.
+// Locales are the languages the built-in templates are written in. Any other language is
+// allowed for your own templates (see ValidLocale); "en" is always the fallback.
 var Locales = []string{"en", "sw"}
 
-func ValidLocale(l string) bool { return l == "en" || l == "sw" }
+var localeRe = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{2,8})?$`)
+
+// ValidLocale accepts a lower-case language tag such as en, sw, fr or pt-br.
+func ValidLocale(l string) bool { return localeRe.MatchString(l) }
+
+// NormalizeLocale lower-cases a tag and turns an underscore into a dash (pt_BR -> pt-br).
+func NormalizeLocale(l string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(l), "_", "-"))
+}
+
+const MaxStyleBytes = 50 << 10
+
+var badCSS = regexp.MustCompile(`(?i)@import|expression\s*\(|javascript:|behavior\s*:|-moz-binding|<|>|\{\{|\}\}|\\`)
+
+// CheckCSS accepts plain CSS only: no imports, scripts, template actions or markup.
+func CheckCSS(css string) error {
+	if strings.TrimSpace(css) == "" {
+		return errors.New("the stylesheet is empty")
+	}
+	if len(css) > MaxStyleBytes {
+		return errors.New("the stylesheet is too large (50 KB at most)")
+	}
+	if badCSS.MatchString(css) {
+		return errors.New("the stylesheet may not contain @import, scripts, escapes, < > or template actions")
+	}
+	if strings.Count(css, "{") != strings.Count(css, "}") {
+		return errors.New("the stylesheet has unbalanced braces")
+	}
+	return nil
+}
+
+var headClose = regexp.MustCompile(`(?i)</head\s*>`)
+
+// InjectStyle puts a <style> block in the HTML: before </head> when the document has one,
+// otherwise at the start. An empty css leaves the HTML alone.
+func InjectStyle(html, css string) string {
+	if strings.TrimSpace(css) == "" {
+		return html
+	}
+	block := "<style>" + css + "</style>"
+	if loc := headClose.FindStringIndex(html); loc != nil {
+		return html[:loc[0]] + block + html[loc[0]:]
+	}
+	return block + html
+}
 
 // VarSpec describes one allowed variable. It is stored as JSON with a
 // template version.

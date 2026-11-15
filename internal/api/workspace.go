@@ -761,6 +761,71 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		return map[string]string{"id": id}, nil
 	})
 
+	h("GET", "/template-styles", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, err := svc.ListTemplateStyles(ctx(c), sc)
+		return map[string]any{"items": items}, err
+	})
+	h("POST", "/template-styles", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.StyleInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateTemplateStyle(ctx(c), sc, in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "template_style.create", "template_style", id, scoped(sc, map[string]any{"name": in.Name}))
+		return map[string]string{"id": id}, nil
+	})
+	h("PUT", "/template-styles/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.StyleInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.UpdateTemplateStyle(ctx(c), sc, c.Params("id"), in); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "template_style.update", "template_style", c.Params("id"), scoped(sc, map[string]any{"name": in.Name}))
+		return nil, nil
+	})
+	h("DELETE", "/template-styles/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteTemplateStyle(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "template_style.delete", "template_style", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("POST", "/templates/import", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Bundle service.Bundle `json:"bundle"`
+			Slug   string         `json:"slug"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		res, err := svc.ImportTemplate(ctx(c), sc, in.Bundle, in.Slug)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "template.import", "template", fmt.Sprint(res["id"]), scoped(sc, map[string]any{"slug": res["slug"]}))
+		return res, nil
+	})
+	h("POST", "/templates/import-html", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.HTMLImport
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		res, err := svc.ImportHTMLTemplate(ctx(c), sc, in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "template.import_html", "template", fmt.Sprint(res["id"]), scoped(sc, map[string]any{"slug": in.Slug}))
+		return res, nil
+	})
+	h("GET", "/templates/:id/export", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return svc.ExportTemplate(ctx(c), sc, c.Params("id"))
+	})
+
 	// ---- automations
 	h("GET", "/automations", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		items, err := svc.ListRules(ctx(c), sc)
