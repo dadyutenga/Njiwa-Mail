@@ -69,13 +69,24 @@ export function MailHost() {
         )}
       />
       <DataState q={q}>
-        {(d) => (
+        {(d) => {
+          const missing = d.domains_missing_key ?? [];
+          const commands = d.suggested_commands ?? [];
+          const receipts = d.receipts ?? [];
+          const rotation = d.dkim_rotation ?? { state: "none" };
+          const evidence = d.evidence ?? {
+            smtp: { last_at: null, events_24h: 0 },
+            mta_log: { last_at: null, events_24h: 0 },
+            dsn: { last_at: null, events_24h: 0 },
+            submitted_24h: 0,
+          };
+          return (
           <>
-            {d.domains_missing_key.length > 0 && (
+            {missing.length > 0 && (
               <Section title={phrase("Run the installer again")}>
                 <p role="status" className="mb-2 text-sm">
                   {phrase("These verified sending domains have no DKIM key on the mail host yet:")}{" "}
-                  <strong>{d.domains_missing_key.join(", ")}</strong>.{" "}
+                  <strong>{missing.join(", ")}</strong>.{" "}
                   {phrase(
                     "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. The commands below remain when the host agent is not connected.",
                   )}
@@ -90,7 +101,7 @@ export function MailHost() {
                       setNote("");
                       admin
                         .send<DomainPlan>("/installation/domains/plan", "POST", {
-                          domains: d.domains_missing_key,
+                          domains: missing,
                         })
                         .then((p) => setPlan(p))
                         .catch((e: unknown) =>
@@ -111,7 +122,7 @@ export function MailHost() {
                         setNote("");
                         admin
                           .send("/installation/domains/apply", "POST", {
-                            domains: d.domains_missing_key,
+                            domains: missing,
                             digest: plan.digest,
                           })
                           .then(async () => {
@@ -137,7 +148,7 @@ export function MailHost() {
                   </p>
                 )}
                 <ol className="space-y-2 text-xs">
-                  {d.suggested_commands.map((c) => (
+                  {commands.map((c) => (
                     <li key={c} className="flex items-start gap-2">
                       <code className="break-all rounded bg-muted p-2">{c}</code>
                       <CopyButton text={c} label="command" />
@@ -147,14 +158,14 @@ export function MailHost() {
               </Section>
             )}
             <Section title={phrase("Installer runs")}>
-              {d.receipts.length === 0 ? (
+              {receipts.length === 0 ? (
                 <Empty
                   title={phrase("The installer has not run yet")}
                   description={phrase("Run njiwa-mail installer apply -record on the mail host.")}
                 />
               ) : (
                 <Table
-                  rows={d.receipts}
+                  rows={receipts}
                   rowKey={(r) => s(r.id)}
                   columns={[
                     {
@@ -198,9 +209,9 @@ export function MailHost() {
               <dl className="grid gap-3 text-sm sm:grid-cols-4">
                 {(
                   [
-                    ["smtp", "From SMTP replies", d.evidence.smtp],
-                    ["mta_log", "From the mail server log", d.evidence.mta_log],
-                    ["dsn", "From bounce reports", d.evidence.dsn],
+                    ["smtp", "From SMTP replies", evidence.smtp],
+                    ["mta_log", "From the mail server log", evidence.mta_log],
+                    ["dsn", "From bounce reports", evidence.dsn],
                   ] as const
                 ).map(([k, label, src]) => (
                   <div key={k}>
@@ -215,10 +226,10 @@ export function MailHost() {
                 ))}
                 <div>
                   <dt className="text-muted-foreground">{phrase("Handed over in 24 hours")}</dt>
-                  <dd>{d.evidence.submitted_24h}</dd>
+                  <dd>{evidence.submitted_24h}</dd>
                 </div>
               </dl>
-              {d.evidence.submitted_24h > 0 && d.evidence.mta_log.events_24h === 0 && (
+              {evidence.submitted_24h > 0 && evidence.mta_log.events_24h === 0 && (
                 <p role="status" className="mt-2 text-xs">
                   {phrase(
                     "Mail was handed over but no log evidence arrived. If this persists, check that njiwa-mail-mta-log is running.",
@@ -228,12 +239,12 @@ export function MailHost() {
             </Section>
             <Section title={phrase("DKIM key rotation")}>
               <p className="text-sm">
-                {phrase(rotationText[d.dkim_rotation.state] ?? d.dkim_rotation.state)}
+                {phrase(rotationText[rotation.state] ?? rotation.state)}
               </p>
-              {d.dkim_rotation.state === "prepared" && (
+              {rotation.state === "prepared" && (
                 <>
                   <ul className="mt-2 space-y-1 text-xs">
-                    {(d.dkim_rotation.dns ?? []).map((c) => (
+                    {(rotation.dns ?? []).map((c) => (
                       <li key={c.domain}>
                         <StateBadge
                           state={c.published ? "pass" : "fail"}
@@ -245,7 +256,7 @@ export function MailHost() {
                     ))}
                   </ul>
                   <p role="status" className="mt-2 text-xs">
-                    {d.dkim_rotation.ready_to_activate
+                    {rotation.ready_to_activate
                       ? phrase(
                           "Every new key is published. You can activate on the host: njiwa-mail installer dkim-rotate activate.",
                         )
@@ -262,7 +273,8 @@ export function MailHost() {
               </p>
             </Section>
           </>
-        )}
+          );
+        }}
       </DataState>
     </>
   );

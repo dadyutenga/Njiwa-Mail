@@ -75,7 +75,7 @@ func (s *Service) DomainsMissingKey(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	_, keys, _, _ := s.managedKeys(ctx)
-	var missing []string
+	missing := []string{}
 	for _, d := range claimed {
 		if !keys[d] {
 			missing = append(missing, d)
