@@ -248,15 +248,15 @@ is React).
 
 ## 13. Leftover work (paused on the owner's request, 2026-11-14)
 
-Each item is its own PR to `dev`; none needs real infrastructure except where noted.
+Each item was its own PR to `dev`. All five are now done; what remains are the joint tests below.
 
 | Item | State |
 |---|---|
 | T13.1 OIDC / SSO sign-in | **Done**, merged (#20). Checking with one real provider is a joint test (see below). |
-| T13.2 Daily report by email | Open: needs the owner's decision on a system sender. |
+| T13.2 Daily report by email | **Done**, merged (#24). Off by default; the operator picks recipients and optionally the sender. |
 | T13.3 Forms | **Done**, merged (#21). Off unless `FORMS_ENABLED=true`. |
 | T13.4 Live chat | **Done**, merged (#22, then #21). Off unless `CHAT_ENABLED=true`. |
-| T13.5 Smaller follow-ups | Open. |
+| T13.5 Smaller follow-ups | **Done**, merged (#25). Only the contact-attributes note remains, as a design decision to revisit. |
 
 Joint tests still to do, none of which can be done without infrastructure or a person:
 - T13.1: sign in once with a real provider (Google, Keycloak or authentik); the tests use a fake provider.
@@ -283,9 +283,12 @@ Design as built (`internal/oidc`, `internal/service/sso.go`, migration 0030):
   tokens, including a wrong audience, an expired token, a bad nonce, an unverified email and an unknown key.
 - Dashboard: "Sign in with …" buttons on the login page; an operator page to add providers.
 
-### T13.2 Daily report by email
-The report is recorded and shown in every inbox, but not emailed. Needs an operator setting for recipients and a
-system sender (the same question as T9.8/password-reset mail); owner decision on which sender.
+### T13.2 Daily report by email — DONE (#24)
+Built (migration 0033, `internal/service/report_email.go`, operator page "Daily report"): recipients and an optional sender
+identity are operator settings. With no sender chosen, the default sender of a Live environment is used (the same rule as
+the Forms digests); with no sender at all nothing is sent and the next hourly run tries again. It is mailed at most once
+per day, is off by default, and the text says "submitted" is not delivered. The password-reset mail question (T9.8) is a
+separate decision and is not changed by this.
 
 ### T13.3 Forms (PR 4, first half) — DONE (#21)
 Built as described below (migration 0031, `internal/service/forms*.go`, `formspam.go`, docs page `api/forms`).
@@ -303,7 +306,13 @@ visitors are held by a per-conversation session token, answers reach an open pag
 the page never received them. Original request: a chat widget added with one script tag, real-time answers from the dashboard (SSE or WebSocket), replies by email once
 the visitor has left, and a home screen for the site's own links and announcements.
 
-### T13.5 Smaller follow-ups found along the way
+### T13.5 Smaller follow-ups found along the way — DONE (#25)
+Done: the Check addresses page, the SMTP relay status page (the relay now sends a heartbeat), the web view option in Compose,
+docs portal pages for analytics and usage plans, OPERATIONS.md sections for announcements, the daily report and plans, and
+a visual check of the Analytics, Announcements and Usage plans pages and the bell against a running API (no page errors).
+Still open as a decision, not as work: contact attributes are stored in plain text by design.
+
+Original list:
 - Dashboard pages for the new APIs that have none yet: address verification (a "Check addresses" tool), web view
   toggle in Compose, SMTP relay status.
 - A docs portal page for analytics and usage plans; OPERATIONS.md sections for announcements, daily reports and plans.
