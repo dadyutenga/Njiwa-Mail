@@ -563,6 +563,8 @@ export const swPhrases: Record<string, string> = {
   "Sandbox test send": "Utumaji wa majaribio wa sandbox",
   "Sandbox message queued": "Ujumbe wa sandbox umewekwa foleni",
   "Revoke this session?": "Batilisha kipindi hiki?",
+  "That browser is signed out. This one stays signed in unless you revoke it too.":
+    "Kivinjari hicho kinatolewa. Hiki kinabaki kimeingia isipokuwa ukibatilisha nacho.",
   "Email:": "Barua pepe:",
   "Role:": "Jukumu:",
   Sessions: "Vipindi",
@@ -646,6 +648,19 @@ export const swPhrases: Record<string, string> = {
   Automations: "Kanuni za kiotomatiki",
   Complaints: "Malalamiko",
   "Message log": "Kumbukumbu za ujumbe",
+  "Every message in this project, with its state and source. Bodies are not kept here.":
+    "Kila ujumbe wa mradi huu, pamoja na hali na chanzo chake. Maandishi hayahifadhiwi hapa.",
+  "No messages yet": "Bado hakuna ujumbe",
+  "Nothing matches these filters.": "Hakuna kinacholingana na vichujio hivi.",
+  "Messages appear here after you compose one, or after your application sends with an API key.":
+    "Ujumbe unaonekana hapa baada ya kuandika, au baada ya programu yako kutuma kwa ufunguo wa API.",
+  "Compose a message": "Andika ujumbe",
+  "Write it here and send it from this project.": "Andika hapa na utume kutoka kwenye mradi huu.",
+  "Send with an API key": "Tuma kwa ufunguo wa API",
+  "Use the API from your own application.": "Tumia API kutoka kwenye programu yako.",
+  "Clear filters": "Futa vichujio",
+  "Full address, matched exactly. Stored only as a keyed hash.":
+    "Anwani kamili, inalinganishwa kikamilifu. Imehifadhiwa kama heshi yenye ufunguo tu.",
   "Unknown queue": "Foleni isiyojulikana",
   "API docs": "Nyaraka za API",
   Users: "Watumiaji",
