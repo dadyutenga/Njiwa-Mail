@@ -354,6 +354,14 @@ Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to
 - A hard bounce suppresses only when the DSN matches one of our message ids **and** names that message's own recipient.
 - To lift a suppression after the user fixed their mailbox: Suppressions → remove (a reason is required and audited).
 
+## Deleting many recipients
+
+`POST /admin/v1/w/{project}/{mode}/privacy/delete-bulk` (also on the Recipient privacy page) takes up to 500 addresses and
+removes everything stored about each in that environment: messages and their evidence, bounces, suppressions, inbound mail,
+contacts, form submissions and chats. Send `"dry_run": true` first to see a count per address without deleting. Addresses are
+returned masked, duplicates are handled once, one failing address does not stop the others, and the audit log keeps only
+counts (`privacy.delete_bulk`), never addresses.
+
 ## Website forms (off by default)
 
 Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer

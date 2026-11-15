@@ -88,4 +88,16 @@ export const swForms: Record<string, string> = {
   phrase: "msemo",
   regex: "regex",
   ip: "IP",
+  "Check what would be deleted": "Angalia kitakachofutwa",
+  "Delete many recipients": "Futa wapokeaji wengi",
+  "Messages, evidence, bounces, suppressions, inbound mail, contacts, form submissions and chats for these addresses in this project and environment are removed. This cannot be undone.":
+    "Ujumbe, ushahidi, bounce, vizuizi, barua zilizoingia, waasiliani, ujumbe wa fomu na gumzo za anwani hizi katika mradi na mazingira haya vitaondolewa. Haiwezi kutenduliwa.",
+  "Paste up to 500 addresses, separated by spaces, commas or new lines. Check first: nothing is deleted until you confirm.":
+    "Bandika hadi anwani 500, zikitenganishwa kwa nafasi, koma au mistari mipya. Angalia kwanza: hakuna kinachofutwa hadi uthibitishe.",
+  addresses: "anwani",
+  deleted: "imefutwa",
+  would_delete: "ingefutwa",
+  nothing_found: "hakuna kilichopatikana",
+  invalid: "si halali",
+  error: "hitilafu",
 };

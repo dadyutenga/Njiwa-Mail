@@ -1101,6 +1101,26 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		return nil, nil
 	})
 
+	h("POST", "/privacy/delete-bulk", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Emails []string `json:"emails"`
+			DryRun bool     `json:"dry_run"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		res, err := svc.BulkRecipients(ctx(c), sc.Project, sc.Mode, in.Emails, in.DryRun)
+		if err != nil {
+			return nil, err
+		}
+		counts := map[string]int{}
+		for _, r := range res {
+			counts[r.Status]++
+		}
+		s.audit(c, u, "privacy.delete_bulk", "recipient", "", scoped(sc, map[string]any{"dry_run": in.DryRun, "addresses": len(res), "results": counts}))
+		return map[string]any{"dry_run": in.DryRun, "results": res, "summary": counts}, nil
+	})
+
 	s.mailServerRoutes(app)
 	s.installationRoutes(app)
 	s.mtaRoutes(app)

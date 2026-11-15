@@ -350,8 +350,11 @@ with failover, managed MTA and its installer (Posta has none of these).
 4. [ ] **Templates**: Posta has per-version localizations, stylesheets, languages, HTML import and template export/import.
 5. [ ] **Account lifecycle**: Posta has self-service password change, account deletion with a grace period (admins can cancel it),
    admin disable of another user's 2FA and revoke of their sessions from the API, per-user audit log. Here most of this is CLI only.
-6. [ ] **Data export and import of a whole workspace**, and GDPR calls for forms and chats in the dashboard (the privacy page works
-   per address now; a bulk "delete everything older than" for forms and chats follows retention only).
+6. [ ] **Data export and import of a whole workspace**, and GDPR calls for forms and chats in the dashboard. Done: bulk delete of
+   up to 500 recipients in one request with a dry run (`POST .../privacy/delete-bulk`, Recipient privacy page), covering contacts,
+   form submissions and chats. Still open: a workspace configuration export/import (templates with their stylesheets, forms with
+   rules and filters, chat widgets and canned replies), which should be written after the template, form and chat extras are
+   merged so it can carry them; and a bulk "delete everything older than" for forms and chats (retention covers it today).
 7. [ ] **Platform admin views**: a list of scheduled jobs with their last run, a live platform metrics and events stream, an
    update check, shared SMTP servers that an operator offers to all projects.
 8. [ ] **Enterprise-style extras Posta has and we deliberately do not**: LDAP directory sign-in, a license system. S3 object

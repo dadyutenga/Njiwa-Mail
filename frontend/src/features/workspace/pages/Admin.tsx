@@ -1405,6 +1405,101 @@ export function Audit() {
 
 // ---------------------------------------------------------------- privacy (scoped)
 
+type BulkResult = { email: string; status: string; found?: Record<string, number>; error?: string };
+type BulkReply = { dry_run: boolean; results: BulkResult[]; summary: Record<string, number> };
+
+function BulkDelete() {
+  const phrase = usePhrase();
+  const { api } = useWorkspace();
+  const [text, setText] = useState("");
+  const [reply, setReply] = useState<BulkReply | null>(null);
+  const [error, setError] = useState("");
+  const emails = text
+    .split(/[\s,;]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const call = async (dry: boolean) => {
+    setError("");
+    try {
+      setReply(await api.send<BulkReply>("/privacy/delete-bulk", "POST", { emails, dry_run: dry }));
+    } catch (e) {
+      setReply(null);
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <Section title={phrase("Delete many recipients")} className="mt-4">
+      <p className="mb-3 text-sm text-muted-foreground">
+        {phrase(
+          "Paste up to 500 addresses, separated by spaces, commas or new lines. Check first: nothing is deleted until you confirm.",
+        )}
+      </p>
+      <textarea
+        className={textareaClass}
+        rows={5}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setReply(null);
+        }}
+      />
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button variant="outline" disabled={emails.length === 0} onClick={() => call(true)}>
+          {phrase("Check what would be deleted")}
+        </Button>
+        <ConfirmButton
+          size="default"
+          disabled={emails.length === 0 || !reply?.dry_run}
+          title={`${phrase("Delete all stored data for")} ${emails.length}`}
+          description={phrase(
+            "Messages, evidence, bounces, suppressions, inbound mail, contacts, form submissions and chats for these addresses in this project and environment are removed. This cannot be undone.",
+          )}
+          confirm="Delete data"
+          onConfirm={() => call(false)}
+        >
+          {phrase("Delete")}
+        </ConfirmButton>
+        {emails.length > 0 && (
+          <span className="text-sm text-muted-foreground">
+            {emails.length} {phrase("addresses")}
+          </span>
+        )}
+      </div>
+      {reply && (
+        <div className="mt-3 text-sm" role="status">
+          <p className="font-medium">
+            {phrase(reply.dry_run ? "Would be deleted" : "Result")}:{" "}
+            {Object.entries(reply.summary)
+              .map(([k, v]) => `${phrase(k)} ${v}`)
+              .join(" · ")}
+          </p>
+          <ul className="mt-2 max-h-64 overflow-auto rounded border">
+            {reply.results.map((r, i) => (
+              <li key={i} className="flex justify-between gap-3 border-b p-2 last:border-b-0">
+                <span>{r.email}</span>
+                <span className="text-muted-foreground">
+                  {phrase(r.status)}
+                  {r.found && Object.keys(r.found).length > 0
+                    ? ` (${Object.entries(r.found)
+                        .map(([k, v]) => `${k} ${v}`)
+                        .join(", ")})`
+                    : ""}
+                  {r.error ? ` ${r.error}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function Privacy() {
   const phrase = usePhrase();
   const { api, project, env } = useWorkspace();
@@ -1491,6 +1586,7 @@ export function Privacy() {
           </ConfirmButton>
         </div>
       </Section>
+      <BulkDelete />
     </>
   );
 }
