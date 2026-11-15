@@ -29,6 +29,9 @@ func (s *Server) productRoutes(app *fiber.App) {
 	h(fiber.MethodPost, "/admin/v1/notifications/:kind/:id/:action", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		return nil, svc.MarkNotification(reqCtx(c), u, c.Params("kind"), c.Params("id"), c.Params("action"))
 	})
+	h(fiber.MethodGet, "/admin/v1/relay", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.RelayStatus(reqCtx(c))
+	})
 	op := func(method, path string, fn adminFn) { route(app, method, path, s.adm(s.op(fn))) }
 	op(fiber.MethodGet, "/admin/v1/announcements", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		items, more, err := svc.ListAnnouncements(reqCtx(c), pageOf(c))

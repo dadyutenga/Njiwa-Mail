@@ -27,7 +27,9 @@ func TestTransportOutageBreakerAndDegradedReadiness(t *testing.T) {
 		}
 		return mailer.Result{Outcome: mailer.Accepted, Reason: "smtp_250", Reply: "2.0.0 Ok: queued as AB12CD34"}
 	}
-	e.w.BreakerThreshold, e.w.BreakerBase, e.w.BreakerMax = 3, 300*time.Millisecond, time.Second
+	// The pause must outlast the checks below even on a loaded machine running under -race.
+	const pause = time.Second
+	e.w.BreakerThreshold, e.w.BreakerBase, e.w.BreakerMax = 3, pause, 2*pause
 	ids := []string{}
 	for i := 0; i < 5; i++ {
 		r := e.post(k.live, idem("down"+string(rune('a'+i))), otpBody(testRcpt))
@@ -57,7 +59,7 @@ func TestTransportOutageBreakerAndDegradedReadiness(t *testing.T) {
 	}
 	// The server comes back; after the pause everything goes out exactly once.
 	down = false
-	time.Sleep(350 * time.Millisecond)
+	time.Sleep(pause + 100*time.Millisecond)
 	e.runWorker()
 	for _, id := range ids {
 		if e.state(id) != "submitted" {

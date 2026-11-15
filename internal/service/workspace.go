@@ -398,6 +398,7 @@ type ComposeInput struct {
 	InReplyTo    string            `json:"in_reply_to"` // inbound message id being answered
 	DraftID      string            `json:"draft_id"`
 	ReplyTo      string            `json:"reply_to"`
+	WebView      bool              `json:"web_view"` // add a "view in browser" link
 	extraHeaders map[string]string // unexported: system headers set by callers inside the package
 	transport    bool              // unexported: controlled transport test (QueueTransportTest)
 }
@@ -413,7 +414,7 @@ func (s *Service) Compose(ctx context.Context, sc *Scope, user, idemKey string, 
 		return nil, err
 	}
 	req := SendRequest{From: in.From, To: in.To, CC: in.CC, BCC: in.BCC, Subject: in.Subject, HTML: in.HTML, Text: in.Text,
-		Template: in.Template, Variables: in.Variables, Locale: in.Locale, SendAt: in.SendAt, Attachments: in.Attachments, ReplyTo: in.ReplyTo}
+		Template: in.Template, Variables: in.Variables, Locale: in.Locale, SendAt: in.SendAt, Attachments: in.Attachments, ReplyTo: in.ReplyTo, WebView: in.WebView}
 	if in.Template != "" {
 		req.Subject, req.HTML, req.Text = "", "", ""
 	} else if req.Text == "" && req.HTML != "" {

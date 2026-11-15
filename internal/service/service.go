@@ -78,6 +78,10 @@ type Options struct {
 	// ChatEnabled turns on the live chat widget (CHAT_ENABLED). Off by default:
 	// the public chat endpoints answer 404 and the workspace pages are hidden.
 	ChatEnabled bool
+	// RelayAddr and RelayImplicitTLS describe the SMTP relay (RELAY_LISTEN_ADDR, RELAY_IMPLICIT_TLS)
+	// for the dashboard; whether it is running comes from its heartbeat.
+	RelayAddr        string
+	RelayImplicitTLS bool
 
 	// AllowUnregisteredLiveDomains: see config. Temporary upgrade escape hatch.
 	AllowUnregisteredLiveDomains bool
