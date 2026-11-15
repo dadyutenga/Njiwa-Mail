@@ -43,6 +43,7 @@ import {
   DailyReportEmail,
   Plans,
 } from "@/features/workspace/pages/Admin";
+import { Platform } from "@/features/workspace/pages/Platform";
 import ProjectDetail from "@/features/mail/ProjectDetail";
 import SettingsPage from "@/features/mail/Settings";
 import Profile from "@/features/mail/Profile";
@@ -120,6 +121,7 @@ const workspacePages: [string, ReactNode][] = [
   ["plans", <Plans />],
   ["alerts", <Alerts />],
   ["system", <System />],
+  ["platform", <Platform />],
   ["audit", <Audit />],
   ["settings", <SettingsPage />],
   ["profile", <Profile />],

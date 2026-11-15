@@ -5,7 +5,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 # Reproducible: no VCS stamp, no build id, no local paths (CI builds twice and compares hashes).
-RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/njiwa-mail ./cmd/njiwa-mail
+# VERSION only names the release the operator's update check compares against; "dev" by default.
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X github.com/njiwa-tz/mail/internal/buildinfo.Version=${VERSION}" -o /out/njiwa-mail ./cmd/njiwa-mail
 
 # One image, four roles: `serve` (API), `worker` (dispatch + webhooks),
 # `inbound` (private SMTP listener + parser) and `scheduler` (periodic jobs).

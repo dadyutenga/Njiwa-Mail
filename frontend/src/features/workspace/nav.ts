@@ -139,6 +139,7 @@ export const navGroups: NavGroup[] = [
       { path: "report-email", label: "Daily report", icon: Mail, operator: true },
       { path: "plans", label: "Usage plans", icon: Gauge, operator: true },
       { path: "system", label: "System", icon: Activity },
+      { path: "platform", label: "Platform", icon: Activity, operator: true },
       { path: "audit", label: "Audit log", icon: ShieldCheck },
       { path: "settings", label: "Settings", icon: Settings },
     ],

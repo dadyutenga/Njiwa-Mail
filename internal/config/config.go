@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -92,6 +93,9 @@ type Config struct {
 
 	// FormsEnabled (FORMS_ENABLED) turns on contact forms; off by default.
 	FormsEnabled bool
+	// UpdateCheckURL (UPDATE_CHECK_URL) is an https release feed for the operator's update check;
+	// empty (default) = no check and no outbound request.
+	UpdateCheckURL string
 	// ChatEnabled (CHAT_ENABLED) turns on the live chat widget; off by default.
 	ChatEnabled bool
 
@@ -354,6 +358,11 @@ func Load() (*Config, error) {
 	}
 	if c.ChatEnabled, err = boolVar("CHAT_ENABLED"); err != nil {
 		return nil, err
+	}
+	if c.UpdateCheckURL = get("UPDATE_CHECK_URL", ""); c.UpdateCheckURL != "" {
+		if u, perr := url.Parse(c.UpdateCheckURL); perr != nil || u.Scheme != "https" || u.Host == "" {
+			return nil, fmt.Errorf("UPDATE_CHECK_URL must be an https address")
+		}
 	}
 	if c.InsecureCookies, err = boolVar("ADMIN_INSECURE_COOKIES"); err != nil {
 		return nil, err

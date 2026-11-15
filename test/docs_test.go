@@ -65,6 +65,7 @@ var tableDocs = map[string]string{
 	"form_nonces":           "Single-use nonces handed to pages that post a form.",
 	"form_submissions":      "Contact form submissions: fields encrypted, sender masked, spam score and reasons, inbox state.",
 	"forms":                 "Contact forms: allowed origins, notification digest, reply sender, thank-you page.",
+	"job_runs":              "The scheduler's jobs and what each last did: when it ran, whether it worked, how often it failed.",
 	"inbound_messages":      "Parsed inbound mail (text and HTML sealed) with retention timestamps.",
 	"inbound_spool":         "Raw inbound mail accepted by the listener, waiting to be parsed or correlated as bounces.",
 	"installation_checks":   "Connection and readiness check results bound to a transport profile revision.",

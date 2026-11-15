@@ -350,6 +350,23 @@ Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to
 - A hard bounce suppresses only when the DSN matches one of our message ids **and** names that message's own recipient.
 - To lift a suppression after the user fixed their mailbox: Suppressions → remove (a reason is required and audited).
 
+## Platform page (operators)
+
+The **Platform** page (installation operators only) shows live health over a server-sent stream
+(`GET /admin/v1/platform/stream`: a snapshot every five seconds and each new alert), the scheduler's jobs with their last
+run (`GET /admin/v1/jobs`) and the update check.
+
+- Each scheduler job is registered in `job_runs` when the scheduler starts and records every run. A job is **failing** when
+  its last run returned an error, **stale** when it has not finished a run in three intervals (the scheduler is down or
+  stuck), **never** while it has not run yet. Errors are shortened to 300 characters.
+- The stream holds one connection per open page; the proxy must not buffer `text/event-stream` (same note as for chat).
+- The update check is **off** unless `UPDATE_CHECK_URL` is set to an https feed answering `{"tag_name": "..."}`. It makes a
+  plain GET (no cookies, no installation data) at most every six hours and says "update available" only for a release
+  build whose `VERSION` differs from the feed's tag. Build the image with `--build-arg VERSION=v1.2.3` to name a release;
+  without it the binary reports `dev` and never claims an update.
+- Shared SMTP servers: the installation already has one active transport profile that every project sends through (see
+  Delivery infrastructure). Several operator-offered profiles with a per-project choice are not built.
+
 ## Website forms (off by default)
 
 Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer

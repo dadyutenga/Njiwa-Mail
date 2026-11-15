@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -635,6 +637,43 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		}
 		s.audit(c, u, "user.create", "user", id, map[string]any{"email": strings.ToLower(in.Email), "role": service.RoleAdmin, "installation_operator": operator})
 		return map[string]string{"id": id}, nil
+	}))
+	// ---- platform views (installation operator)
+	h("GET /jobs", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		items, err := svc.ListJobs(reqCtx(c))
+		return map[string]any{"items": items}, err
+	}))
+	h("GET /platform/snapshot", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.PlatformSnapshot(reqCtx(c))
+	}))
+	h("GET /platform/update-check", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.UpdateCheck(reqCtx(c), q(c, "refresh") == "1")
+	}))
+	h("GET /platform/stream", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		lastAlert := svc.LatestAlertID(reqCtx(c))
+		var lastSnap time.Time
+		return s.eventStream(c, func(cx context.Context) ([]sseEvent, error) {
+			var out []sseEvent
+			if time.Since(lastSnap) >= 5*time.Second {
+				snap, err := svc.PlatformSnapshot(cx)
+				if err != nil {
+					return nil, err
+				}
+				lastSnap = time.Now()
+				out = append(out, sseEvent{Name: "snapshot", ID: strconv.FormatInt(lastSnap.UnixNano(), 10), Data: snap})
+			}
+			alerts, err := svc.AlertsSince(cx, lastAlert)
+			if err != nil {
+				return nil, err
+			}
+			for _, a := range alerts {
+				if id, ok := a["id"].(int64); ok && id > lastAlert {
+					lastAlert = id
+				}
+				out = append(out, sseEvent{Name: "alert", ID: fmt.Sprint(a["id"]), Data: a})
+			}
+			return out, nil
+		}), nil
 	}))
 	h("PATCH /users/{id}", s.op(func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {

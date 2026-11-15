@@ -180,7 +180,7 @@ func Run(args []string) {
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
-		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, UpdateCheckURL: cfg.UpdateCheckURL, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
 			TokenURL: cfg.CloudflareOAuthTokenURL, RevokeURL: cfg.CloudflareOAuthRevokeURL, Scope: cfg.CloudflareOAuthScope},
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
@@ -468,12 +468,20 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 	go beat(ctx, svc, "scheduler", hostID())
 	slog.Info("scheduler started")
 	every := func(d time.Duration, name string, fn func() error) {
+		if err := svc.RegisterJob(ctx, name, d); err != nil && ctx.Err() == nil {
+			slog.Warn("could not register job", "job", name, "err", err)
+		}
 		go func() {
 			t := time.NewTicker(d)
 			defer t.Stop()
 			for {
-				if err := fn(); err != nil && ctx.Err() == nil {
-					slog.Error("scheduled job failed", "job", name, "err", err)
+				started := time.Now()
+				err := fn()
+				if ctx.Err() == nil {
+					svc.RecordJobRun(ctx, name, d, started, err)
+					if err != nil {
+						slog.Error("scheduled job failed", "job", name, "err", err)
+					}
 				}
 				select {
 				case <-ctx.Done():
