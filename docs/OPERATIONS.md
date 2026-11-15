@@ -350,6 +350,15 @@ Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to
 - A hard bounce suppresses only when the DSN matches one of our message ids **and** names that message's own recipient.
 - To lift a suppression after the user fixed their mailbox: Suppressions → remove (a reason is required and audited).
 
+## Template languages, stylesheets, import and export
+
+- A template version can hold up to 20 languages (lower-case tags such as `fr` or `pt-br`; English is the required
+  fallback). `messages.locale` and `template_contents.locale` accept any such tag since migration 0037.
+- Project stylesheets (`template_styles`, at most 30 per project, 50 KB each, plain CSS) are copied into the version when a
+  draft is saved (`template_versions.style_css`), so published versions stay immutable.
+- Template bundles (`njiwa-template/1`) and HTML imports always create drafts. They carry no secrets and no sender data.
+  The HTML clean-up removes scripts, forms and event handlers on a best-effort basis; it is not a security boundary.
+
 ## Website forms (off by default)
 
 Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer

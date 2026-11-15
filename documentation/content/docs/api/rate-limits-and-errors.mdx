@@ -50,7 +50,7 @@ All of them answer `429 rate_limited` (or `503 queue_full`). Wait `Retry-After` 
 | `invalid_sender` | 422 | `from` is not a valid address |
 | `too_many_recipients` | 422 | More than 10 addresses in `to`, `cc` and `bcc` |
 | `unknown_template` | 422 | No such template (or version) for this project |
-| `invalid_locale` | 422 | `locale` is not `en` or `sw` |
+| `invalid_locale` | 422 | `locale` is not a language tag such as `en`, `sw`, `fr` or `pt-br` |
 | `invalid_ttl` | 422 | `ttl_seconds` is outside the allowed range |
 | `invalid_metadata` | 422 | `metadata` has a field other than `request_id`, or a bad value |
 | `invalid_priority` | 422 | `priority` is not `high` or `normal` |
