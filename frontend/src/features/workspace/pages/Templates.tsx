@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { Download, Plus, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
@@ -41,6 +41,7 @@ type VarSpec = {
 type Content = { subject: string; html: string; text: string };
 type Version = {
   version: number;
+  style?: string;
   published_at: string | null;
   created_at: string;
   variable_schema: VarSpec[] | null;
@@ -72,6 +73,8 @@ export function Templates() {
   const key = useWsKey();
   const [id, setId] = useParam("id");
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [styles, setStyles] = useState(false);
   const list = useQuery({
     queryKey: key("templates"),
     queryFn: () => api.get<Page>("/templates?limit=100"),
@@ -85,12 +88,20 @@ export function Templates() {
       <PageHeader
         title={phrase("Templates")}
         description={phrase(
-          "Reusable messages with variables, in English and Kiswahili. Published versions never change; usable from Compose, Bulk send and the API by slug.",
+          "Reusable messages with variables, in English, Kiswahili or any other language. Published versions never change; usable from Compose, Bulk send and the API by slug.",
         )}
         action={
-          <Button onClick={() => setCreating(true)}>
-            <Plus size={16} /> {phrase("New template")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setStyles(true)}>
+              {phrase("Stylesheets")}
+            </Button>
+            <Button variant="outline" onClick={() => setImporting(true)}>
+              <Upload size={16} /> {phrase("Import")}
+            </Button>
+            <Button onClick={() => setCreating(true)}>
+              <Plus size={16} /> {phrase("New template")}
+            </Button>
+          </div>
         }
       />
       <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
@@ -133,6 +144,8 @@ export function Templates() {
         <div>{id ? <Editor key={id} id={id} /> : null}</div>
       </div>
       <NewTemplateDialog open={creating} onOpenChange={setCreating} onCreated={setId} />
+      <ImportDialog open={importing} onOpenChange={setImporting} onCreated={setId} />
+      <StylesDialog open={styles} onOpenChange={setStyles} />
     </>
   );
 }
@@ -212,6 +225,304 @@ function NewTemplateDialog({
   );
 }
 
+function download(name: string, text: string) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function ImportDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onCreated: (id: string) => void;
+}) {
+  const phrase = usePhrase();
+  const { api } = useWorkspace();
+  const key = useWsKey();
+  const client = useQueryClient();
+  const [kind, setKind] = useState<"bundle" | "html">("html");
+  const [slug, setSlug] = useState("");
+  const [subject, setSubject] = useState("");
+  const [locale, setLocale] = useState("en");
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    if (open) {
+      setError("");
+      setNote("");
+    }
+  }, [open]);
+  const readFile = async (f?: File) => {
+    if (!f) return;
+    setText(await f.text());
+    if (!slug)
+      setSlug(
+        f.name
+          .replace(/\.[^.]*$/, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, ""),
+      );
+  };
+  const go = async () => {
+    setError("");
+    setNote("");
+    try {
+      let res: { id: string; variables?: string[]; warnings?: string[] };
+      if (kind === "html") {
+        res = await api.send(`/templates/import-html`, "POST", {
+          slug,
+          subject,
+          locale,
+          html: text,
+        });
+      } else {
+        res = await api.send(`/templates/import`, "POST", {
+          bundle: JSON.parse(text),
+          slug: slug || undefined,
+        });
+      }
+      client.invalidateQueries({ queryKey: key("templates") });
+      client.invalidateQueries({ queryKey: key("template-styles") });
+      onCreated(res.id);
+      if (res.warnings?.length) setNote(res.warnings.join(" "));
+      else onOpenChange(false);
+    } catch (e) {
+      setError(e instanceof SyntaxError ? phrase("That is not valid JSON.") : errorMessage(e));
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogTitle>{phrase("Import a template")}</DialogTitle>
+        <DialogDescription>
+          {phrase(
+            "The import becomes a draft. Nothing is published until you have looked at it and published it.",
+          )}
+        </DialogDescription>
+        <div className="grid gap-3">
+          <div className="flex gap-2" role="tablist">
+            {(["html", "bundle"] as const).map((k) => (
+              <Button
+                key={k}
+                size="sm"
+                variant={kind === k ? "default" : "outline"}
+                role="tab"
+                aria-selected={kind === k}
+                onClick={() => setKind(k)}
+              >
+                {phrase(k === "html" ? "HTML file" : "Template bundle (JSON)")}
+              </Button>
+            ))}
+          </div>
+          <Field
+            label={phrase("Slug")}
+            hint={
+              kind === "bundle"
+                ? phrase("Leave empty to keep the bundle's own slug.")
+                : phrase("Lowercase letters, digits and dashes.")
+            }
+          >
+            <input className={inputClass} value={slug} onChange={(e) => setSlug(e.target.value)} />
+          </Field>
+          {kind === "html" && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field
+                label={phrase("Subject")}
+                hint={phrase("Empty uses the page title.")}
+                className="sm:col-span-2"
+              >
+                <input
+                  className={inputClass}
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                />
+              </Field>
+              <Field label={phrase("Language")}>
+                <input
+                  className={inputClass}
+                  value={locale}
+                  onChange={(e) => setLocale(e.target.value)}
+                />
+              </Field>
+            </div>
+          )}
+          <Field
+            label={phrase(kind === "html" ? "HTML" : "Bundle")}
+            hint={
+              kind === "html"
+                ? phrase(
+                    "Write variables as {{name}}. Scripts, forms and event handlers are removed; the plain-text version is made from the HTML.",
+                  )
+                : undefined
+            }
+          >
+            <textarea
+              className={textareaClass + " font-mono"}
+              rows={10}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+          </Field>
+          <input
+            type="file"
+            aria-label={phrase("Choose a file")}
+            accept={kind === "html" ? ".html,.htm,text/html" : ".json,application/json"}
+            onChange={(e) => readFile(e.target.files?.[0])}
+          />
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          {note && (
+            <p role="status" className="text-sm">
+              {note}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              {phrase(note ? "Close" : "Cancel")}
+            </Button>
+            <Button onClick={go} disabled={!text.trim() || (kind === "html" && !slug.trim())}>
+              {phrase("Import")}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StylesDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const phrase = usePhrase();
+  const { api } = useWorkspace();
+  const key = useWsKey();
+  const client = useQueryClient();
+  const [edit, setEdit] = useState<{ id?: string; name: string; css: string } | null>(null);
+  const [error, setError] = useState("");
+  const q = useQuery({
+    queryKey: key("template-styles"),
+    queryFn: () => api.get<{ items: Row[] }>("/template-styles"),
+    enabled: open,
+  });
+  const refresh = () => client.invalidateQueries({ queryKey: key("template-styles") });
+  const save = async () => {
+    if (!edit) return;
+    setError("");
+    try {
+      if (edit.id) await api.send(`/template-styles/${edit.id}`, "PUT", edit);
+      else await api.send("/template-styles", "POST", edit);
+      setEdit(null);
+      refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogTitle>{phrase("Stylesheets")}</DialogTitle>
+        <DialogDescription>
+          {phrase(
+            "Shared CSS you can add to any template. A saved version keeps its own copy: changing a stylesheet affects only the next draft that uses it.",
+          )}
+        </DialogDescription>
+        <DataState
+          q={q}
+          isEmpty={(d) => d.items.length === 0}
+          empty={<p className="text-sm text-muted-foreground">{phrase("No stylesheets")}</p>}
+        >
+          {(d) => (
+            <ul className="divide-y rounded-lg border">
+              {d.items.map((x) => (
+                <li key={s(x.id)} className="flex items-center justify-between gap-2 p-2 text-sm">
+                  <b>{s(x.name)}</b>
+                  <span className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEdit({ id: s(x.id), name: s(x.name), css: s(x.css) })}
+                    >
+                      {phrase("Edit")}
+                    </Button>
+                    <ConfirmButton
+                      title={phrase("Delete this stylesheet?")}
+                      description={phrase("Saved versions keep the CSS they already have.")}
+                      confirm="Delete"
+                      onConfirm={async () => {
+                        await run(() => api.send(`/template-styles/${s(x.id)}`, "DELETE"), "");
+                        refresh();
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </ConfirmButton>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DataState>
+        {edit ? (
+          <div className="grid gap-3">
+            <Field label={phrase("Name")} hint={phrase("Lowercase letters, digits and dashes.")}>
+              <input
+                className={inputClass}
+                value={edit.name}
+                disabled={!!edit.id}
+                onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+              />
+            </Field>
+            <Field
+              label="CSS"
+              hint={phrase("Plain CSS only: no @import, scripts or template variables.")}
+            >
+              <textarea
+                className={textareaClass + " font-mono"}
+                rows={8}
+                value={edit.css}
+                onChange={(e) => setEdit({ ...edit, css: e.target.value })}
+              />
+            </Field>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEdit(null)}>
+                {phrase("Cancel")}
+              </Button>
+              <Button onClick={save} disabled={!edit.name.trim() || !edit.css.trim()}>
+                {phrase("Save")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <Button onClick={() => setEdit({ name: "", css: "" })}>
+              <Plus size={16} /> {phrase("New stylesheet")}
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Editor({ id }: { id: string }) {
   const phrase = usePhrase();
   const { api, to } = useWorkspace();
@@ -231,7 +542,13 @@ function Editor({ id }: { id: string }) {
   const draft = t?.versions.find((v) => !v.published_at);
   const latest = draft ?? t?.versions[0];
   const shared = t ? t.project === null : false;
-  const [locale, setLocale] = useState<"en" | "sw">("en");
+  const [locale, setLocale] = useState("en");
+  const [newLang, setNewLang] = useState("");
+  const [style, setStyle] = useState("");
+  const styles = useQuery({
+    queryKey: key("template-styles"),
+    queryFn: () => api.get<{ items: Row[] }>("/template-styles"),
+  });
   const [content, setContent] = useState<Record<string, Content>>({ en: { ...empty } });
   const [schema, setSchema] = useState<VarSpec[]>([]);
   const [sample, setSample] = useState<Record<string, string>>({});
@@ -244,8 +561,20 @@ function Editor({ id }: { id: string }) {
     if (!latest) return;
     setContent({ en: { ...empty }, ...latest.content });
     setSchema(latest.variable_schema ?? []);
+    setStyle(latest.style ?? "");
     setDirty(false);
   }, [latest]);
+  const languages = useMemo(
+    () => ["en", ...Object.keys(content).filter((l) => l !== "en")],
+    [content],
+  );
+  const addLanguage = () => {
+    const l = newLang.trim().toLowerCase().replace("_", "-");
+    if (!/^[a-z]{2,3}(-[a-z0-9]{2,8})?$/.test(l)) return;
+    if (!content[l]) setContent({ ...content, [l]: { ...empty } });
+    setLocale(l);
+    setNewLang("");
+  };
   const used = useMemo(() => usedVars(content), [content]);
   const declared = new Set(schema.map((v) => v.name));
   const undeclared = used.filter((v) => !declared.has(v));
@@ -284,9 +613,11 @@ function Editor({ id }: { id: string }) {
   const saveDraft = async () => {
     setBusy(true);
     const c: Record<string, Content> = { en: content.en };
-    if (content.sw && (content.sw.subject || content.sw.text || content.sw.html)) c.sw = content.sw;
+    for (const [l, v] of Object.entries(content))
+      if (l !== "en" && (v.subject || v.text || v.html)) c[l] = v;
     const ok = await run(
-      () => api.send(`/templates/${id}/draft`, "PUT", { variable_schema: schema, content: c }),
+      () =>
+        api.send(`/templates/${id}/draft`, "PUT", { variable_schema: schema, content: c, style }),
       phrase("Draft saved."),
     );
     setBusy(false);
@@ -321,6 +652,20 @@ function Editor({ id }: { id: string }) {
                 >
                   {phrase("Messages sent with it")}
                 </Link>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      const bundle = await api.get<unknown>(`/templates/${id}/export`);
+                      download(`${tpl.slug}.njiwa-template.json`, JSON.stringify(bundle, null, 2));
+                    } catch (e) {
+                      window.alert(errorMessage(e));
+                    }
+                  }}
+                >
+                  <Download size={14} /> {phrase("Export")}
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"
@@ -367,7 +712,7 @@ function Editor({ id }: { id: string }) {
               role="tablist"
               aria-label={phrase("Language")}
             >
-              {(["en", "sw"] as const).map((l) => (
+              {languages.map((l) => (
                 <button
                   key={l}
                   role="tab"
@@ -375,9 +720,24 @@ function Editor({ id }: { id: string }) {
                   onClick={() => setLocale(l)}
                   className={`-mb-px border-b-2 px-3 py-2 text-sm ${locale === l ? "border-primary font-semibold" : "border-transparent text-muted-foreground"}`}
                 >
-                  {l === "en" ? "English" : "Kiswahili"}
+                  {l === "en" ? "English" : l === "sw" ? "Kiswahili" : l}
                 </button>
               ))}
+              {!shared && (
+                <span className="ml-auto flex items-center gap-1 pb-1">
+                  <input
+                    aria-label={phrase("Add a language")}
+                    className={inputClass + " w-24"}
+                    placeholder="fr, pt-br"
+                    value={newLang}
+                    onChange={(e) => setNewLang(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addLanguage()}
+                  />
+                  <Button size="sm" variant="outline" onClick={addLanguage}>
+                    {phrase("Add a language")}
+                  </Button>
+                </span>
+              )}
             </div>
             <fieldset disabled={shared} className="grid gap-3">
               <Field label={phrase("Subject")}>
@@ -406,11 +766,35 @@ function Editor({ id }: { id: string }) {
                   onChange={(e) => update("html", e.target.value)}
                 />
               </Field>
-              {locale === "sw" && !content.sw?.subject && (
+              {locale !== "en" && !content[locale]?.subject && (
                 <p className="text-xs text-muted-foreground">
-                  {phrase("Without Kiswahili content, Kiswahili requests fall back to English.")}
+                  {phrase(
+                    "Without content in this language, requests for it fall back to English.",
+                  )}
                 </p>
               )}
+              <Field
+                label={phrase("Stylesheet")}
+                hint={phrase(
+                  "Added to the HTML of every language. The version keeps its own copy, so later edits to the stylesheet do not change it.",
+                )}
+              >
+                <select
+                  className={selectClass}
+                  value={style}
+                  onChange={(e) => {
+                    setStyle(e.target.value);
+                    setDirty(true);
+                  }}
+                >
+                  <option value="">{phrase("None")}</option>
+                  {(styles.data?.items ?? []).map((x) => (
+                    <option key={s(x.id)} value={s(x.name)}>
+                      {s(x.name)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <div>
                 <p className="mb-2 text-sm font-medium">{phrase("Variables")}</p>
                 <ul className="space-y-2">

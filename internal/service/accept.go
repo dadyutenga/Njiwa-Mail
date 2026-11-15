@@ -27,7 +27,7 @@ type SendRequest struct {
 	To              string         `json:"to"`
 	Template        string         `json:"template"`
 	TemplateVersion *int           `json:"template_version"` // optional: omitted pins the newest published version
-	Locale          string         `json:"locale"`           // "en" (default) or "sw"
+	Locale          string         `json:"locale"`           // a language tag such as "en" (default), "sw" or "fr"
 	Variables       map[string]any `json:"variables"`
 	TTLSeconds      *int           `json:"ttl_seconds"`
 	Metadata        map[string]any `json:"metadata"`
@@ -163,7 +163,7 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 	if v.from, ok = NormalizeEmail(req.From); !ok {
 		return nil, invalid("invalid_sender")
 	}
-	if v.locale = req.Locale; v.locale == "" {
+	if v.locale = tmpl.NormalizeLocale(req.Locale); v.locale == "" {
 		v.locale = "en"
 	}
 	if !tmpl.ValidLocale(v.locale) {

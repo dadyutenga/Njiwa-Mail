@@ -804,7 +804,7 @@ func (s *Service) DuplicateTemplate(ctx context.Context, sc *Scope, id, slug str
 		return newID, nil
 	}
 	last := vers[0] // newest first
-	b, _ := json.Marshal(map[string]any{"variable_schema": last["variable_schema"], "content": last["content"]})
+	b, _ := json.Marshal(map[string]any{"variable_schema": last["variable_schema"], "content": last["content"], "style": last["style"]})
 	var in VersionInput
 	if json.Unmarshal(b, &in) == nil {
 		_, _ = s.SaveDraft(ctx, newID, in)

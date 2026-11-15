@@ -120,4 +120,37 @@ export const swForms: Record<string, string> = {
   normal: "kawaida",
   low: "chini",
   equals: "ni sawa na",
+
+  "Add a language": "Ongeza lugha",
+  "Added to the HTML of every language. The version keeps its own copy, so later edits to the stylesheet do not change it.":
+    "Huongezwa kwenye HTML ya kila lugha. Toleo linabaki na nakala yake, kwa hiyo mabadiliko ya baadaye ya stylesheet hayalibadilishi.",
+  "Delete this stylesheet?": "Futa stylesheet hii?",
+  "Empty uses the page title.": "Tupu hutumia kichwa cha ukurasa.",
+  "Import a template": "Leta kiolezo",
+  "Leave empty to keep the bundle's own slug.": "Acha tupu ili kubaki na slug ya kifurushi.",
+  "New stylesheet": "Stylesheet mpya",
+  "No stylesheets": "Hakuna stylesheet",
+  "Plain CSS only: no @import, scripts or template variables.":
+    "CSS ya kawaida tu: bila @import, script au vigeu vya kiolezo.",
+  "Reusable messages with variables, in English, Kiswahili or any other language. Published versions never change; usable from Compose, Bulk send and the API by slug.":
+    "Ujumbe unaoweza kutumika tena wenye vigeu, kwa Kiingereza, Kiswahili au lugha nyingine yoyote. Matoleo yaliyochapishwa hayabadiliki kamwe; yanaweza kutumika kutoka Andika, Tuma kwa wingi na API kwa slug.",
+  "Saved versions keep the CSS they already have.":
+    "Matoleo yaliyohifadhiwa yanabaki na CSS waliyonayo.",
+  "Shared CSS you can add to any template. A saved version keeps its own copy: changing a stylesheet affects only the next draft that uses it.":
+    "CSS ya pamoja unayoweza kuongeza kwenye kiolezo chochote. Toleo lililohifadhiwa linabaki na nakala yake: kubadilisha stylesheet kunaathiri rasimu inayofuata tu.",
+  Stylesheet: "Stylesheet",
+  Stylesheets: "Stylesheet",
+  "That is not valid JSON.": "Hii si JSON halali.",
+  "The import becomes a draft. Nothing is published until you have looked at it and published it.":
+    "Kilicholetwa kinakuwa rasimu. Hakuna kinachochapishwa hadi uikague na kuichapisha.",
+  "Without content in this language, requests for it fall back to English.":
+    "Bila maudhui katika lugha hii, maombi yake yanatumia Kiingereza.",
+  "Write variables as {{name}}. Scripts, forms and event handlers are removed; the plain-text version is made from the HTML.":
+    "Andika vigeu kama {{name}}. Script, fomu na vishughulikia matukio huondolewa; toleo la maandishi matupu hutengenezwa kutoka kwenye HTML.",
+  "HTML file": "Faili la HTML",
+  "Template bundle (JSON)": "Kifurushi cha kiolezo (JSON)",
+  HTML: "HTML",
+  Bundle: "Kifurushi",
+  Close: "Funga",
+  None: "Hakuna",
 };
