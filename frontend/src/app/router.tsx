@@ -26,7 +26,12 @@ import { Automations } from "@/features/workspace/pages/Automations";
 import { Bulk, CampaignDetail, NewCampaign } from "@/features/workspace/pages/Bulk";
 import { ContactDetail, Contacts, Lists, Segments } from "@/features/workspace/pages/Audience";
 import { Members } from "@/features/workspace/pages/Members";
-import { ChatAnalytics, ChatConversations, ChatSnippets, ChatWidgets } from "@/features/workspace/pages/Chat";
+import {
+  ChatAnalytics,
+  ChatConversations,
+  ChatSnippets,
+  ChatWidgets,
+} from "@/features/workspace/pages/Chat";
 import { CheckAddresses, RelayStatus } from "@/features/workspace/pages/Tools";
 import { FormFilters, FormInbox, Forms } from "@/features/workspace/pages/Forms";
 import { ApiDocs, ApiKeys, WebhookDetail, Webhooks } from "@/features/workspace/pages/Developers";
@@ -44,6 +49,7 @@ import {
   DailyReportEmail,
   Plans,
 } from "@/features/workspace/pages/Admin";
+import { Platform } from "@/features/workspace/pages/Platform";
 import ProjectDetail from "@/features/mail/ProjectDetail";
 import SettingsPage from "@/features/mail/Settings";
 import Profile from "@/features/mail/Profile";
@@ -124,6 +130,7 @@ const workspacePages: [string, ReactNode][] = [
   ["plans", <Plans />],
   ["alerts", <Alerts />],
   ["system", <System />],
+  ["platform", <Platform />],
   ["audit", <Audit />],
   ["settings", <SettingsPage />],
   ["profile", <Profile />],

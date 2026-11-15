@@ -11,6 +11,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/oidc"
 	"github.com/njiwa-tz/mail/internal/verify"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"regexp"
 	"strings"
@@ -80,6 +81,12 @@ type Options struct {
 	// FormsEnabled turns on contact forms (FORMS_ENABLED). Off by default:
 	// the public form endpoints answer 404 and the workspace pages are hidden.
 	FormsEnabled bool
+	// UpdateCheckURL (UPDATE_CHECK_URL) is an https release feed answering {"tag_name": "..."},
+	// for example a GitHub "latest release" API address. Empty (the default) switches the
+	// operator's update check off.
+	UpdateCheckURL string
+	// UpdateHTTPClient is the client for that request; nil uses a plain one with a timeout. Tests set it.
+	UpdateHTTPClient *http.Client
 	// ChatEnabled turns on the live chat widget (CHAT_ENABLED). Off by default:
 	// the public chat endpoints answer 404 and the workspace pages are hidden.
 	ChatEnabled bool
