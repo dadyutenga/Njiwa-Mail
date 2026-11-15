@@ -339,6 +339,10 @@ encrypted, covered by `rekey`).
 - An account with an authenticator still enters its code (or a recovery code) after the provider; five wrong codes end that
   sign-in. Sessions, the throttle and the audit log (`auth.login`, `method: sso`) are the same as for passwords.
 - Every failure shows the same message to the person; the reason is in the server log (`sso sign-in refused`).
+- The server fetches the discovery document, the signing keys and the token from addresses the provider names, so it only
+  connects to **public** addresses (loopback, private, link-local and cloud-metadata ranges are refused at connect time, for
+  redirects too). A provider inside your own network (Keycloak or authentik on a private address) needs that network allowed:
+  `SSO_ALLOWED_NETWORKS=10.20.0.0/16` (comma-separated networks or addresses). For a local test provider use `127.0.0.0/8`.
 
 ## Inbound mail and bounces
 
@@ -527,7 +531,7 @@ Each run also seals up to 200 inbound attachment files written before encryption
 
 **Encryption at rest.** Inbound attachments are stored sealed with `ENCRYPTION_KEY` (AES-GCM, bound to the attachment id) and decrypted on download; losing the key makes them unreadable, like queued mail. The raw spool file (`DATA_DIR/spool`) is plaintext until parsed, normally seconds. Backups copy the sealed files.
 
-**Data-subject requests.** Recipient privacy page (or `POST /admin/v1/w/{project}/{mode}/privacy/export[?format=csv]` and `/privacy/delete`): export lists message metadata, delivery evidence, bounces, inbound mail and suppression state (no bodies, no variables); delete removes them and the attachment files. A single finished message can be exported (`GET .../messages/{id}/export`) or deleted (`DELETE .../messages/{id}`; queued, retrying, scheduled or unknown messages are refused with `message_active`). All are audited.
+**Data-subject requests.** Recipient privacy page (or `POST /admin/v1/w/{project}/{mode}/privacy/export[?format=csv]` and `/privacy/delete`): export lists message metadata, delivery evidence, bounces, inbound mail and suppression state (no bodies, no variables of mail Njiwa-Mail sent), plus what the person gave us themselves: **the contact record** (name, attributes, lists), **what they wrote in forms** (with the names of uploaded files) and **their chats**. Delete removes all of that and the attachment files; it works even if forms or chat are switched off now, because stored rows outlive the switch. A chat started without an email address cannot be matched to a person and expires with retention. Unsubscribe records keep only a keyed hash. A single finished message can be exported (`GET .../messages/{id}/export`) or deleted (`DELETE .../messages/{id}`; queued, retrying, scheduled or unknown messages are refused with `message_active`). All are audited.
 
 One-off: `njiwa-mail retention`. **Backups can retain older encrypted data until the backup's own retention expires.**
 

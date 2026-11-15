@@ -11,6 +11,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/verify"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"strings"
 	"sync"
@@ -85,6 +86,8 @@ type Options struct {
 	// ChatEnabled turns on the live chat widget (CHAT_ENABLED). Off by default:
 	// the public chat endpoints answer 404 and the workspace pages are hidden.
 	ChatEnabled bool
+	// SSOAllowedNetworks are non-public networks the identity-provider client may reach (SSO_ALLOWED_NETWORKS).
+	SSOAllowedNetworks []netip.Prefix
 	// RelayAddr and RelayImplicitTLS describe the SMTP relay (RELAY_LISTEN_ADDR, RELAY_IMPLICIT_TLS)
 	// for the dashboard; whether it is running comes from its heartbeat.
 	RelayAddr        string
@@ -146,7 +149,10 @@ func New(pool *db.DB, box *secure.Box, o Options) *Service {
 	}
 	o.InboundDomain = strings.ToLower(o.InboundDomain)
 	o.BounceAddress = strings.ToLower(o.BounceAddress)
-	return &Service{Pool: pool, Box: box, Opts: o}
+	s := &Service{Pool: pool, Box: box, Opts: o}
+	// The identity-provider client reads the allowed networks from the options at each connection.
+	s.oidc.Allowed = func() []netip.Prefix { return s.Opts.SSOAllowedNetworks }
+	return s
 }
 
 // Error is a safe, client-visible failure. Code never contains user content.

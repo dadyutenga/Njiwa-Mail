@@ -6,11 +6,14 @@ import (
 	"bufio"
 	"encoding/base64"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/netguard"
 )
 
 type SMTP struct {
@@ -98,6 +101,9 @@ type Config struct {
 	UpdateCheckURL string
 	// ChatEnabled (CHAT_ENABLED) turns on the live chat widget; off by default.
 	ChatEnabled bool
+	// SSOAllowedNetworks (SSO_ALLOWED_NETWORKS, comma-separated CIDRs) are non-public networks the
+	// server may reach when it talks to an identity provider, for one inside your own network.
+	SSOAllowedNetworks []netip.Prefix
 
 	// DNS health checker expectations.
 	MailHostname string
@@ -184,6 +190,17 @@ func key(name string, minLen int, exact bool) ([]byte, error) {
 		return nil, fmt.Errorf("%s must decode to %d bytes", name, minLen)
 	}
 	return b, nil
+}
+
+// commaList splits a comma-separated setting, dropping blanks.
+func commaList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // previousKeys reads ENCRYPTION_KEY_PREVIOUS: zero or more comma-separated
@@ -363,6 +380,9 @@ func Load() (*Config, error) {
 		if u, perr := url.Parse(c.UpdateCheckURL); perr != nil || u.Scheme != "https" || u.Host == "" {
 			return nil, fmt.Errorf("UPDATE_CHECK_URL must be an https address")
 		}
+	}
+	if c.SSOAllowedNetworks, err = netguard.ParseNetworks(commaList(get("SSO_ALLOWED_NETWORKS", ""))); err != nil {
+		return nil, fmt.Errorf("SSO_ALLOWED_NETWORKS: %w", err)
 	}
 	if c.InsecureCookies, err = boolVar("ADMIN_INSECURE_COOKIES"); err != nil {
 		return nil, err

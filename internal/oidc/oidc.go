@@ -17,10 +17,13 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/netguard"
 )
 
 // Provider is the discovered configuration of an issuer.
@@ -38,12 +41,17 @@ type cached[T any] struct {
 
 // Client fetches discovery documents and keys, caching them for an hour.
 type Client struct {
-	HTTP  *http.Client
-	Clock func() time.Time
+	// HTTP replaces the default client (tests). The default connects only to public addresses.
+	HTTP *http.Client
+	// Allowed lists non-public networks the default client may reach, for an identity provider
+	// inside your own network. It is read at each connection.
+	Allowed func() []netip.Prefix
+	Clock   func() time.Time
 
-	mu   sync.Mutex
-	disc map[string]cached[*Provider]
-	keys map[string]cached[map[string]crypto.PublicKey]
+	mu      sync.Mutex
+	guarded *http.Client
+	disc    map[string]cached[*Provider]
+	keys    map[string]cached[map[string]crypto.PublicKey]
 }
 
 func (c *Client) now() time.Time {
@@ -57,7 +65,12 @@ func (c *Client) client() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 10 * time.Second}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.guarded == nil {
+		c.guarded = netguard.Client(10*time.Second, c.Allowed)
+	}
+	return c.guarded
 }
 
 func (c *Client) getJSON(ctx context.Context, u string, v any) error {
