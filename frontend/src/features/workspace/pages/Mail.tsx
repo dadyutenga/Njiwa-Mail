@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
+import { Sessions } from "@/features/mail/Sessions";
 import { useWorkspace, useWsKey, useSendingEnvironment } from "../context";
 import { SendingMode, useSendingModeParam, withSendingMode } from "../SendingMode";
 import { useCompose } from "../Layout";
@@ -797,6 +798,7 @@ export function MessageLog() {
         )}
       />
       <MessageList extended />
+      <Sessions />
     </>
   );
 }

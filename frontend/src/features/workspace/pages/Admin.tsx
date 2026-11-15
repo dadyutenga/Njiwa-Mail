@@ -5,6 +5,7 @@ import { CheckCircle2, MinusCircle, Plus, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
+import { Sessions } from "@/features/mail/Sessions";
 import { useAuth } from "@/features/auth/auth";
 import { admin, getCsrf } from "@/lib/admin-api";
 import { toast } from "sonner";
@@ -1336,15 +1337,14 @@ export function System() {
 
 export function Audit() {
   const phrase = usePhrase();
-  const [actor, setActor] = useParam("actor");
-  const [action, setAction] = useParam("action");
+  const [query, setQuery] = useParam("q");
+  const [draft, setDraft] = useState(query);
   const offset = useOffset();
+  useEffect(() => setDraft(query), [query]);
   const q = useQuery({
-    queryKey: ["audit", actor, action, offset],
+    queryKey: ["audit", query, offset],
     queryFn: () =>
-      admin.get<Page>(
-        `/audit?limit=50&offset=${offset}&actor=${encodeURIComponent(actor)}&action=${encodeURIComponent(action)}`,
-      ),
+      admin.get<Page>(`/audit?limit=50&offset=${offset}&q=${encodeURIComponent(query)}`),
   });
   return (
     <>
@@ -1352,25 +1352,36 @@ export function Audit() {
         title={phrase("Audit log")}
         description={phrase("Every change made by a person or an API key.")}
       />
-      <div className="mb-3 grid gap-3 sm:grid-cols-2">
-        <Field label={phrase("Actor")}>
+      <form
+        className="mb-4 flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setQuery(draft.trim());
+        }}
+      >
+        <Field label={phrase("Search the log")} className="min-w-64 flex-1">
           <input
             className={inputClass}
             type="search"
-            defaultValue={actor}
-            onBlur={(e) => setActor(e.target.value.trim())}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={phrase("Actor, action, or target")}
           />
         </Field>
-        <Field label={phrase("Action")}>
-          <input
-            className={inputClass}
-            type="search"
-            defaultValue={action}
-            onBlur={(e) => setAction(e.target.value.trim())}
-            placeholder="domain.create"
-          />
-        </Field>
-      </div>
+        <Button type="submit">{phrase("Search")}</Button>
+        {query && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setDraft("");
+              setQuery("");
+            }}
+          >
+            {phrase("Clear")}
+          </Button>
+        )}
+      </form>
       <DataState q={q}>
         {(d) => (
           <>
@@ -1399,6 +1410,7 @@ export function Audit() {
           </>
         )}
       </DataState>
+      <Sessions />
     </>
   );
 }

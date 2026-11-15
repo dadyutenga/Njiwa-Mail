@@ -783,7 +783,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		return nil, nil
 	}))
 	h("GET /audit", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
-		items, more, err := svc.ListAudit(reqCtx(c), q(c, "actor"), q(c, "action"), pageOf(c))
+		items, more, err := svc.ListAudit(reqCtx(c), q(c, "actor"), q(c, "action"), q(c, "q"), pageOf(c))
 		return list(c, items, more, err)
 	})
 

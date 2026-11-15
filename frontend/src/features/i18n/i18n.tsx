@@ -293,6 +293,50 @@ export const swPhrases: Record<string, string> = {
   "Every enabled user is an admin and can access all pages and settings.":
     "Kila mtumiaji aliyewezeshwa ni msimamizi na anaweza kufikia kurasa na mipangilio yote.",
   "Administration settings": "Mipangilio ya usimamizi",
+  "People who can sign in, and who may manage the installation.":
+    "Watu wanaoweza kuingia, na nani anaweza kusimamia usakinishaji.",
+  "How this installation hands mail to a server.":
+    "Jinsi usakinishaji huu unavyokabidhi barua kwa seva.",
+  "Export or delete the personal data held for a recipient.":
+    "Hamisha au futa data ya kibinafsi iliyohifadhiwa kwa mpokeaji.",
+  "Sign-in": "Kuingia",
+  "Bounce alerts": "Arifa za barua zilizorejeshwa",
+  "New projects": "Miradi mipya",
+  Retention: "Uhifadhi",
+  Other: "Nyingine",
+  Limits: "Vikomo",
+  "Numbers apply to the whole installation.": "Nambari zinatumika kwa usakinishaji wote.",
+  "An admin without a second factor is asked to enrol at the next sign-in.":
+    "Msimamizi asiye na hatua ya pili anaombwa ajiandikishe wakati anapoingia tena.",
+  "Sign-in attempts per account": "Majaribio ya kuingia kwa akaunti",
+  "Sign-in attempts allowed for one account in 15 minutes.":
+    "Majaribio ya kuingia yanayoruhusiwa kwa akaunti moja ndani ya dakika 15.",
+  "Sign-in attempts per address": "Majaribio ya kuingia kwa anwani",
+  "Sign-in attempts allowed from one network address in 15 minutes.":
+    "Majaribio ya kuingia yanayoruhusiwa kutoka anwani moja ya mtandao ndani ya dakika 15.",
+  "Minimum volume": "Kiwango cha chini",
+  "Submissions in the last hour before a bounce rate raises an alert.":
+    "Uwasilishaji katika saa iliyopita kabla kiwango cha barua zilizorejeshwa hakijaleta arifa.",
+  "Hard bounce percent": "Asilimia ya hard bounce",
+  "Hard bounces as a percent of submissions in the last hour.":
+    "Hard bounce kama asilimia ya uwasilishaji katika saa iliyopita.",
+  "Policy bounce percent": "Asilimia ya policy bounce",
+  "Policy bounces as a percent of submissions in the last hour.":
+    "Policy bounce kama asilimia ya uwasilishaji katika saa iliyopita.",
+  "Sends per minute": "Utumaji kwa dakika",
+  "Send rate applied when a project is created.": "Kiwango cha utumaji kinachowekwa mradi unapoundwa.",
+  "Sends per day": "Utumaji kwa siku",
+  "Daily send limit applied when a project is created.":
+    "Kikomo cha utumaji kwa siku kinachowekwa mradi unapoundwa.",
+  "Inbound mail (days)": "Barua zinazoingia (siku)",
+  "How long received mail is kept.": "Muda ambao barua zilizopokelewa huhifadhiwa.",
+  "Delivery evidence (days)": "Ushahidi wa utumaji (siku)",
+  "How long delivery events are kept.": "Muda ambao matukio ya utumaji huhifadhiwa.",
+  "Installer receipts (days)": "Risiti za kisakinishi (siku)",
+  "How long installer receipts are kept.": "Muda ambao risiti za kisakinishi huhifadhiwa.",
+  "Failures before disable": "Kushindwa kabla ya kuzima",
+  "Consecutive failed deliveries before a webhook is turned off.":
+    "Uwasilishaji ulioshindwa mfululizo kabla webhook haijazimwa.",
   Overview: "Muhtasari",
   Messages: "Ujumbe",
   "Message detail": "Maelezo ya ujumbe",
@@ -319,6 +363,9 @@ export const swPhrases: Record<string, string> = {
   "Sandbox capture": "Nakala ya sandbox",
   Analytics: "Takwimu",
   "Audit log": "Kumbukumbu ya ukaguzi",
+  "Search the log": "Tafuta kumbukumbu",
+  "Actor, action, or target": "Mhusika, kitendo, au lengo",
+  Clear: "Futa",
   Settings: "Mipangilio",
   Profile: "Wasifu",
   "Recipient privacy": "Faragha ya mpokeaji",
@@ -519,6 +566,8 @@ export const swPhrases: Record<string, string> = {
   "Email:": "Barua pepe:",
   "Role:": "Jukumu:",
   Sessions: "Vipindi",
+  "Browsers that are signed in to this account. Revoking one signs that browser out.":
+    "Vivinjari vilivyoingia kwenye akaunti hii. Kubatilisha kimoja kinamtoa kivinjari hicho.",
   Browser: "Kivinjari",
   Revoke: "Batilisha",
   "Export downloaded.": "Data imepakuliwa.",

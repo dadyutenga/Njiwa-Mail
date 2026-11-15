@@ -25,12 +25,12 @@ it("shares settings and administration links within the current workspace", asyn
   expect(
     screen.getByText("Every enabled user is an admin and can access all pages and settings."),
   ).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/p/demo/users");
-  expect(screen.getByRole("link", { name: "Delivery infrastructure" })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: /Users/ })).toHaveAttribute("href", "/p/demo/users");
+  expect(screen.getByRole("link", { name: /Delivery infrastructure/ })).toHaveAttribute(
     "href",
     "/p/demo/mail-server",
   );
-  expect(screen.getByRole("link", { name: "Recipient privacy" })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: /Recipient privacy/ })).toHaveAttribute(
     "href",
     "/p/demo/privacy",
   );
