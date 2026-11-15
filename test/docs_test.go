@@ -56,6 +56,8 @@ var tableDocs = map[string]string{
 	"sso_providers":         "OpenID Connect providers: issuer, client id, encrypted client secret, allowed email domains.",
 	"sso_states":            "One-time state, nonce and encrypted PKCE verifier of a sign-in in progress (ten minutes).",
 	"inbound_ingest":        "Per-environment secret (encrypted) for signed HTTP ingest of inbound mail.",
+	"chat_bans":             "Banned chat visitors: keyed hashes of the address and the email, never the values.",
+	"chat_snippets":         "Canned replies an agent can insert into a chat answer.",
 	"chat_conversations":    "Live chat conversations: visitor details encrypted, session token kept only as a hash, masked address, state.",
 	"chat_messages":         "Live chat messages (bodies encrypted) with delivery and email follow-up marks.",
 	"chat_widgets":          "Live chat widgets: allowed origins, welcome text, announcement, home links, reply sender.",

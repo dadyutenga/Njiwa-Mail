@@ -56,6 +56,7 @@ var sealedColumns = []sealedSpec{
 	{"form_files.data_enc", "form_files", "data_enc", "id::text", "'form-file:'||id::text"},
 	{"chat_conversations.visitor_enc", "chat_conversations", "visitor_enc", "id::text", "'chat-visitor:'||id::text"},
 	{"chat_messages.body_enc", "chat_messages", "body_enc", "id::text", "'chat-msg:'||id::text"},
+	{"chat_widgets.identity_secret_enc", "chat_widgets", "identity_secret_enc", "id::text", "'chat-identity:'||id::text"},
 	{"dns_oauth_states.verifier_enc", "dns_oauth_states", "verifier_enc", "encode(state_hash,'hex')", "'dns-oauth:'||encode(state_hash,'hex')"},
 }
 

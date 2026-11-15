@@ -83,15 +83,16 @@ func (s *Server) chatRoutes(app *fiber.App) {
 	})
 	pub("POST", "/v1/chat/:id/conversations", func(c fiber.Ctx, id string) (any, int, error) {
 		var in struct {
-			Name    string `json:"name"`
-			Email   string `json:"email"`
-			Message string `json:"message"`
+			Name     string `json:"name"`
+			Email    string `json:"email"`
+			Message  string `json:"message"`
+			Identity string `json:"identity"`
 		}
 		if err := decode(c, &in); err != nil {
 			return nil, 0, err
 		}
 		out, err := svc.StartChat(reqCtx(c), service.ChatStart{WidgetID: id, Origin: c.Get("Origin"), Referer: c.Get("Referer"),
-			IP: s.clientIP(c), Name: in.Name, Email: in.Email, Message: in.Message})
+			IP: s.clientIP(c), Name: in.Name, Email: in.Email, Message: in.Message, Identity: in.Identity})
 		return out, 201, err
 	})
 	pub("POST", "/v1/chat/:id/conversations/:cid/messages", func(c fiber.Ctx, id string) (any, int, error) {
@@ -169,12 +170,13 @@ func (s *Server) chatRoutes(app *fiber.App) {
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		id, err := svc.CreateChatWidget(ctx(c), sc, in)
+		id, secret, err := svc.CreateChatWidget(ctx(c), sc, in)
 		if err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "chat_widget.create", "chat_widget", id, scoped(sc, map[string]any{"name": in.Name}))
-		return map[string]string{"id": id}, nil
+		// The identity secret is shown this once.
+		return map[string]string{"id": id, "identity_secret": secret}, nil
 	})
 	h("PUT", "/chat/widgets/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in service.ChatWidgetInput
@@ -192,6 +194,74 @@ func (s *Server) chatRoutes(app *fiber.App) {
 			return nil, err
 		}
 		s.audit(c, u, "chat_widget.delete", "chat_widget", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("POST", "/chat/widgets/:id/identity-secret", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		secret, err := svc.RotateChatIdentitySecret(ctx(c), sc, c.Params("id"))
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "chat_widget.identity_secret", "chat_widget", c.Params("id"), scoped(sc, nil))
+		return map[string]string{"identity_secret": secret}, nil
+	})
+	h("GET", "/chat/analytics", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		days, _ := strconv.Atoi(c.Query("days", "30"))
+		return svc.ChatAnalytics(ctx(c), sc, days)
+	})
+	h("GET", "/chat/snippets", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, err := svc.ListChatSnippets(ctx(c), sc)
+		return map[string]any{"items": items}, err
+	})
+	h("POST", "/chat/snippets", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.ChatSnippetInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		id, err := svc.CreateChatSnippet(ctx(c), sc, in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "chat_snippet.create", "chat_snippet", id, scoped(sc, map[string]any{"title": in.Title}))
+		return map[string]string{"id": id}, nil
+	})
+	h("PUT", "/chat/snippets/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.ChatSnippetInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.UpdateChatSnippet(ctx(c), sc, c.Params("id"), in); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "chat_snippet.update", "chat_snippet", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("DELETE", "/chat/snippets/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteChatSnippet(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "chat_snippet.delete", "chat_snippet", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("POST", "/chat/conversations/:id/ban", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if len(c.Body()) > 0 {
+			if err := decode(c, &in); err != nil {
+				return nil, err
+			}
+		}
+		if err := svc.BanChatVisitor(ctx(c), sc, u.Email, c.Params("id"), in.Reason); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "chat_visitor.ban", "chat_conversation", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	h("DELETE", "/chat/conversations/:id/ban", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.UnbanChatVisitor(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "chat_visitor.unban", "chat_conversation", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
 	h("GET", "/chat/conversations", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {

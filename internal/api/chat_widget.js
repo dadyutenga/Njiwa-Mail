@@ -17,7 +17,10 @@
   var API = m[1] + "/v1/chat/" + m[2];
   var KEY = "njiwa-chat-" + m[2];
 
-  var cfg = { title: "Chat", welcome: "", offline_message: "", announcement: "", links: [] };
+  // The site may say who the visitor is, with a signature made by its own server:
+  //   window.njiwaChat = { email: "a@b.c", name: "Ada", identity: "<hex HMAC-SHA256 of the email>" };
+  var U = window.njiwaChat || {};
+  var cfg = { title: "Chat", welcome: "", offline_message: "", announcement: "", links: [], identity_required: false };
   var conv = null; // { id, token }
   try { conv = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { conv = null; }
   var cursor = "", seen = {}, abort = null, poll = null, open = false, view = "home";
@@ -76,6 +79,10 @@
     });
     if (ls.childNodes.length) b.appendChild(ls);
     var go = h("button", "btn", conv ? "Continue the conversation" : "Start a chat");
+    if (cfg.identity_required && !conv && !(U.email && U.identity)) {
+      b.appendChild(h("div", "small", "Sign in to the website to chat with us."));
+      return;
+    }
     go.onclick = function () { conv ? renderChat() : renderStart(); };
     b.appendChild(go);
     if (cfg.offline_message) b.appendChild(h("div", "small", cfg.offline_message));
@@ -85,15 +92,19 @@
     view = "start";
     var b = $("b"), f = $("f"); clear(b); clear(f);
     b.appendChild(h("div", "", cfg.welcome || "Write to us. We answer here, and by email if you have left."));
-    var name = h("input"); name.placeholder = "Name (optional)"; name.maxLength = 80; name.autocomplete = "name";
-    var email = h("input"); email.type = "email"; email.placeholder = "Email (optional)"; email.autocomplete = "email";
+    var name = h("input"); name.placeholder = "Name (optional)"; name.maxLength = 80; name.autocomplete = "name"; name.value = U.name || "";
+    var email = h("input"); email.type = "email"; email.placeholder = "Email (optional)"; email.autocomplete = "email"; email.value = U.email || "";
+    var known = !!(U.email && U.identity); // identified by the website: its address is not editable
+    if (known) { email.readOnly = true; }
     var msg = h("textarea"); msg.placeholder = "Your message"; msg.maxLength = 2000; msg.style.cssText = "width:100%;height:90px;margin-top:6px;border:1px solid #d1d5db;border-radius:8px;padding:8px";
     var hint = h("div", "small", "Leave an email address if you want the answer to reach you after you leave this page.");
     var err = h("div", "err"); var send = h("button", "btn", "Send");
     [h("label", "", "Name"), name, h("label", "", "Email"), email, h("label", "", "Message"), msg, hint, err, send].forEach(function (n) { b.appendChild(n); });
     send.onclick = function () {
       err.textContent = ""; send.disabled = true;
-      call("POST", "/conversations", { name: name.value, email: email.value, message: msg.value }).then(function (r) {
+      var body = { name: name.value, email: email.value, message: msg.value };
+      if (known) body.identity = U.identity;
+      call("POST", "/conversations", body).then(function (r) {
         conv = { id: r.conversation_id, token: r.token }; save(); cursor = ""; seen = {}; renderChat();
       }).catch(function (e) { err.textContent = e.message; send.disabled = false; });
     };
