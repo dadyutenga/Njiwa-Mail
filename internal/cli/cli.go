@@ -567,6 +567,13 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 		_, err := svc.SendChatEmails(ctx)
 		return err
 	})
+	every(time.Hour, "account_deletions", func() error {
+		n, err := svc.PurgeDueAccounts(ctx)
+		if n > 0 {
+			slog.Info("accounts deleted after their grace period", "count", n)
+		}
+		return err
+	})
 	every(time.Minute, "form_digests", func() error {
 		_, err := svc.SendFormDigests(ctx)
 		return err

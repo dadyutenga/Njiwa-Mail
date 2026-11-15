@@ -153,4 +153,25 @@ export const swForms: Record<string, string> = {
   Bundle: "Kifurushi",
   Close: "Funga",
   None: "Hakuna",
+
+  "Change password": "Badilisha nenosiri",
+  "Current password": "Nenosiri la sasa",
+  "Delete my account": "Futa akaunti yangu",
+  "Devices signed out": "Vifaa vilivyotolewa",
+  "Keep my account": "Baki na akaunti yangu",
+  "My activity": "Shughuli zangu",
+  "New password": "Nenosiri jipya",
+  "Password changed. Your other devices were signed out.":
+    "Nenosiri limebadilishwa. Vifaa vyako vingine vimetolewa.",
+  "Repeat the new password": "Rudia nenosiri jipya",
+  "Schedule deletion": "Panga kufuta",
+  "Show my activity": "Onyesha shughuli zangu",
+  "Sign out every other device?": "Kutoa kila kifaa kingine?",
+  "Sign out other devices": "Toa vifaa vingine",
+  "The two new passwords are not the same.": "Manenosiri mawili mapya hayafanani.",
+  "Until then you can keep working or cancel.":
+    "Hadi hapo unaweza kuendelea kufanya kazi au kughairi.",
+  "Your account is removed 14 days after you ask. Sign-in keeps working until then, and you can cancel. The last user, or the last installation operator, cannot leave.":
+    "Akaunti yako huondolewa siku 14 baada ya kuomba. Kuingia kunaendelea hadi hapo, na unaweza kughairi. Mtumiaji wa mwisho, au opereta wa mwisho wa usakinishaji, hawezi kuondoka.",
+  "Your account will be deleted on": "Akaunti yako itafutwa tarehe",
 };

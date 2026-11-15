@@ -10,6 +10,8 @@ export type AdminUser = {
   mfa_enrollment_required: boolean;
   csrf_token: string;
   expires_at: string;
+  /** Set while the user's own request to delete the account is pending. */
+  deletion_due_at?: string | null;
 };
 export type Page<T> = { items: T[]; has_more: boolean; limit: number; offset: number };
 let csrf = "";
