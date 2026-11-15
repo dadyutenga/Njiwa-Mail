@@ -129,6 +129,25 @@ services:
       retries: 3
     deploy: { resources: { limits: { memory: 256m } } }
 
+  # SMTP relay for applications that cannot use the HTTP API yet (AUTH PLAIN
+  # with an API key, TLS only). Host port 2587 by default, so it never takes
+  # 587 from a mail server already on this host; publish it beyond
+  # 127.0.0.1 with NJIWA_RELAY_BIND=0.0.0.0 only behind your firewall rules.
+  relay:
+    <<: *app
+    profiles: [relay]
+    command: ["relay"]
+    environment:
+      <<: *app-env
+      RELAY_LISTEN_ADDR: 0.0.0.0:2587   # unprivileged: the container has no capabilities
+      RELAY_TLS_CERT: /run/relay-tls/fullchain.pem
+      RELAY_TLS_KEY: /run/relay-tls/privkey.pem
+    volumes: ["${NJIWA_RELAY_TLS_DIR:-./relay-tls}:/run/relay-tls:ro"]
+    ports: ["${NJIWA_RELAY_BIND:-127.0.0.1}:${NJIWA_RELAY_PORT:-2587}:2587"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    deploy: { resources: { limits: { memory: 256m } } }
+
   # Local catcher for development. It is not Mailcow and it does not prove real delivery.
   mailpit:
     image: axllent/mailpit:v1.21

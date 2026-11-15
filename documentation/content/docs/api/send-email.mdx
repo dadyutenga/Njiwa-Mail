@@ -13,7 +13,7 @@ description: POST /v1/emails queues one template or raw email.
 | `to` | string | Required. One bare address. With `cc` and `bcc`, at most 10 addresses in total |
 | `template` | string | `otp`, `password-reset`, `account-notice`, or a template published for the project. Omit it for a raw send |
 | `template_version` | integer | Optional. Omitted pins the newest published version |
-| `locale` | `en` or `sw` | Default `en`. Missing Kiswahili content falls back to English |
+| `locale` | language tag | Default `en`. `sw` is Kiswahili; your own templates can use others such as `fr`. Missing content falls back to English |
 | `variables` | object | Names and types come from the template. HTML is escaped |
 | `ttl_seconds` | integer | Submission will not start after this. Minimum 30. Auth templates default 300 (max 900); notices default 3600 (max 86400) |
 | `metadata.request_id` | string | Optional correlation id, `[A-Za-z0-9._:-]`, up to 128. Not a secret |
@@ -21,6 +21,7 @@ description: POST /v1/emails queues one template or raw email.
 | `reply_to`, `cc`, `bcc` | string, arrays | Optional |
 | `priority` | `high` or `normal` | `otp` and `password-reset` default to `high` |
 | `send_at` | RFC 3339 | Optional, at most 7 days ahead. The message is then `scheduled` |
+| `web_view` | boolean | Optional. Adds a "View this email in your browser" link; the copy expires after 30 days. Not with priority `high` |
 | `attachments` | array | Up to 5 files, 5 MiB in total; `application/pdf`, `image/png`, `image/jpeg`, `text/plain`; content is standard base64 |
 | `headers` | object | Optional extra headers |
 

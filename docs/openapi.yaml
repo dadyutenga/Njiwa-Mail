@@ -22,7 +22,12 @@ tags:
   - { name: Emails, description: Queue, read and cancel outbound email }
   - { name: Inbound, description: Read mail received at your inbound addresses }
   - { name: Suppressions, description: Addresses that must not receive mail }
+  - { name: Addresses, description: Check addresses before sending to them }
+  - { name: Contacts, description: Marketing contacts and subscriber lists }
   - { name: Unsubscribe, description: Public one-click unsubscribe for bulk mail }
+  - { name: Web view, description: Public "view in browser" copies of sent messages }
+  - { name: Forms, description: Contact forms posted from a website (off unless the operator turns forms on) }
+  - { name: Chat, description: Live chat widget for a website (off unless the operator turns chat on) }
   - { name: Health, description: Liveness and readiness }
 paths:
   /v1/emails:
@@ -35,7 +40,7 @@ paths:
         Template sends need scope `emails:send`; raw sends (no `template`, a `subject` and `html` and/or `text`) need `emails:send_raw`.
         The request body may be up to 6 MiB as shipped (attachments).
       x-required-scopes: ['emails:send or emails:send_raw']
-      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, sender_not_approved, project_disabled, domain_not_registered, domain_claimed_elsewhere, domain_not_ready, idempotency_conflict, idempotency_key_invalid, invalid_request, invalid_recipient, invalid_sender, unknown_template, invalid_locale, invalid_ttl, invalid_metadata, invalid_priority, invalid_send_at, web_view_not_allowed, invalid_header, invalid_attachment, too_many_attachments, attachments_too_large, too_many_recipients, recipient_suppressed, recipient_unsubscribed, recipient_not_allowed, monthly_quota_exceeded, unknown_variable, missing_variable, invalid_variable_type, invalid_variable_format, variable_too_long, variable_out_of_range, invalid_characters, invalid_url, url_origin_not_approved, rate_limited, queue_full, service_unavailable]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -142,6 +147,39 @@ paths:
         '200': { description: A page of inbound messages, content: { application/json: { schema: { $ref: '#/components/schemas/InboundPage' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Error' }
+  /v1/inbound/ingest/{env}:
+    post:
+      tags: [Inbound]
+      operationId: ingestInbound
+      summary: Deliver one inbound message over HTTP (signed)
+      description: |
+        For a mail provider or a server of yours that receives mail and should pass it on over HTTP instead of SMTP.
+        The body is the raw message (RFC 5322). It is signed with the environment's ingest secret (dashboard: Inbound, HTTP
+        ingest): `X-Njiwa-Timestamp` is the Unix time in seconds, within 5 minutes of the server's, and
+        `X-Njiwa-Signature` is `v1=` followed by the hex HMAC-SHA256 of `<timestamp>.<body>`. Every signature problem is
+        the same `401 invalid_signature`.
+        Envelope recipients come from `X-Njiwa-Recipients` (comma-separated), otherwise from `To` and `Cc`; only enabled
+        inbound addresses of this environment are kept. The message is then parsed, stored, forwarded and reported
+        (`inbound.received`) exactly like mail received over SMTP. Sending the same signed request again returns
+        `duplicate: true` and stores nothing.
+      security: []
+      x-required-scopes: ['none: signed with the environment ingest secret']
+      x-error-codes: [invalid_signature, invalid_message, no_inbound_recipient, service_unavailable]
+      parameters:
+        - { name: env, in: path, required: true, schema: { type: string, format: uuid }, description: The environment id shown with the secret }
+        - { name: X-Njiwa-Timestamp, in: header, required: true, schema: { type: string } }
+        - { name: X-Njiwa-Signature, in: header, required: true, schema: { type: string } }
+        - { name: X-Njiwa-Recipients, in: header, required: false, schema: { type: string } }
+        - { name: X-Njiwa-Envelope-From, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          message/rfc822: { schema: { type: string, format: binary } }
+      responses:
+        '202': { description: Spooled, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, recipients: { type: integer } } } } } }
+        '200': { description: Already received, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, duplicate: { type: boolean } } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /v1/inbound/{id}:
     get:
       tags: [Inbound]
@@ -175,6 +213,114 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /v1/addresses/verify:
+    post:
+      tags: [Addresses]
+      operationId: verifyAddresses
+      summary: Verify addresses before sending
+      description: |
+        Checks up to 100 addresses: syntax, whether the domain accepts mail (MX, the A/AAAA fallback, RFC 7505 null MX),
+        disposable-address providers, role accounts (`info@`, `support@`), and this environment's suppressions and bulk
+        unsubscribes. It sends no mail and never connects to the recipient's mail server, so `deliverable` means the
+        domain accepts mail, not that the mailbox exists. `unknown` means DNS did not answer in time; try again later.
+        Any key with `emails:send`, `emails:send_raw` or `addresses:verify` may call it.
+      x-required-scopes: ['addresses:verify or emails:send or emails:send_raw']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, invalid_json, emails_required, too_many_addresses, service_unavailable]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email: { type: string, description: One address }
+                emails: { type: array, maxItems: 100, items: { type: string } }
+            example: { emails: [ada@example.com, info@example.com] }
+      responses:
+        '200':
+          description: One result per address, in request order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results: { type: array, items: { $ref: '#/components/schemas/AddressCheck' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /v1/contacts:
+    post:
+      tags: [Contacts]
+      operationId: upsertContact
+      summary: Add or update a contact
+      description: |
+        Creates the contact, or updates the name and merges attributes when the address exists, and adds it to the given
+        lists. It never resubscribes anyone who unsubscribed. Attributes are for segmenting (a plan, a city), not for
+        secrets: they are stored as plain values. Names are lower case letters, digits and `_`, at most 50.
+      x-required-scopes: ['contacts:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, invalid_request, invalid_email, list_not_found, contact_limit_reached, service_unavailable]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email: { type: string }
+                name: { type: string, maxLength: 200 }
+                attributes: { type: object, additionalProperties: true }
+                lists: { type: array, items: { type: string, format: uuid } }
+            example: { email: neema@example.com, name: Neema, attributes: { source: website }, lists: ['00000000-0000-4000-8000-000000000000'] }
+      responses:
+        '200': { description: Saved, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, created: { type: boolean } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /v1/contacts/{ref}:
+    delete:
+      tags: [Contacts]
+      operationId: deleteContact
+      summary: Delete a contact
+      description: "`ref` is the contact id or the address. Its list memberships go with it; suppressions and unsubscribes stay."
+      x-required-scopes: ['contacts:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope, not_found]
+      parameters:
+        - { name: ref, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/lists:
+    get:
+      tags: [Contacts]
+      operationId: listLists
+      summary: Subscriber lists of this environment
+      x-required-scopes: ['contacts:manage']
+      x-error-codes: [invalid_api_key, ip_not_allowed, missing_scope]
+      responses:
+        '200':
+          description: The lists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+                        description: { type: string }
+                        members: { type: integer }
+                        unsubscribed: { type: integer }
+                        created_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /v1/suppressions:
     get:
       tags: [Suppressions]
@@ -248,6 +394,235 @@ paths:
       responses:
         '200': { description: Unsubscribed (HTML), content: { text/html: { schema: { type: string } } } }
         '404': { description: Unknown token (HTML), content: { text/html: { schema: { type: string } } } }
+  /v1/forms/{id}:
+    post:
+      tags: [Forms]
+      operationId: submitForm
+      summary: Post a contact form
+      description: |
+        Posted from a website, by an HTML form (no JavaScript needed), JSON or multipart (up to 3 files of PDF, PNG, JPEG or
+        plain text, 2 MiB in all). Create the form in the dashboard first; it is off unless the operator set `FORMS_ENABLED`.
+        - The field `email` is required (replies go there); other fields are free text (letters, digits, `_ . -` in names; up to
+          30 fields, 5000 characters each).
+        - A browser's `Origin` (or `Referer`) must be one of the form's allowed origins, or the post is `403 origin_not_allowed`.
+          CORS answers are given only to those origins.
+        - Keep the field `hp_website` empty and hidden: a filled one is answered as success and kept nowhere.
+        - If the form requires it, fetch a single-use `_nonce` first (`GET /v1/forms/{id}/nonce`) and post it back.
+        - Limits per address, per form, per sender and per workspace answer `429` with `Retry-After`.
+        - The message is scored for spam (allow, flag, quarantine, reject) and checked against the workspace's filters;
+          rejected posts are `422 spam_rejected` and not kept.
+        JSON clients get JSON; HTML form posts get a thank-you page or a `303` to the form's thank-you address.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true, required: [email], properties: { email: { type: string }, name: { type: string }, message: { type: string } } }
+          application/x-www-form-urlencoded:
+            schema: { type: object, additionalProperties: true, required: [email], properties: { email: { type: string }, name: { type: string }, message: { type: string } } }
+          multipart/form-data:
+            schema: { type: object, additionalProperties: true, required: [email], properties: { email: { type: string } } }
+      x-required-scopes: ['none: public, protected by origin allowlist, limits and spam rules']
+      x-error-codes: [forms_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, invalid_field, field_too_long, form_too_large, too_many_fields, too_many_files, file_type_not_allowed, files_too_large, nonce_required, nonce_invalid, spam_rejected, body_too_large, invalid_request, service_unavailable]
+      responses:
+        '202': { description: Received, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid }, status: { type: string, enum: [received] } } } } } }
+        '303': { description: HTML form post with a thank-you address set }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /v1/forms/{id}/nonce:
+    get:
+      tags: [Forms]
+      operationId: formNonce
+      summary: A single-use nonce for a form page
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      x-required-scopes: ['none: public']
+      x-error-codes: [forms_disabled, not_found]
+      responses:
+        '200': { description: A nonce valid for an hour, content: { application/json: { schema: { type: object, properties: { nonce: { type: string }, expires_in: { type: integer } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/widget.js:
+    get:
+      tags: [Chat]
+      operationId: chatWidgetScript
+      summary: The chat widget script
+      description: |
+        One static script. Add it to a page with `<script src="https://YOUR-HOST/v1/chat/CHAT_ID/widget.js" async></script>`.
+        It shows a chat button, a home screen (announcement and links) and the conversation. Create the chat in the dashboard first;
+        it is off unless the operator set `CHAT_ENABLED`.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      x-required-scopes: ['none: public']
+      x-error-codes: [chat_disabled]
+      responses:
+        '200': { description: JavaScript, content: { application/javascript: { schema: { type: string } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/config:
+    get:
+      tags: [Chat]
+      operationId: chatConfig
+      summary: What the widget shows before a conversation starts
+      description: Title, welcome text, announcement, home links and whether the chat only takes identified visitors (`identity_required`). CORS answers are given only to the chat's allowed origins.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      x-required-scopes: ['none: public']
+      x-error-codes: [chat_disabled, not_found]
+      responses:
+        '200': { description: Settings, content: { application/json: { schema: { type: object, properties: { title: { type: string }, welcome: { type: string }, offline_message: { type: string }, announcement: { type: string }, identity_required: { type: boolean }, links: { type: array, items: { type: object, properties: { label: { type: string }, url: { type: string } } } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/conversations:
+    post:
+      tags: [Chat]
+      operationId: chatStart
+      summary: A visitor starts a conversation
+      description: |
+        Opens a conversation with the visitor's first message and returns a session `token`. Send it as `Authorization: Bearer <token>`
+        on every later call for that conversation; it is shown once and kept only as a hash.
+        - A browser's `Origin` (or `Referer`) must be one of the chat's allowed origins, or the call is `403 origin_not_allowed`.
+        - Limits per address, per chat and per workspace answer `429` with `Retry-After`.
+        - The message is scored for spam and checked against the workspace's filters; anything that would be held is `422 spam_rejected`.
+        - `email` is optional. Without it an answer cannot reach a visitor who has left.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [message], properties: { name: { type: string, maxLength: 80 }, email: { type: string }, message: { type: string, maxLength: 2000 }, identity: { type: string, description: 'Hex HMAC-SHA256 of the lower-cased email, made by the website own server with the identity secret of the chat. With it the email is trusted and the conversation is marked identified.' } } }
+      x-required-scopes: ['none: public, protected by origin allowlist, limits and spam rules']
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, empty_message, message_too_long, spam_rejected, identity_invalid, identity_required, visitor_banned, invalid_request, service_unavailable]
+      responses:
+        '201': { description: Started, content: { application/json: { schema: { type: object, properties: { conversation_id: { type: string, format: uuid }, token: { type: string } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/conversations/{cid}/messages:
+    get:
+      tags: [Chat]
+      operationId: chatMessages
+      summary: Messages of a conversation, after a cursor
+      description: Oldest first. Pass the `cursor` of the last call as `after`. Answers returned here count as received by the visitor's page, so they are not emailed. A wrong token and an unknown conversation are the same `404`.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
+      x-error-codes: [chat_disabled, not_found, service_unavailable]
+      responses:
+        '200': { description: Messages, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { type: object, properties: { id: { type: string }, sender: { type: string, enum: [visitor, agent] }, body: { type: string }, at: { type: string, format: date-time }, agent: { type: string } } } }, cursor: { type: string } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Chat]
+      operationId: chatSend
+      summary: The visitor sends a message
+      description: A new visitor message reopens a closed conversation. At most 20 a minute per conversation and 300 per conversation.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 2000 } } }
+      x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, empty_message, message_too_long, conversation_full, spam_rejected, visitor_banned, invalid_request, service_unavailable]
+      responses:
+        '201': { description: Added, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/conversations/{cid}/stream:
+    get:
+      tags: [Chat]
+      operationId: chatStream
+      summary: Live messages of a conversation (server-sent events)
+      description: |
+        `text/event-stream` of `message` events, each with an `id` that can be sent back as `Last-Event-ID` (or `after`) to resume.
+        Browsers' `EventSource` cannot send the token header; the widget reads the stream with `fetch`. The stream ends after 25 minutes; reconnect.
+        An open stream keeps the visitor marked as present, so answers are not emailed.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: after, in: query, required: false, schema: { type: string } }
+      x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
+      x-error-codes: [chat_disabled, not_found, rate_limited, service_unavailable]
+      responses:
+        '200': { description: Event stream, content: { text/event-stream: { schema: { type: string } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /v1/chat/{id}/conversations/{cid}/contact:
+    put:
+      tags: [Chat]
+      operationId: chatContact
+      summary: The visitor leaves a name and an email address
+      description: Lets an answer reach the visitor by email after they have left. Sending an empty `email` removes it.
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { name: { type: string, maxLength: 80 }, email: { type: string } } }
+      x-required-scopes: ['none: the conversation session token (Authorization: Bearer)']
+      x-error-codes: [chat_disabled, not_found, origin_not_allowed, rate_limited, invalid_email, identity_locked, visitor_banned, invalid_request, service_unavailable]
+      responses:
+        '200': { description: Saved, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /v1/t/o/{token}:
+    get:
+      tags: [Web view]
+      operationId: trackOpen
+      summary: Open pixel of a tracked campaign
+      description: A 1x1 GIF in campaigns that turned on open tracking (off by default). Counts the first open per recipient; any token gets the GIF. No IP address or user agent is kept.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: A transparent GIF, content: { image/gif: { schema: { type: string, format: binary } } } }
+  /v1/t/c/{token}:
+    get:
+      tags: [Web view]
+      operationId: trackClick
+      summary: Click redirect of a tracked campaign
+      description: Links in campaigns that turned on click tracking (off by default). Redirects only to a link stored with the campaign, never to a URL taken from the request.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '302': { description: Redirect to the campaign's link }
+        '404': { description: Unknown or altered link (HTML), content: { text/html: { schema: { type: string } } } }
+  /v1/view/{token}:
+    get:
+      tags: [Web view]
+      operationId: webView
+      summary: View a message in the browser (HTML)
+      description: |
+        Opened by the recipient from the link at the top of a message sent with `web_view: true`. The page is the HTML as
+        sent, under a sandboxing Content-Security-Policy (no scripts, forms or same-origin access), not indexed by search
+        engines. Links expire after 30 days, or earlier when the message's metadata is deleted.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: The message HTML, content: { text/html: { schema: { type: string } } } }
+        '404': { description: Unknown, altered or expired link (HTML), content: { text/html: { schema: { type: string } } } }
   /health/live:
     get:
       tags: [Health]
@@ -270,7 +645,7 @@ components:
     bearer:
       type: http
       scheme: bearer
-      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage. Keep it on your server.'
+      description: 'API key `dmk_sbx_<prefix>_<secret>` (sandbox) or `dmk_liv_<prefix>_<secret>` (live). Scopes: emails:send, emails:send_raw, emails:read, inbound:read, suppressions:manage, addresses:verify, contacts:manage. Keep it on your server.'
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -345,7 +720,7 @@ components:
         to: { type: string, description: One recipient (bare address). Together with cc and bcc at most 10 addresses. }
         template: { type: string, description: 'A built-in template (otp, password-reset, account-notice) or one published for the project. Omit it for a raw send.' }
         template_version: { type: integer, minimum: 1, description: Omit it to use the newest published version. }
-        locale: { type: string, enum: [en, sw], default: en, description: Missing Kiswahili content falls back to English. }
+        locale: { type: string, pattern: '^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$', default: en, description: A language tag such as en or sw (Kiswahili); your own templates can use others such as fr. Missing content falls back to English. }
         variables:
           type: object
           description: |
@@ -365,6 +740,7 @@ components:
         bcc: { type: array, items: { type: string } }
         priority: { type: string, enum: [high, normal], description: otp and password-reset default to high. }
         send_at: { type: string, format: date-time, description: RFC 3339, at most 7 days ahead. }
+        web_view: { type: boolean, description: 'Adds a "view in browser" link at the top of the message, backed by a signed copy of the HTML that expires after 30 days. Not allowed with priority high (one-time codes, password resets).' }
         attachments: { type: array, maxItems: 5, items: { $ref: '#/components/schemas/Attachment' } }
         headers: { type: object, additionalProperties: { type: string } }
     Accepted:
@@ -473,6 +849,22 @@ components:
                   content_type: { type: string }
                   size: { type: integer }
                   sha256: { type: string }
+    AddressCheck:
+      type: object
+      required: [email, result, reasons, syntax_valid, disposable, role_account, suppressed, unsubscribed]
+      properties:
+        email: { type: string, description: The address, normalised when the syntax is valid }
+        result: { type: string, enum: [deliverable, risky, undeliverable, unknown] }
+        reasons:
+          type: array
+          items: { type: string, enum: [invalid_syntax, null_mx, no_mail_server, dns_timeout, disposable_domain, role_account, suppressed] }
+        syntax_valid: { type: boolean }
+        domain: { type: string }
+        mx: { type: array, items: { type: string }, description: Mail servers for the domain, sorted }
+        disposable: { type: boolean }
+        role_account: { type: boolean }
+        suppressed: { type: boolean, description: On this environment's suppression list; mail to it is refused }
+        unsubscribed: { type: boolean, description: Unsubscribed from bulk mail in this environment }
     SuppressionPage:
       allOf:
         - $ref: '#/components/schemas/Page'

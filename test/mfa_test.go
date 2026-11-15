@@ -77,9 +77,15 @@ func TestInstallationOperatorPermission(t *testing.T) {
 			t.Errorf("%s %s refused an operator", rt[0], rt[1])
 		}
 	}
-	// Project-level work is untouched.
-	for _, p := range []string{"/admin/v1/overview", "/admin/v1/projects", "/admin/v1/keys", "/admin/v1/audit", "/admin/v1/settings"} {
+	// What a signed-in user may still open: their own projects and notifications. The views that look
+	// across every project are for operators; a project's members work under /admin/v1/w/{project}/{mode}.
+	for _, p := range []string{"/admin/v1/projects", "/admin/v1/notifications"} {
 		e.admOK(limited, "GET", p, nil)
+	}
+	for _, p := range []string{"/admin/v1/overview", "/admin/v1/keys", "/admin/v1/audit", "/admin/v1/settings"} {
+		if res := e.adm(limited, "GET", p, nil); res.Code != 403 || errCode(res) != "operator_required" {
+			t.Errorf("GET %s as a user without the operator permission: %d %s", p, res.Code, res.Raw)
+		}
 	}
 
 	// The last operator cannot be demoted or disabled.

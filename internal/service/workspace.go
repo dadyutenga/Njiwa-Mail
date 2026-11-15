@@ -21,6 +21,8 @@ type Scope struct {
 	EnvID     string `json:"-"`
 	Project   string `json:"project"`
 	Mode      string `json:"mode"`
+	// Role is the signed-in user's role in this project (set by the API layer; "owner" for operators).
+	Role string `json:"-"`
 }
 
 // ResolveScope maps a project name and mode to ids. An unknown project or
@@ -69,6 +71,9 @@ FROM projects p JOIN environments e ON e.project_id=p.id WHERE e.id=$1`, sc.EnvI
 	}
 	m["inbound_domain"] = s.Opts.InboundDomain
 	m["api_host"] = s.Opts.PublicURL
+	m["forms_enabled"] = s.Opts.FormsEnabled
+	m["chat_enabled"] = s.Opts.ChatEnabled
+	m["role"] = sc.Role
 	return m, nil
 }
 
@@ -396,6 +401,7 @@ type ComposeInput struct {
 	InReplyTo    string            `json:"in_reply_to"` // inbound message id being answered
 	DraftID      string            `json:"draft_id"`
 	ReplyTo      string            `json:"reply_to"`
+	WebView      bool              `json:"web_view"` // add a "view in browser" link
 	extraHeaders map[string]string // unexported: system headers set by callers inside the package
 	transport    bool              // unexported: controlled transport test (QueueTransportTest)
 }
@@ -411,7 +417,7 @@ func (s *Service) Compose(ctx context.Context, sc *Scope, user, idemKey string, 
 		return nil, err
 	}
 	req := SendRequest{From: in.From, To: in.To, CC: in.CC, BCC: in.BCC, Subject: in.Subject, HTML: in.HTML, Text: in.Text,
-		Template: in.Template, Variables: in.Variables, Locale: in.Locale, SendAt: in.SendAt, Attachments: in.Attachments, ReplyTo: in.ReplyTo}
+		Template: in.Template, Variables: in.Variables, Locale: in.Locale, SendAt: in.SendAt, Attachments: in.Attachments, ReplyTo: in.ReplyTo, WebView: in.WebView}
 	if in.Template != "" {
 		req.Subject, req.HTML, req.Text = "", "", ""
 	} else if req.Text == "" && req.HTML != "" {
@@ -798,7 +804,7 @@ func (s *Service) DuplicateTemplate(ctx context.Context, sc *Scope, id, slug str
 		return newID, nil
 	}
 	last := vers[0] // newest first
-	b, _ := json.Marshal(map[string]any{"variable_schema": last["variable_schema"], "content": last["content"]})
+	b, _ := json.Marshal(map[string]any{"variable_schema": last["variable_schema"], "content": last["content"], "style": last["style"]})
 	var in VersionInput
 	if json.Unmarshal(b, &in) == nil {
 		_, _ = s.SaveDraft(ctx, newID, in)

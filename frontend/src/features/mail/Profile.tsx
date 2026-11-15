@@ -4,6 +4,7 @@ import { admin } from "@/lib/admin-api";
 import { useAuth } from "@/features/auth/auth";
 import { usePhrase } from "@/features/i18n/i18n";
 import { TwoStep } from "./TwoStep";
+import { AccountSecurity } from "./AccountSecurity";
 type Session = {
   id: string;
   created_at: string;
@@ -41,6 +42,11 @@ export default function Profile() {
         </p>
       </section>
       <TwoStep enabled={!!user?.mfa_enabled} onChanged={refresh} />
+      <AccountSecurity
+        mfa={!!user?.mfa_enabled}
+        deletionDueAt={user?.deletion_due_at}
+        onChanged={refresh}
+      />
       {error && (
         <p role="alert" className="text-destructive">
           {error}

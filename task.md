@@ -198,3 +198,168 @@ Guide: `docs/INSTALL.md`. Code: `internal/installer/discover`, `internal/install
   plan/apply` and a Test-mode send on one real AlmaLinux or Rocky Linux 9 VM (throwaway, never `rida-server`); check `getenforce`
   stays Enforcing, `ausearch -m avc -ts recent` is empty, and rollback removes the `smtp_port_t` label.
 - [ ] **T11.2 (owner)** RHEL proper needs a subscription for EPEL/CRB; untested until someone has a RHEL host.
+
+## 12. Feature round (owner's list of 2026-11-14): gap analysis and plan
+
+Owner decisions: Njiwa becomes transactional **and** marketing; open/click tracking is added **off by default**; all four
+parts are built, one PR each, in this order.
+
+**Already in place before this round** (checked in code, not added again): REST API for single, batch and templated mail;
+attachments, custom headers, priorities (high/normal), scheduled sending (`send_at`), sandbox capture (preview mode);
+idempotency; API keys with scopes, expiry, IP allowlist, hashing; sessions, CSRF, optional/required TOTP; rate limits
+(key, project, recipient, domain); domain verification with real SPF/DKIM/DMARC evaluation and staged DKIM rotation;
+verified-sender enforcement; transport profiles with failover; inbound SMTP with attachments, Rspamd spam score, storage,
+forwarding, spool retries and `inbound.received`; bounce (hard/soft) and complaint handling with automatic suppression;
+bulk announcements with RFC 8058 one-click unsubscribe; automations; signed webhooks with retries and replay; audit log;
+alerts; Prometheus metrics, health endpoints; retention; dark/light mode; English and Kiswahili.
+
+**Not taken over as written** (an equivalent exists): Redis/Asynq (the PostgreSQL queue is durable, needs no extra
+service and already has priorities and retries), JWT (server-side sessions can be revoked at once), Vue (the dashboard
+is React).
+
+### 12.1 Sending and inbound gaps (PR 1)
+- [x] Address verification `POST /v1/addresses/verify`: syntax, MX/null MX, disposable, role, suppressions; scope `addresses:verify`.
+- [x] Web view: `web_view: true`, signed expiring link `/v1/view/{token}`, sandboxed page, not for high priority.
+- [x] SMTP relay role for applications (AUTH PLAIN with an API key over TLS, same accept path, idempotent retries).
+- [x] Live inbox stream (server-sent events), used by the Inbox page.
+- [x] Signed HTTP ingest of inbound mail `POST /v1/inbound/ingest/{env}` (per-environment HMAC secret, replay-safe).
+
+### 12.2 Contacts and marketing (PR 2)
+- [x] Contacts with per-recipient send/failure stats; subscriber lists (static) and segments (dynamic).
+- [x] CSV/JSON import with column mapping and a dry run; lifecycle (active, bounced, unsubscribed, complained) read from the sending tables.
+- [x] Per-list unsubscribe (RFC 8058, scoped: receipts and resets keep flowing), resubscribe, `email.unsubscribed` webhook.
+- [x] Campaigns sent to lists and segments (on top of the existing bulk pipeline).
+- [x] Open and click tracking, off by default, written campaigns only; opens labelled estimates; no IP or user agent kept.
+- [x] Public API `POST /v1/contacts`, `DELETE /v1/contacts/{ref}`, `GET /v1/lists` (scope `contacts:manage`).
+
+### 12.3 Analytics and admin (PR 3)
+- [x] Period report: comparison with the previous period, time-to-submit and time-to-remote-accept percentiles,
+  results by mailbox provider, CSV of every table; the Analytics page uses it.
+- [x] Notification inbox per user (announcements, daily report, open alerts for operators), operator announcements
+  (retractable), the daily report recorded once per day.
+- [x] Usage plans with quotas per project (monthly Live messages, contacts), assigned per project.
+- [x] Fix: a contact's "Bounced" count counted every message.
+
+### 12.4 Forms and live chat (PR 4)
+- [x] Form endpoint (HTML, JSON, multipart, no JavaScript needed): origin allowlist, honeypot, single-use nonce, rate
+  limits, spam score with reasons and allow/flag/quarantine/reject, workspace filters with dry run, inbox states,
+  manual replies through the normal pipeline, digests. Off by default.
+- [x] Chat widget (one script tag), real-time answers from the dashboard, replies by email after the visitor leaves.
+
+## 13. Leftover work (paused on the owner's request, 2026-11-14)
+
+Each item was its own PR to `dev`. All five are now done; what remains are the joint tests below.
+
+| Item | State |
+|---|---|
+| T13.1 OIDC / SSO sign-in | **Done**, merged (#20). Checking with one real provider is a joint test (see below). |
+| T13.2 Daily report by email | **Done**, merged (#24). Off by default; the operator picks recipients and optionally the sender. |
+| T13.3 Forms | **Done**, merged (#21). Off unless `FORMS_ENABLED=true`. |
+| T13.4 Live chat | **Done**, merged (#22, then #21). Off unless `CHAT_ENABLED=true`. |
+| T13.5 Smaller follow-ups | **Done**, merged (#25). Only the contact-attributes note remains, as a design decision to revisit. |
+
+Joint tests still to do, none of which can be done without infrastructure or a person:
+- T13.1: sign in once with a real provider (Google, Keycloak or authentik); the tests use a fake provider.
+- T13.3 / T13.4: a real mail round trip. Form replies, form digests and the chat email follow-up are tested by queueing
+  assertions only; no Live message to a real recipient was sent. Both features also need a verified sender in the
+  environment, or their emails stay pending (the scheduler logs it).
+- T13.4: the widget was run in a real browser against a local server (start, live answer, resume after reload); it has not
+  yet been run on a real website behind the production reverse proxy (streams must not be buffered).
+
+### T13.1 OIDC / SSO sign-in (Google, Keycloak, authentik, any OIDC provider) — DONE (#20)
+Design as built (`internal/oidc`, `internal/service/sso.go`, migration 0030):
+- Standard library only, no new dependency: discovery (`/.well-known/openid-configuration`, issuer must match, https
+  endpoints only), authorization code flow with PKCE (S256), state and nonce, ID token verification for RS256
+  (keys of 2048 bits or more) and ES256 with the provider's JWKS (refetched once for an unknown key id); checks iss, aud,
+  azp, exp, iat, nonce, and a verified email address.
+- Operator settings: `sso_providers` (name, issuer, client id, client secret encrypted and in `rekey`, allowed email
+  domains, "create users on first sign-in" off by default, enabled). New users are never operators.
+- `sso_states` (state hash, provider, nonce, PKCE verifier encrypted, 10 minutes). Callback URL
+  `PUBLIC_URL/admin/v1/auth/sso/callback`.
+- An account with a local authenticator (TOTP) still enters its code after the provider: the callback leaves a
+  short-lived pending sign-in and the login page asks for the code.
+- Sessions, audit (`auth.login` with method `sso`) and the login throttle as for passwords. Routes in the security
+  matrix (start and callback are public by design); tests with a fake identity provider (httptest TLS) signing its own
+  tokens, including a wrong audience, an expired token, a bad nonce, an unverified email and an unknown key.
+- Dashboard: "Sign in with …" buttons on the login page; an operator page to add providers.
+
+### T13.2 Daily report by email — DONE (#24)
+Built (migration 0033, `internal/service/report_email.go`, operator page "Daily report"): recipients and an optional sender
+identity are operator settings. With no sender chosen, the default sender of a Live environment is used (the same rule as
+the Forms digests); with no sender at all nothing is sent and the next hourly run tries again. It is mailed at most once
+per day, is off by default, and the text says "submitted" is not delivered. The password-reset mail question (T9.8) is a
+separate decision and is not changed by this.
+
+### T13.3 Forms (PR 4, first half) — DONE (#21)
+Built as described below (migration 0031, `internal/service/forms*.go`, `formspam.go`, docs page `api/forms`).
+
+Form endpoint accepting HTML form posts, JSON and multipart (works without JavaScript); origin allowlist, honeypot,
+single-use nonce, rate limits per IP, form, sender and workspace; spam score with reasons and allow / flag /
+quarantine / reject; workspace filters (keyword, phrase, regex, email, domain, IP) with a dry run; inbox states,
+assignment, attachments, live stream (reuse the SSE stream); manual replies through the normal sending pipeline (no
+auto-responder); immediate, hourly or daily digests to each form's addresses. Off by default (a setting, like
+`POSTA_MESSAGES_ENABLED` in the owner's list).
+
+### T13.4 Live chat (PR 4, second half) — DONE (#22, merged through #21)
+Built (migration 0032, `internal/service/chat.go`, `internal/api/chat.go` and `chat_widget.js`, docs page `api/chat`):
+visitors are held by a per-conversation session token, answers reach an open page over a stream and are emailed once if
+the page never received them. Original request: a chat widget added with one script tag, real-time answers from the dashboard (SSE or WebSocket), replies by email once
+the visitor has left, and a home screen for the site's own links and announcements.
+
+### T13.5 Smaller follow-ups found along the way — DONE (#25)
+Done: the Check addresses page, the SMTP relay status page (the relay now sends a heartbeat), the web view option in Compose,
+docs portal pages for analytics and usage plans, OPERATIONS.md sections for announcements, the daily report and plans, and
+a visual check of the Analytics, Announcements and Usage plans pages and the bell against a running API (no page errors).
+Still open as a decision, not as work: contact attributes are stored in plain text by design.
+
+Original list:
+- Dashboard pages for the new APIs that have none yet: address verification (a "Check addresses" tool), web view
+  toggle in Compose, SMTP relay status.
+- A docs portal page for analytics and usage plans; OPERATIONS.md sections for announcements, daily reports and plans.
+- Visual check of the Analytics, Announcements and Usage plans pages in a running dashboard (done for Contacts,
+  Segments and Bulk send only).
+- Contact attributes are stored in plain text by design (segments filter on them); revisit if a project needs
+  encrypted attributes.
+
+## 14. Gap analysis against the Posta source (2026-11-15)
+
+The owner shared Posta's source (`goposta/posta`, collected in one file) and asked where Njiwa-Mail falls short. Method: Posta's
+262 routes, services and cron jobs were listed and each candidate was checked against Njiwa-Mail's `docs/ENDPOINTS.md` and code,
+not assumed. Already at least as good here (checked): template versions with publish, test send and preview; webhook
+deliveries with replay; session list and revoke; campaign actions; message retry; SSO (OIDC); usage plans; announcements and the
+notification inbox; webhook SSRF guard at connect time; inbound spam scoring; DNS evaluation, DKIM rotation, transport profiles
+with failover, managed MTA and its installer (Posta has none of these).
+
+### 14.1 Defects in Njiwa-Mail found by this comparison (fixed)
+- [x] **Privacy export and delete missed what people give us**: contacts, form submissions (with files) and chats were not
+  exported or deleted by `privacy/export` and `privacy/delete`. Fixed with a test that fails on the old code (PR "privacy coverage").
+- [x] **The OIDC client could be pointed at internal addresses** by a provider's discovery document (SSRF), and followed redirects
+  anywhere. It now connects only to public addresses, checked at connect time for redirects too; `SSO_ALLOWED_NETWORKS` allows a
+  provider on a private network. New `internal/netguard`.
+
+### 14.2 Larger gaps, in the order they matter
+1. [ ] **No per-project access control.** There is one role (`admin`) plus the installation-operator flag, and every signed-in
+   user can open every project (`ResolveScope` checks only that the project exists). Posta has workspace members with roles,
+   invitations and RBAC tests. Needed before one installation serves several customers: project membership (owner, admin,
+   developer, viewer), invitations, every `ws()` route checking membership and role, the project list filtered, tests for each.
+2. [ ] **Chat is basic next to Posta's**: no typing indicator or read receipts, no canned replies, no file attachments, no visitor
+   identification (a signed identity so the site can say who the visitor is and the email is trusted), no visitor attributes,
+   no ban of an abusive visitor, no agent presence, no chat analytics, no widget images or home-screen click counts, no key rotation.
+3. [ ] **Forms are basic next to Posta's**: no per-form routing rules or teams, no tags or priority on a submission, no spam/not-spam
+   marking that trains the filters, no export of submissions, no summary counts, no public key rotation.
+4. [ ] **Templates**: Posta has per-version localizations, stylesheets, languages, HTML import and template export/import.
+5. [ ] **Account lifecycle**: Posta has self-service password change, account deletion with a grace period (admins can cancel it),
+   admin disable of another user's 2FA and revoke of their sessions from the API, per-user audit log. Here most of this is CLI only.
+6. [ ] **Data export and import of a whole workspace**, and GDPR calls for forms and chats in the dashboard. Done: bulk delete of
+   up to 500 recipients in one request with a dry run (`POST .../privacy/delete-bulk`, Recipient privacy page), covering contacts,
+   form submissions and chats. Still open: a workspace configuration export/import (templates with their stylesheets, forms with
+   rules and filters, chat widgets and canned replies), which should be written after the template, form and chat extras are
+   merged so it can carry them; and a bulk "delete everything older than" for forms and chats (retention covers it today).
+7. [ ] **Platform admin views**: a list of scheduled jobs with their last run, a live platform metrics and events stream, an
+   update check, shared SMTP servers that an operator offers to all projects.
+8. [ ] **Enterprise-style extras Posta has and we deliberately do not**: LDAP directory sign-in, a license system. S3-compatible
+   object storage for inbound attachments is built (opt-in, `ATTACHMENT_STORE=s3`, see OPERATIONS) but has not been tried against a
+   live provider. Correction to an earlier version of this note: inbound attachments were never stored in clear; since F10 they are
+   sealed with `ENCRYPTION_KEY` before they are written, on disk or in a bucket.
+
+Each item is its own PR to `dev`, in this order, with tests and a visual check.

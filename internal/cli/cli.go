@@ -4,10 +4,12 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/njiwa-tz/mail/internal/relay"
 	"io"
 	"log/slog"
 	"net"
@@ -32,6 +34,7 @@ import (
 	"github.com/njiwa-tz/mail/internal/installer/preflight"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/mtaagent"
+	"github.com/njiwa-tz/mail/internal/objstore"
 	"github.com/njiwa-tz/mail/internal/secure"
 	"github.com/njiwa-tz/mail/internal/service"
 	"github.com/njiwa-tz/mail/internal/transport"
@@ -79,6 +82,7 @@ Runtime:
   rekey [-check]              after changing ENCRYPTION_KEY (old key in ENCRYPTION_KEY_PREVIOUS): re-seal every sealed value with the
                               current key; -check only counts. Repeat until nothing is left, then drop ENCRYPTION_KEY_PREVIOUS
   attachments encrypt         seal inbound attachment files written before encryption at rest (safe to repeat)
+  attachments migrate         with ATTACHMENT_STORE=s3: move sealed attachment files from DATA_DIR to the bucket (safe to repeat)
 
 Provisioning (operator CLI only):
   project create -name N
@@ -173,12 +177,21 @@ func Run(args []string) {
 			die(err)
 		}
 	}
-	svc := service.New(pool, box, service.Options{MetadataRetention: cfg.MetadataRetention, CaptureRetention: cfg.CaptureRetention,
+	var objects objstore.Store
+	if cfg.AttachmentStore == "s3" {
+		o, oerr := objstore.New(objstore.Config{Endpoint: cfg.S3.Endpoint, Region: cfg.S3.Region, Bucket: cfg.S3.Bucket, AccessKey: cfg.S3.AccessKey,
+			SecretKey: cfg.S3.SecretKey, KeyPrefix: cfg.S3.KeyPrefix, VirtualHosted: cfg.S3.VirtualHosted, AllowHTTP: cfg.S3.AllowHTTP})
+		if oerr != nil {
+			die(oerr)
+		}
+		objects = o
+	}
+	svc := service.New(pool, box, service.Options{ObjectStore: objects, MetadataRetention: cfg.MetadataRetention, CaptureRetention: cfg.CaptureRetention,
 		UnknownPurge: cfg.UnknownPurge, MaxAttempts: cfg.MaxAttempts,
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
 		MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
-		PublicURL: cfg.PublicURL, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, UpdateCheckURL: cfg.UpdateCheckURL, SSOAllowedNetworks: cfg.SSOAllowedNetworks, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
 			TokenURL: cfg.CloudflareOAuthTokenURL, RevokeURL: cfg.CloudflareOAuthRevokeURL, Scope: cfg.CloudflareOAuthScope},
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
@@ -213,6 +226,8 @@ func Run(args []string) {
 		runWorker(ctx, cfg, svc)
 	case "inbound":
 		runInbound(ctx, cfg, svc)
+	case "relay":
+		runRelay(ctx, cfg, svc)
 	case "scheduler":
 		runScheduler(ctx, cfg, svc)
 	case "role-health":
@@ -308,8 +323,28 @@ func Run(args []string) {
 			fmt.Printf("re-sealed %d values with the current key; run `rekey -check` to confirm, then remove ENCRYPTION_KEY_PREVIOUS\n", rep.Changed())
 		}
 	case "attachments":
+		if len(args) == 1 && args[0] == "migrate" {
+			total, skipped := 0, 0
+			for {
+				moved, skip, err := svc.MigrateAttachmentsToStore(ctx, 200)
+				if err != nil {
+					die(err)
+				}
+				total += moved
+				skipped = skip
+				if moved == 0 {
+					break
+				}
+			}
+			fmt.Printf("moved %d attachment files to the object store", total)
+			if skipped > 0 {
+				fmt.Printf("; %d files are not sealed yet (run `attachments encrypt` first, then migrate again)", skipped)
+			}
+			fmt.Println()
+			return
+		}
 		if len(args) == 0 || args[0] != "encrypt" {
-			die(errors.New("usage: attachments encrypt"))
+			die(errors.New("usage: attachments encrypt|migrate"))
 		}
 		total := 0
 		for {
@@ -425,6 +460,24 @@ func runInbound(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	}
 }
 
+// runRelay serves SMTP submission for applications (AUTH PLAIN with an API
+// key, TLS required).
+func runRelay(ctx context.Context, cfg *config.Config, svc *service.Service) {
+	go beat(ctx, svc, "relay", hostID())
+	if cfg.RelayTLSCert == "" || cfg.RelayTLSKey == "" {
+		die(errors.New("the relay needs RELAY_TLS_CERT and RELAY_TLS_KEY: AUTH is only offered over TLS"))
+	}
+	cert, err := tls.LoadX509KeyPair(cfg.RelayTLSCert, cfg.RelayTLSKey)
+	if err != nil {
+		die(fmt.Errorf("relay certificate: %w", err))
+	}
+	srv := &relay.Server{Svc: svc, Addr: cfg.RelayListenAddr, Hostname: cfg.MailHostname, Implicit: cfg.RelayImplicitTLS,
+		TLS: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}}
+	if err := srv.ListenAndServe(ctx); err != nil {
+		die(err)
+	}
+}
+
 func beat(ctx context.Context, svc *service.Service, role, id string) {
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
@@ -446,12 +499,20 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 	go beat(ctx, svc, "scheduler", hostID())
 	slog.Info("scheduler started")
 	every := func(d time.Duration, name string, fn func() error) {
+		if err := svc.RegisterJob(ctx, name, d); err != nil && ctx.Err() == nil {
+			slog.Warn("could not register job", "job", name, "err", err)
+		}
 		go func() {
 			t := time.NewTicker(d)
 			defer t.Stop()
 			for {
-				if err := fn(); err != nil && ctx.Err() == nil {
-					slog.Error("scheduled job failed", "job", name, "err", err)
+				started := time.Now()
+				err := fn()
+				if ctx.Err() == nil {
+					svc.RecordJobRun(ctx, name, d, started, err)
+					if err != nil {
+						slog.Error("scheduled job failed", "job", name, "err", err)
+					}
 				}
 				select {
 				case <-ctx.Done():
@@ -497,13 +558,33 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 	})
 	every(time.Hour, "dns_oauth_states", func() error { return svc.PurgeDNSOAuthStates(ctx) })
 	every(5*time.Minute, "bounce_rate_alerts", func() error { return svc.CheckBounceRates(ctx) })
-	every(24*time.Hour, "daily_summary", func() error {
-		body, recipients, err := svc.DailySummary(ctx)
+	// The daily report for yesterday (UTC) goes into every user's inbox.
+	// Checked hourly; made once per day, so a restart never repeats it.
+	every(time.Hour, "daily_report", func() error {
+		made, err := svc.GenerateDailyReport(ctx, time.Now().UTC().Add(-24*time.Hour))
+		if made {
+			slog.Info("daily report recorded")
+		}
 		if err != nil {
 			return err
 		}
-		slog.Info("daily summary", "recipients", len(recipients), "bytes", len(body))
-		return nil
+		_, err = svc.EmailDailyReport(ctx)
+		return err
+	})
+	every(time.Minute, "chat_emails", func() error {
+		_, err := svc.SendChatEmails(ctx)
+		return err
+	})
+	every(time.Hour, "account_deletions", func() error {
+		n, err := svc.PurgeDueAccounts(ctx)
+		if n > 0 {
+			slog.Info("accounts deleted after their grace period", "count", n)
+		}
+		return err
+	})
+	every(time.Minute, "form_digests", func() error {
+		_, err := svc.SendFormDigests(ctx)
+		return err
 	})
 	every(time.Hour, "dns_checks", func() error { // runs the check when the last one is a day old
 		due, err := svc.DNSCheckDue(ctx, 24*time.Hour)

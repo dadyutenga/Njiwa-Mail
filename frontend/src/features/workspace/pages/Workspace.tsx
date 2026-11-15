@@ -8,6 +8,7 @@ import { usePhrase } from "@/features/i18n/i18n";
 import { useWorkspace, useWsKey } from "../context";
 import {
   ConfirmButton,
+  CopyButton,
   DataState,
   Empty,
   emailOk,
@@ -18,6 +19,7 @@ import {
   Pager,
   run,
   s,
+  Section,
   selectClass,
   StateBadge,
   Table,
@@ -171,8 +173,94 @@ export function Mailboxes() {
           />
         )}
       </DataState>
+      <IngestSettings />
       <MailboxDialog open={open} onOpenChange={setOpen} domains={domains.data?.items ?? []} />
     </>
+  );
+}
+
+/** HTTP ingest: a server or provider passes received mail over HTTP, signed. */
+function IngestSettings() {
+  const phrase = usePhrase();
+  const { api } = useWorkspace();
+  const key = useWsKey();
+  const client = useQueryClient();
+  const [secret, setSecret] = useState("");
+  const st = useQuery({
+    queryKey: key("inbound-ingest"),
+    queryFn: () => api.get<Row>("/inbound-ingest"),
+  });
+  const refresh = () => client.invalidateQueries({ queryKey: key("inbound-ingest") });
+  const rotate = async () => {
+    const r = await run(
+      () => api.send<Row>("/inbound-ingest/secret", "POST"),
+      phrase("New secret created."),
+    );
+    if (r) setSecret(s(r.secret));
+    refresh();
+  };
+  const enabled = st.data?.enabled === true;
+  return (
+    <Section
+      className="mt-6"
+      title={phrase("Receive over HTTP")}
+      action={
+        enabled ? (
+          <span className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={rotate}>
+              {phrase("New secret")}
+            </Button>
+            <ConfirmButton
+              title={phrase("Turn off HTTP ingest?")}
+              description={phrase("Signed requests are refused until you create a new secret.")}
+              confirm={phrase("Turn off")}
+              onConfirm={async () => {
+                await run(
+                  () => api.send("/inbound-ingest", "DELETE"),
+                  phrase("HTTP ingest turned off."),
+                );
+                setSecret("");
+                refresh();
+              }}
+            >
+              {phrase("Turn off")}
+            </ConfirmButton>
+          </span>
+        ) : (
+          <Button size="sm" onClick={rotate} disabled={!st.isSuccess}>
+            {phrase("Turn on HTTP ingest")}
+          </Button>
+        )
+      }
+    >
+      <p className="text-sm text-muted-foreground">
+        {phrase(
+          "A server or provider of yours can pass each received message to these mailboxes over HTTP, signed with a secret.",
+        )}
+      </p>
+      {enabled && (
+        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-[10rem_1fr]">
+          <dt className="text-muted-foreground">{phrase("Endpoint")}</dt>
+          <dd className="flex items-center gap-2 break-all font-mono text-xs">
+            POST {s(st.data?.path)} <CopyButton text={s(st.data?.path)} label="endpoint" />
+          </dd>
+          <dt className="text-muted-foreground">{phrase("Last used")}</dt>
+          <dd>
+            <Time value={st.data?.last_used_at} relative />
+          </dd>
+        </dl>
+      )}
+      {secret && (
+        <div className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+          <p className="mb-2 font-medium">
+            {phrase("Copy this secret now. It is not shown again.")}
+          </p>
+          <code className="flex items-center gap-2 break-all text-xs">
+            {secret} <CopyButton text={secret} label="secret" />
+          </code>
+        </div>
+      )}
+    </Section>
   );
 }
 

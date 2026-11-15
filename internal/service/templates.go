@@ -56,11 +56,15 @@ VALUES (NULL,$1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id::text`,
 	return nil
 }
 
-func insertVersion(ctx context.Context, tx *db.Tx, templateID string, version int, schema tmpl.Schema, content map[string]tmpl.Content, publish bool) error {
+func insertVersion(ctx context.Context, tx *db.Tx, templateID string, version int, schema tmpl.Schema, content map[string]tmpl.Content, publish bool, style ...string) error {
 	sj, _ := json.Marshal(schema)
+	var styleName, styleCSS string
+	if len(style) == 2 {
+		styleName, styleCSS = style[0], style[1]
+	}
 	var vid string
-	if err := tx.QueryRow(ctx, `INSERT INTO template_versions(template_id, version, variable_schema) VALUES ($1,$2,$3) RETURNING id::text`,
-		templateID, version, sj).Scan(&vid); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO template_versions(template_id, version, variable_schema, style_name, style_css) VALUES ($1,$2,$3,$4,$5) RETURNING id::text`,
+		templateID, version, sj, styleName, styleCSS).Scan(&vid); err != nil {
 		return err
 	}
 	for l, c := range content {
@@ -109,14 +113,16 @@ func (s *Service) loadContent(ctx context.Context, versionID, locale string) (tm
 	var schema tmpl.Schema
 	var c tmpl.Content
 	var sj []byte
+	var css string
 	err := s.Pool.QueryRow(ctx, `
-SELECT v.variable_schema, c.subject, c.html_body, c.text_body
+SELECT v.variable_schema, c.subject, c.html_body, c.text_body, v.style_css
 FROM template_versions v JOIN template_contents c ON c.version_id = v.id
 WHERE v.id = $1 AND c.locale IN ($2, 'en') ORDER BY (c.locale = 'en') LIMIT 1`, versionID, locale).
-		Scan(&sj, &c.Subject, &c.HTML, &c.Text)
+		Scan(&sj, &c.Subject, &c.HTML, &c.Text, &css)
 	if err != nil {
 		return nil, c, err
 	}
+	c.HTML = tmpl.InjectStyle(c.HTML, css)
 	return schema, c, json.Unmarshal(sj, &schema)
 }
 
@@ -158,6 +164,7 @@ type TemplateInput struct {
 type VersionInput struct {
 	Schema  tmpl.Schema             `json:"variable_schema"`
 	Content map[string]tmpl.Content `json:"content"`
+	Style   string                  `json:"style"` // name of one of the project's stylesheets, or empty
 }
 
 func (in *VersionInput) check() error {
@@ -169,7 +176,10 @@ func (in *VersionInput) check() error {
 	}
 	for l, c := range in.Content {
 		if !tmpl.ValidLocale(l) {
-			return badRequest("locale must be en or sw")
+			return badRequest("a language is a lower-case tag such as en, sw, fr or pt-br")
+		}
+		if len(in.Content) > maxTemplateLocales {
+			return badRequest("at most 20 languages per version")
 		}
 		if err := tmpl.Compile(c, in.Schema); err != nil {
 			return badRequest(l + ": " + err.Error())
@@ -177,6 +187,8 @@ func (in *VersionInput) check() error {
 	}
 	return nil
 }
+
+const maxTemplateLocales = 20
 
 func ttlBounds(def, max int) (int, int, error) {
 	if def == 0 {
@@ -263,7 +275,7 @@ FROM templates t LEFT JOIN projects p ON p.id=t.project_id WHERE t.id=$1`, id)
 	if err != nil {
 		return nil, err
 	}
-	vs, err := s.maps(ctx, `SELECT v.id::text AS id, v.version, v.variable_schema, v.published_at, v.created_at,
+	vs, err := s.maps(ctx, `SELECT v.id::text AS id, v.version, v.variable_schema, v.style_name AS style, v.published_at, v.created_at,
   COALESCE((SELECT jsonb_object_agg(c.locale, jsonb_build_object('subject', c.subject, 'html', c.html_body, 'text', c.text_body))
             FROM template_contents c WHERE c.version_id=v.id), '{}'::jsonb) AS content
 FROM template_versions v WHERE v.template_id=$1 ORDER BY v.version DESC`, id)
@@ -288,9 +300,18 @@ func (s *Service) SaveDraft(ctx context.Context, templateID string, in VersionIn
 		return 0, unavailable("begin", err)
 	}
 	defer tx.Rollback(ctx)
-	var one int
-	if err := tx.QueryRow(ctx, `SELECT 1 FROM templates WHERE id=$1 FOR UPDATE`, templateID).Scan(&one); err != nil {
+	var pid *string
+	if err := tx.QueryRow(ctx, `SELECT project_id::text FROM templates WHERE id=$1 FOR UPDATE`, templateID).Scan(&pid); err != nil {
 		return 0, notFound(err)
+	}
+	var styleCSS string
+	if in.Style != "" {
+		if pid == nil {
+			return 0, badRequest("shared templates cannot use a project stylesheet")
+		}
+		if err := tx.QueryRow(ctx, `SELECT css FROM template_styles WHERE project_id=$1 AND name=$2`, *pid, in.Style).Scan(&styleCSS); err != nil {
+			return 0, badRequest("unknown stylesheet " + clean(in.Style, 63))
+		}
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM template_versions WHERE template_id=$1 AND published_at IS NULL`, templateID); err != nil {
 		return 0, unavailable("draft_replace", err)
@@ -299,7 +320,7 @@ func (s *Service) SaveDraft(ctx context.Context, templateID string, in VersionIn
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(max(version),0)+1 FROM template_versions WHERE template_id=$1`, templateID).Scan(&next); err != nil {
 		return 0, unavailable("draft_version", err)
 	}
-	if err := insertVersion(ctx, tx, templateID, next, in.Schema, in.Content, false); err != nil {
+	if err := insertVersion(ctx, tx, templateID, next, in.Schema, in.Content, false, in.Style, styleCSS); err != nil {
 		return 0, unavailable("draft_insert", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -346,7 +367,7 @@ func (s *Service) PreviewVersion(ctx context.Context, templateID string, version
 		locale = "en"
 	}
 	if !tmpl.ValidLocale(locale) {
-		return nil, badRequest("locale must be en or sw")
+		return nil, badRequest("a language is a lower-case tag such as en, sw, fr or pt-br")
 	}
 	vid, err := s.versionID(ctx, templateID, version)
 	if err != nil {

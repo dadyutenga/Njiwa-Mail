@@ -1,1 +1,1 @@
-{ "title": "Set up delivery", "pages": ["choose-transport", "managed-postfix", "existing-smtp", "mailcow"] }
+{"title": "Set up delivery", "pages": ["choose-transport", "managed-postfix", "existing-smtp", "mailcow", "smtp-relay"]}

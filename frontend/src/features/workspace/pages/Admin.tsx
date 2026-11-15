@@ -16,7 +16,8 @@ import {
 } from "@/features/installation/Installation";
 import { DiscoveryPanel, SetupJourneyPanel } from "@/features/installation/Setup";
 import { TransportProfiles } from "@/features/installation/Profiles";
-import { useWorkspace, useWsKey, type ProjectRow } from "../context";
+import { useSendingEnvironment, useWorkspace, useWsKey, type ProjectRow } from "../context";
+import { SendingMode, useSendingModeParam } from "../SendingMode";
 import { NewProjectDialog } from "../Layout";
 import {
   ConfirmButton,
@@ -26,6 +27,7 @@ import {
   errorMessage,
   Field,
   inputClass,
+  textareaClass,
   PageHeader,
   Pager,
   run,
@@ -946,35 +948,161 @@ export function MailServer() {
 
 export function Analytics() {
   const phrase = usePhrase();
-  const { api, env, project } = useWorkspace();
-  const key = useWsKey();
+  const { project } = useWorkspace();
+  const [env, setEnv] = useSendingModeParam();
+  const { api, key } = useSendingEnvironment(env);
+  const [days, setDays] = useParam("days", "30");
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  end.setUTCDate(end.getUTCDate() + 1);
+  const start = new Date(end.getTime() - Number(days) * 86400000);
+  const range = `from=${start.toISOString().slice(0, 10)}&to=${end.toISOString().slice(0, 10)}`;
   const q = useQuery({
-    queryKey: key("analytics"),
-    queryFn: () => api.get<{ items: Row[] }>("/analytics"),
+    queryKey: key("report", range),
+    queryFn: () => api.get<Row>(`/report?${range}`),
   });
+  const csv = (table: string) => `/admin/v1${api.base}/report?format=csv&table=${table}&${range}`;
+  const metrics: [string, string][] = [
+    ["messages", "Messages"],
+    ["submitted", "Accepted by the mail server"],
+    ["remote_accepted", "Accepted by the recipient's server"],
+    ["failed", "Failed"],
+    ["hard_bounces", "Hard bounces"],
+    ["complaints", "Complaints"],
+  ];
+  const secs = (v: unknown) => {
+    const n = Number(v);
+    if (v === null || v === undefined || Number.isNaN(n)) return "—";
+    return n < 60 ? `${n.toFixed(1)} s` : `${(n / 60).toFixed(1)} min`;
+  };
   return (
     <>
       <PageHeader
         title={phrase("Analytics")}
-        description={`${phrase("Daily totals for")} ${project} (${env}).`}
+        description={`${project}: ${phrase("this period compared with the one before it.")}`}
       />
-      <DataState
-        q={q}
-        isEmpty={(d) => d.items.length === 0}
-        empty={<Empty title={phrase("No activity recorded yet")} />}
-      >
-        {(d) => {
-          const cols = Object.keys(d.items[0] ?? {});
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <SendingMode value={env} onChange={setEnv} />
+        <Field label={phrase("Period")}>
+          <select className={selectClass} value={days} onChange={(e) => setDays(e.target.value)}>
+            <option value="7">{phrase("Last 7 days")}</option>
+            <option value="30">{phrase("Last 30 days")}</option>
+            <option value="90">{phrase("Last 90 days")}</option>
+          </select>
+        </Field>
+      </div>
+      <DataState q={q}>
+        {(r) => {
+          const tot = (r.totals as Row) ?? {};
+          const ch = (r.change_percent as Row) ?? {};
+          const tm = (r.timing_seconds as Row) ?? {};
           return (
-            <Table
-              rows={d.items}
-              rowKey={(r) => JSON.stringify(r)}
-              columns={cols.map((c) => ({
-                key: c,
-                label: phrase(c.replace(/_/g, " ")),
-                render: (r) => (/_at$/.test(c) ? <Time value={r[c]} /> : s(r[c])),
-              }))}
-            />
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {metrics.map(([k, label]) => {
+                  const c = ch[k];
+                  return (
+                    <div key={k} className="rounded-xl border bg-card p-3">
+                      <p className="text-xs text-muted-foreground">{phrase(label)}</p>
+                      <p className="mt-1 text-2xl font-bold">{s(tot[k]) || "0"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {c === null || c === undefined
+                          ? phrase("no earlier data")
+                          : `${Number(c) > 0 ? "+" : ""}${Number(c).toFixed(0)}% ${phrase("vs previous period")}`}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+              <Section className="mt-4" title={phrase("How long it took")}>
+                <Table
+                  rows={[
+                    {
+                      k: "submit",
+                      label: phrase("Until the mail server accepted it"),
+                      p50: tm.submit_p50,
+                      p90: tm.submit_p90,
+                      p99: tm.submit_p99,
+                      n: tm.submit_samples,
+                    },
+                    {
+                      k: "remote",
+                      label: phrase("Until the recipient's server accepted it"),
+                      p50: tm.remote_p50,
+                      p90: tm.remote_p90,
+                      p99: tm.remote_p99,
+                      n: tm.remote_samples,
+                    },
+                  ]}
+                  rowKey={(x) => s(x.k)}
+                  columns={[
+                    { key: "label", label: "" },
+                    { key: "p50", label: phrase("Median"), render: (x) => secs(x.p50) },
+                    { key: "p90", label: "p90", render: (x) => secs(x.p90) },
+                    { key: "p99", label: "p99", render: (x) => secs(x.p99) },
+                    { key: "n", label: phrase("Messages measured") },
+                  ]}
+                />
+              </Section>
+              <Section
+                className="mt-4"
+                title={phrase("By mailbox provider")}
+                action={
+                  <a className="text-sm text-primary" href={csv("providers")}>
+                    {phrase("Download CSV")}
+                  </a>
+                }
+              >
+                <Table
+                  rows={(r.providers as Row[]) ?? []}
+                  rowKey={(x) => s(x.provider)}
+                  columns={[
+                    { key: "provider", label: phrase("Provider") },
+                    { key: "messages", label: phrase("Messages") },
+                    { key: "submitted", label: phrase("Submitted") },
+                    { key: "remote_accepted", label: phrase("Remote accepted") },
+                    { key: "hard_bounces", label: phrase("Hard bounces") },
+                    { key: "complaints", label: phrase("Complaints") },
+                  ]}
+                />
+              </Section>
+              <Section
+                className="mt-4"
+                title={phrase("Per day")}
+                action={
+                  <span className="flex gap-3 text-sm">
+                    <a className="text-primary" href={csv("daily")}>
+                      {phrase("Download CSV")}
+                    </a>
+                    <a className="text-primary" href={csv("totals")}>
+                      {phrase("Totals CSV")}
+                    </a>
+                  </span>
+                }
+              >
+                {((r.daily as Row[]) ?? []).length === 0 ? (
+                  <Empty title={phrase("No activity in this period")} />
+                ) : (
+                  <Table
+                    rows={r.daily as Row[]}
+                    rowKey={(x) => s(x.day)}
+                    columns={[
+                      { key: "day", label: phrase("Day") },
+                      { key: "messages", label: phrase("Messages") },
+                      { key: "submitted", label: phrase("Submitted") },
+                      { key: "failed", label: phrase("Failed") },
+                      { key: "hard_bounces", label: phrase("Hard bounces") },
+                      { key: "soft_bounces", label: phrase("Soft bounces") },
+                    ]}
+                  />
+                )}
+              </Section>
+              <ul className="mt-3 list-disc pl-5 text-xs text-muted-foreground">
+                {((r.notes as string[]) ?? []).map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            </>
           );
         }}
       </DataState>
@@ -1277,6 +1405,101 @@ export function Audit() {
 
 // ---------------------------------------------------------------- privacy (scoped)
 
+type BulkResult = { email: string; status: string; found?: Record<string, number>; error?: string };
+type BulkReply = { dry_run: boolean; results: BulkResult[]; summary: Record<string, number> };
+
+function BulkDelete() {
+  const phrase = usePhrase();
+  const { api } = useWorkspace();
+  const [text, setText] = useState("");
+  const [reply, setReply] = useState<BulkReply | null>(null);
+  const [error, setError] = useState("");
+  const emails = text
+    .split(/[\s,;]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const call = async (dry: boolean) => {
+    setError("");
+    try {
+      setReply(await api.send<BulkReply>("/privacy/delete-bulk", "POST", { emails, dry_run: dry }));
+    } catch (e) {
+      setReply(null);
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <Section title={phrase("Delete many recipients")} className="mt-4">
+      <p className="mb-3 text-sm text-muted-foreground">
+        {phrase(
+          "Paste up to 500 addresses, separated by spaces, commas or new lines. Check first: nothing is deleted until you confirm.",
+        )}
+      </p>
+      <textarea
+        className={textareaClass}
+        rows={5}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setReply(null);
+        }}
+      />
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button variant="outline" disabled={emails.length === 0} onClick={() => call(true)}>
+          {phrase("Check what would be deleted")}
+        </Button>
+        <ConfirmButton
+          size="default"
+          disabled={emails.length === 0 || !reply?.dry_run}
+          title={`${phrase("Delete all stored data for")} ${emails.length}`}
+          description={phrase(
+            "Messages, evidence, bounces, suppressions, inbound mail, contacts, form submissions and chats for these addresses in this project and environment are removed. This cannot be undone.",
+          )}
+          confirm="Delete data"
+          onConfirm={() => call(false)}
+        >
+          {phrase("Delete")}
+        </ConfirmButton>
+        {emails.length > 0 && (
+          <span className="text-sm text-muted-foreground">
+            {emails.length} {phrase("addresses")}
+          </span>
+        )}
+      </div>
+      {reply && (
+        <div className="mt-3 text-sm" role="status">
+          <p className="font-medium">
+            {phrase(reply.dry_run ? "Would be deleted" : "Result")}:{" "}
+            {Object.entries(reply.summary)
+              .map(([k, v]) => `${phrase(k)} ${v}`)
+              .join(" · ")}
+          </p>
+          <ul className="mt-2 max-h-64 overflow-auto rounded border">
+            {reply.results.map((r, i) => (
+              <li key={i} className="flex justify-between gap-3 border-b p-2 last:border-b-0">
+                <span>{r.email}</span>
+                <span className="text-muted-foreground">
+                  {phrase(r.status)}
+                  {r.found && Object.keys(r.found).length > 0
+                    ? ` (${Object.entries(r.found)
+                        .map(([k, v]) => `${k} ${v}`)
+                        .join(", ")})`
+                    : ""}
+                  {r.error ? ` ${r.error}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function Privacy() {
   const phrase = usePhrase();
   const { api, project, env } = useWorkspace();
@@ -1363,6 +1586,728 @@ export function Privacy() {
           </ConfirmButton>
         </div>
       </Section>
+      <BulkDelete />
+    </>
+  );
+}
+
+export function Announcements() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const [f, setF] = useState({ title: "", body: "", link: "" });
+  const offset = useOffset();
+  const q = useQuery({
+    queryKey: ["announcements", offset],
+    queryFn: () => admin.get<Page>(`/announcements?limit=50&offset=${offset}`),
+  });
+  const post = async () => {
+    const r = await run(
+      () => admin.send("/announcements", "POST", f),
+      phrase("Announcement sent."),
+    );
+    if (r) setF({ title: "", body: "", link: "" });
+    client.invalidateQueries({ queryKey: ["announcements"] });
+    client.invalidateQueries({ queryKey: ["notifications"] });
+  };
+  return (
+    <>
+      <PageHeader
+        title={phrase("Announcements")}
+        description={phrase(
+          "A message in every user's notifications. You can retract it afterwards.",
+        )}
+      />
+      <Section title={phrase("New announcement")}>
+        <div className="grid gap-3">
+          <Field label={phrase("Title")}>
+            <input
+              className={inputClass}
+              value={f.title}
+              onChange={(e) => setF({ ...f, title: e.target.value })}
+            />
+          </Field>
+          <Field label={phrase("Message (optional)")}>
+            <textarea
+              className={textareaClass}
+              rows={3}
+              value={f.body}
+              onChange={(e) => setF({ ...f, body: e.target.value })}
+            />
+          </Field>
+          <Field
+            label={phrase("Link (optional)")}
+            hint={phrase("A page here, such as /p/project/domains, or an https:// address.")}
+          >
+            <input
+              className={inputClass}
+              value={f.link}
+              onChange={(e) => setF({ ...f, link: e.target.value })}
+            />
+          </Field>
+          <div>
+            <Button onClick={post} disabled={!f.title.trim()}>
+              {phrase("Send to everyone")}
+            </Button>
+          </div>
+        </div>
+      </Section>
+      <DataState q={q} isEmpty={(d) => d.items.length === 0} empty={null}>
+        {(d) => (
+          <Section className="mt-4" title={phrase("Sent")}>
+            <Table
+              rows={d.items}
+              rowKey={(r) => s(r.id)}
+              columns={[
+                { key: "title", label: phrase("Title") },
+                {
+                  key: "created_at",
+                  label: phrase("Sent"),
+                  render: (r) => <Time value={r.created_at} relative />,
+                },
+                { key: "read_by", label: phrase("Read by") },
+                {
+                  key: "x",
+                  label: <span className="sr-only">{phrase("Actions")}</span>,
+                  render: (r) =>
+                    r.retracted_at ? (
+                      <StateBadge state="cancelled" label={phrase("retracted")} />
+                    ) : (
+                      <ConfirmButton
+                        title={phrase("Retract this announcement?")}
+                        description={phrase("It disappears from every user's notifications.")}
+                        confirm="Retract"
+                        onConfirm={async () => {
+                          await run(
+                            () => admin.send(`/announcements/${s(r.id)}/retract`, "POST"),
+                            phrase("Retracted."),
+                          );
+                          client.invalidateQueries({ queryKey: ["announcements"] });
+                          client.invalidateQueries({ queryKey: ["notifications"] });
+                        }}
+                      >
+                        {phrase("Retract")}
+                      </ConfirmButton>
+                    ),
+                },
+              ]}
+            />
+            <Pager page={d} />
+          </Section>
+        )}
+      </DataState>
+    </>
+  );
+}
+
+const planFields: [string, string][] = [
+  ["send_per_minute", "Messages per minute"],
+  ["send_per_day", "Messages per day"],
+  ["recipient_per_minute", "Per recipient per minute"],
+  ["recipient_per_hour", "Per recipient per hour"],
+  ["bulk_max_per_campaign", "Bulk recipients per campaign"],
+  ["bulk_max_per_day", "Bulk messages per day"],
+  ["monthly_messages", "Live messages per month (0 = unlimited)"],
+  ["max_contacts", "Contacts (0 = unlimited)"],
+];
+
+const emptyPlan = {
+  name: "",
+  description: "",
+  send_per_minute: 30,
+  send_per_day: 500,
+  recipient_per_minute: 3,
+  recipient_per_hour: 10,
+  bulk_max_per_campaign: 5000,
+  bulk_max_per_day: 10000,
+  monthly_messages: 0,
+  max_contacts: 0,
+};
+
+export function Plans() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const [edit, setEdit] = useState<{ id?: string; plan: Record<string, string | number> } | null>(
+    null,
+  );
+  const [error, setError] = useState("");
+  const plans = useQuery({
+    queryKey: ["plans"],
+    queryFn: () => admin.get<{ items: Row[] }>("/plans"),
+  });
+  const usage = useQuery({
+    queryKey: ["usage"],
+    queryFn: () => admin.get<{ items: Row[] }>("/usage"),
+  });
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["plans"] });
+    client.invalidateQueries({ queryKey: ["usage"] });
+  };
+  const save = async () => {
+    if (!edit) return;
+    setError("");
+    const body = Object.fromEntries(
+      Object.entries(edit.plan).map(([k, v]) => [
+        k,
+        k === "name" || k === "description" ? v : Number(v),
+      ]),
+    );
+    try {
+      if (edit.id) await admin.send(`/plans/${edit.id}`, "PUT", body);
+      else await admin.send("/plans", "POST", body);
+      setEdit(null);
+      refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <>
+      <PageHeader
+        title={phrase("Usage plans")}
+        description={phrase(
+          "A plan is a set of limits. Putting a project on a plan copies its limits to the project; changing the plan updates its projects.",
+        )}
+        action={
+          <Button onClick={() => setEdit({ plan: { ...emptyPlan } })}>
+            <Plus size={16} /> {phrase("New plan")}
+          </Button>
+        }
+      />
+      {edit && (
+        <Section className="mb-4" title={edit.id ? phrase("Edit plan") : phrase("New plan")}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={phrase("Name")}>
+              <input
+                className={inputClass}
+                value={String(edit.plan.name)}
+                onChange={(e) => setEdit({ ...edit, plan: { ...edit.plan, name: e.target.value } })}
+              />
+            </Field>
+            <Field label={phrase("Description")}>
+              <input
+                className={inputClass}
+                value={String(edit.plan.description ?? "")}
+                onChange={(e) =>
+                  setEdit({ ...edit, plan: { ...edit.plan, description: e.target.value } })
+                }
+              />
+            </Field>
+            {planFields.map(([k, label]) => (
+              <Field key={k} label={phrase(label)}>
+                <input
+                  type="number"
+                  min={0}
+                  className={inputClass}
+                  value={String(edit.plan[k] ?? 0)}
+                  onChange={(e) =>
+                    setEdit({ ...edit, plan: { ...edit.plan, [k]: e.target.value } })
+                  }
+                />
+              </Field>
+            ))}
+          </div>
+          {error && (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="mt-3 flex gap-2">
+            <Button onClick={save} disabled={!String(edit.plan.name).trim()}>
+              {phrase("Save plan")}
+            </Button>
+            <Button variant="outline" onClick={() => setEdit(null)}>
+              {phrase("Cancel")}
+            </Button>
+          </div>
+        </Section>
+      )}
+      <DataState
+        q={plans}
+        isEmpty={(d) => d.items.length === 0}
+        empty={<Empty title={phrase("No plans yet")} />}
+      >
+        {(d) => (
+          <Table
+            rows={d.items}
+            rowKey={(r) => s(r.id)}
+            columns={[
+              { key: "name", label: phrase("Plan") },
+              { key: "send_per_day", label: phrase("Per day") },
+              {
+                key: "monthly_messages",
+                label: phrase("Per month"),
+                render: (r) => (r.monthly_messages ? s(r.monthly_messages) : "∞"),
+              },
+              {
+                key: "max_contacts",
+                label: phrase("Contacts"),
+                render: (r) => (r.max_contacts ? s(r.max_contacts) : "∞"),
+              },
+              { key: "projects", label: phrase("Projects") },
+              {
+                key: "x",
+                label: <span className="sr-only">{phrase("Actions")}</span>,
+                render: (r) => (
+                  <span className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setEdit({
+                          id: s(r.id),
+                          plan: Object.fromEntries(
+                            ["name", "description", ...planFields.map(([k]) => k)].map((k) => [
+                              k,
+                              r[k] as string | number,
+                            ]),
+                          ),
+                        })
+                      }
+                    >
+                      {phrase("Edit")}
+                    </Button>
+                    <ConfirmButton
+                      title={`${phrase("Delete")} ${s(r.name)}?`}
+                      description={phrase("Only a plan with no projects can be deleted.")}
+                      confirm="Delete plan"
+                      onConfirm={async () => {
+                        await run(
+                          () => admin.send(`/plans/${s(r.id)}`, "DELETE"),
+                          phrase("Plan deleted."),
+                        );
+                        refresh();
+                      }}
+                    >
+                      {phrase("Delete")}
+                    </ConfirmButton>
+                  </span>
+                ),
+              },
+            ]}
+          />
+        )}
+      </DataState>
+      <DataState q={usage} isEmpty={(d) => d.items.length === 0} empty={null}>
+        {(d) => (
+          <Section className="mt-4" title={phrase("Usage this month")}>
+            <Table
+              rows={d.items}
+              rowKey={(r) => s(r.project)}
+              columns={[
+                { key: "project", label: phrase("Project") },
+                {
+                  key: "plan",
+                  label: phrase("Plan"),
+                  render: (r) => (
+                    <select
+                      aria-label={`${phrase("Plan for")} ${s(r.project)}`}
+                      className={selectClass + " w-40"}
+                      value=""
+                      onChange={async (e) => {
+                        if (!e.target.value) return;
+                        await run(
+                          () =>
+                            admin.send(
+                              `/projects/${encodeURIComponent(s(r.project))}/plan`,
+                              "POST",
+                              { plan_id: e.target.value },
+                            ),
+                          phrase("Plan assigned."),
+                        );
+                        refresh();
+                      }}
+                    >
+                      <option value="">{s(r.plan) || phrase("No plan")}</option>
+                      {plans.data?.items.map((p) => (
+                        <option key={s(p.id)} value={s(p.id)}>
+                          {s(p.name)}
+                        </option>
+                      ))}
+                    </select>
+                  ),
+                },
+                {
+                  key: "messages_this_month",
+                  label: phrase("Live messages this month"),
+                  render: (r) =>
+                    `${s(r.messages_this_month)} / ${r.monthly_messages ? s(r.monthly_messages) : "∞"}`,
+                },
+                {
+                  key: "contacts",
+                  label: phrase("Contacts"),
+                  render: (r) => `${s(r.contacts)} / ${r.max_contacts ? s(r.max_contacts) : "∞"}`,
+                },
+              ]}
+            />
+          </Section>
+        )}
+      </DataState>
+    </>
+  );
+}
+
+const emptyProvider = {
+  name: "",
+  issuer: "",
+  client_id: "",
+  client_secret: "",
+  domains: "",
+  auto_create: false,
+};
+
+export function SingleSignOn() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const [edit, setEdit] = useState<{ id?: string; p: typeof emptyProvider } | null>(null);
+  const [error, setError] = useState("");
+  const q = useQuery({
+    queryKey: ["sso-providers"],
+    queryFn: () => admin.get<{ items: Row[] }>("/sso-providers"),
+  });
+  const redirect = `${window.location.origin}/admin/v1/auth/sso/callback`;
+  const save = async () => {
+    if (!edit) return;
+    setError("");
+    const body = {
+      name: edit.p.name,
+      issuer: edit.p.issuer,
+      client_id: edit.p.client_id,
+      client_secret: edit.p.client_secret,
+      allowed_domains: edit.p.domains.split(/[\s,]+/).filter(Boolean),
+      auto_create: edit.p.auto_create,
+    };
+    try {
+      if (edit.id) await admin.send(`/sso-providers/${edit.id}`, "PUT", body);
+      else await admin.send("/sso-providers", "POST", body);
+      setEdit(null);
+      client.invalidateQueries({ queryKey: ["sso-providers"] });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <>
+      <PageHeader
+        title={phrase("Single sign-on")}
+        description={phrase(
+          "Let people sign in with Google, Keycloak, authentik or any OpenID Connect provider. An account with an authenticator still enters its code.",
+        )}
+        action={
+          <Button onClick={() => setEdit({ p: { ...emptyProvider } })}>
+            <Plus size={16} /> {phrase("Add provider")}
+          </Button>
+        }
+      />
+      <p className="mb-4 text-sm text-muted-foreground">
+        {phrase("Register this return address with the provider:")}{" "}
+        <code className="break-all">{redirect}</code>
+      </p>
+      {edit && (
+        <Section
+          className="mb-4"
+          title={edit.id ? phrase("Edit provider") : phrase("Add provider")}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={phrase("Name")} hint={phrase("Shown on the sign-in button.")}>
+              <input
+                className={inputClass}
+                value={edit.p.name}
+                onChange={(e) => setEdit({ ...edit, p: { ...edit.p, name: e.target.value } })}
+              />
+            </Field>
+            <Field label={phrase("Issuer address")} hint="https://accounts.google.com">
+              <input
+                className={inputClass}
+                value={edit.p.issuer}
+                onChange={(e) => setEdit({ ...edit, p: { ...edit.p, issuer: e.target.value } })}
+              />
+            </Field>
+            <Field label={phrase("Client id")}>
+              <input
+                className={inputClass}
+                value={edit.p.client_id}
+                onChange={(e) => setEdit({ ...edit, p: { ...edit.p, client_id: e.target.value } })}
+              />
+            </Field>
+            <Field
+              label={phrase("Client secret")}
+              hint={edit.id ? phrase("Leave empty to keep the saved one.") : undefined}
+            >
+              <input
+                type="password"
+                autoComplete="off"
+                className={inputClass}
+                value={edit.p.client_secret}
+                onChange={(e) =>
+                  setEdit({ ...edit, p: { ...edit.p, client_secret: e.target.value } })
+                }
+              />
+            </Field>
+            <Field
+              label={phrase("Allowed email domains")}
+              hint={phrase(
+                "Separate with spaces or commas. Empty: any domain, for existing accounts only.",
+              )}
+              className="sm:col-span-2"
+            >
+              <input
+                className={inputClass}
+                value={edit.p.domains}
+                onChange={(e) => setEdit({ ...edit, p: { ...edit.p, domains: e.target.value } })}
+                placeholder="example.com"
+              />
+            </Field>
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={edit.p.auto_create}
+                onChange={(e) =>
+                  setEdit({ ...edit, p: { ...edit.p, auto_create: e.target.checked } })
+                }
+              />
+              {phrase(
+                "Create an account on first sign-in (never an operator; needs allowed domains)",
+              )}
+            </label>
+          </div>
+          {error && (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="mt-3 flex gap-2">
+            <Button onClick={save} disabled={!edit.p.name.trim() || !edit.p.issuer.trim()}>
+              {phrase("Save provider")}
+            </Button>
+            <Button variant="outline" onClick={() => setEdit(null)}>
+              {phrase("Cancel")}
+            </Button>
+          </div>
+        </Section>
+      )}
+      <DataState
+        q={q}
+        isEmpty={(d) => d.items.length === 0}
+        empty={<Empty title={phrase("No providers yet")} />}
+      >
+        {(d) => (
+          <Table
+            rows={d.items}
+            rowKey={(r) => s(r.id)}
+            columns={[
+              { key: "name", label: phrase("Name") },
+              {
+                key: "issuer",
+                label: phrase("Issuer address"),
+                render: (r) => <span className="break-all">{s(r.issuer)}</span>,
+              },
+              {
+                key: "allowed_domains",
+                label: phrase("Allowed email domains"),
+                render: (r) => ((r.allowed_domains as string[]) ?? []).join(", ") || "—",
+              },
+              { key: "linked_users", label: phrase("Linked users") },
+              {
+                key: "enabled",
+                label: phrase("State"),
+                render: (r) => (
+                  <StateBadge
+                    state={r.enabled ? "active" : "cancelled"}
+                    label={r.enabled ? phrase("enabled") : phrase("disabled")}
+                  />
+                ),
+              },
+              {
+                key: "x",
+                label: <span className="sr-only">{phrase("Actions")}</span>,
+                render: (r) => (
+                  <span className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setEdit({
+                          id: s(r.id),
+                          p: {
+                            name: s(r.name),
+                            issuer: s(r.issuer),
+                            client_id: s(r.client_id),
+                            client_secret: "",
+                            domains: ((r.allowed_domains as string[]) ?? []).join(" "),
+                            auto_create: r.auto_create === true,
+                          },
+                        })
+                      }
+                    >
+                      {phrase("Edit")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        await run(
+                          () =>
+                            admin.send(`/sso-providers/${s(r.id)}`, "PUT", {
+                              name: r.name,
+                              issuer: r.issuer,
+                              client_id: r.client_id,
+                              allowed_domains: r.allowed_domains,
+                              auto_create: r.auto_create,
+                              enabled: !r.enabled,
+                            }),
+                          r.enabled ? phrase("Disabled.") : phrase("Enabled."),
+                        );
+                        client.invalidateQueries({ queryKey: ["sso-providers"] });
+                      }}
+                    >
+                      {r.enabled ? phrase("Disable") : phrase("Enable")}
+                    </Button>
+                    <ConfirmButton
+                      title={`${phrase("Delete")} ${s(r.name)}?`}
+                      description={phrase(
+                        "Nobody can sign in with it any more. Accounts stay; their link to the provider is removed.",
+                      )}
+                      confirm="Delete provider"
+                      onConfirm={async () => {
+                        await run(
+                          () => admin.send(`/sso-providers/${s(r.id)}`, "DELETE"),
+                          phrase("Provider deleted."),
+                        );
+                        client.invalidateQueries({ queryKey: ["sso-providers"] });
+                      }}
+                    >
+                      {phrase("Delete")}
+                    </ConfirmButton>
+                  </span>
+                ),
+              },
+            ]}
+          />
+        )}
+      </DataState>
+    </>
+  );
+}
+
+export function DailyReportEmail() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const q = useQuery({
+    queryKey: ["report-email"],
+    queryFn: () => admin.get<Row>("/report-email"),
+  });
+  const [f, setF] = useState<{ enabled: boolean; recipients: string; sender: string } | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (q.data && !f) {
+      setF({
+        enabled: !!q.data.enabled,
+        recipients: ((q.data.recipients as string[]) ?? []).join("\n"),
+        sender: s(q.data.sender_identity_id),
+      });
+    }
+  }, [q.data, f]);
+  const save = async () => {
+    if (!f) return;
+    setError("");
+    try {
+      await admin.send("/report-email", "PUT", {
+        enabled: f.enabled,
+        recipients: f.recipients
+          .split(/[\n,;]/)
+          .map((x) => x.trim())
+          .filter(Boolean),
+        sender_identity_id: f.sender,
+      });
+      toast.success(phrase("Saved."));
+      client.invalidateQueries({ queryKey: ["report-email"] });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  const senders = (q.data?.senders as Row[]) ?? [];
+  return (
+    <>
+      <PageHeader
+        title={phrase("Daily report by email")}
+        description={phrase(
+          "Once a day, the report for yesterday (UTC) is also sent to these addresses. It is the same report as in the notifications.",
+        )}
+      />
+      <DataState q={q}>
+        {() =>
+          f && (
+            <Section>
+              <div className="grid max-w-xl gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={f.enabled}
+                    onChange={(e) => setF({ ...f, enabled: e.target.checked })}
+                  />
+                  {phrase("Send the daily report by email")}
+                </label>
+                <Field
+                  label={phrase("Recipients")}
+                  hint={phrase("One address per line. Up to 20.")}
+                >
+                  <textarea
+                    className={textareaClass}
+                    rows={4}
+                    value={f.recipients}
+                    onChange={(e) => setF({ ...f, recipients: e.target.value })}
+                  />
+                </Field>
+                <Field
+                  label={phrase("Send from")}
+                  hint={phrase(
+                    "A sender address that already exists in a project. If you choose none, the default sender of a Live environment is used.",
+                  )}
+                >
+                  <select
+                    className={selectClass}
+                    value={f.sender}
+                    onChange={(e) => setF({ ...f, sender: e.target.value })}
+                  >
+                    <option value="">
+                      {phrase("Automatic")}
+                      {q.data?.effective_sender ? ` (${s(q.data.effective_sender)})` : ""}
+                    </option>
+                    {senders.map((x) => (
+                      <option key={s(x.id)} value={s(x.id)}>
+                        {s(x.email)} · {s(x.project)} · {s(x.mode)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {!q.data?.effective_sender && (
+                  <p className="text-sm text-muted-foreground">
+                    {phrase(
+                      "No sender address exists yet. Add a sender to a project first, otherwise nothing can be sent.",
+                    )}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {phrase(
+                    "The email says how many messages were accepted by the mail server. That does not mean they reached an inbox.",
+                  )}
+                  {q.data?.last_emailed_day
+                    ? ` ${phrase("Last sent for")} ${s(q.data.last_emailed_day).slice(0, 10)}.`
+                    : ""}
+                </p>
+                {error && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {error}
+                  </p>
+                )}
+                <div>
+                  <Button onClick={save}>{phrase("Save")}</Button>
+                </div>
+              </div>
+            </Section>
+          )
+        }
+      </DataState>
     </>
   );
 }

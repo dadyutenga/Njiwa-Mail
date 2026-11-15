@@ -1,6 +1,6 @@
 # Njiwa Mail
 
-**Self-hosted transactional email you can see into: one API, one dashboard, your own server.**
+**Self-hosted transactional and marketing email you can see into: one API, one dashboard, your own server.**
 
 [![CI](https://github.com/dadyutenga/Njiwa-Mail/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/dadyutenga/Njiwa-Mail/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
@@ -23,6 +23,8 @@ message. It is free and open source under the [GNU AGPL-3.0](LICENSE), built in 
   recipient's server, bounced) is shown with its source. Njiwa never claims "delivered".
 - **Domains done properly.** SPF, DKIM and DMARC are evaluated, not just looked up. DKIM keys rotate in stages. Live mail needs a
   domain the project has verified.
+- **Marketing too, kept apart.** Contacts, subscriber lists, segments, CSV import, campaigns from a separate bulk
+  domain, list-scoped one-click unsubscribe, and opt-in open and click tracking (off by default).
 - **Built for operators.** A dashboard in English and Kiswahili, with audit log, optional TOTP sign-in, metrics, rate limits and
   backup/restore.
 
@@ -34,7 +36,9 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - **Outbound:** authenticated `POST /v1/emails` → durable PostgreSQL queue → worker → verified-TLS SMTP submission to the active delivery profile (managed Postfix over mutual TLS, or your SMTP server).
 - **Setup:** the Delivery infrastructure page guides the choice of mode and shows each check's real state, with the fix for every problem. Live mail needs a sending domain the project has verified and holds the installation-wide claim for; SPF, DKIM and DMARC are evaluated, not just looked up.
 - **Templates** in the database, versioned and immutable once published, in English and Kiswahili (`locale`: `en` or `sw`). Seeded: `otp`, `password-reset`, `account-notice`.
-- **Inbound:** your mail server (or managed Postfix, for bounces) relays to a private SMTP listener; mail is parsed to JSON (text, HTML, headers, attachments).
+- **SMTP relay:** point an application that only speaks SMTP at Njiwa (AUTH with an API key over TLS); its mail goes through the same pipeline as the API, so you can move to the HTTP API at your own pace.
+- **Address verification** before sending (syntax, MX, disposable and role addresses, suppressions), and an optional signed **"view in browser"** link.
+- **Inbound:** your mail server (or managed Postfix, for bounces) relays to a private SMTP listener, or a server of yours posts raw messages over signed HTTP; mail is parsed to JSON (text, HTML, headers, attachments), and the dashboard's inbox updates live.
 - **Bounces:** DSNs are parsed; hard bounces suppress the recipient automatically; policy bounces raise an alert and never suppress.
 - **Webhooks:** signed (HMAC-SHA256), retried for about 24 hours, replayable, with SSRF controls.
 - **Admin API** (`/admin/v1`): per-user accounts (argon2id), sessions, CSRF, one role (`admin`) with an installation-operator permission, optional TOTP two-step sign-in, audit log, DNS health check, metrics.
@@ -142,7 +146,8 @@ One request accepts a `to` address plus `cc` and `bcc` (10 addresses altogether)
 
 Inbound mail arrives by Mailcow relay, or by IMAP polling of a catch-all mailbox (`IMAP_HOST`). Outbound submission uses `SMTP_HOST` and, when that host fails before acceptance, `SMTP_FAILOVER_HOST`. Extra `api` and `worker` replicas share the same PostgreSQL queue, so a second instance does not double-send.
 
-This remains a transactional service. It does not send marketing campaigns.
+Marketing mail (contacts, lists, segments, campaigns) is kept apart from transactional mail: its own bulk domain, its
+own pace behind transactional mail, and unsubscribes that never stop a receipt or a password reset.
 
 ## Contributing
 

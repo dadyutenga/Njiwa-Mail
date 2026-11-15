@@ -17,8 +17,24 @@ A template send names a template and supplies `variables`. The service renders s
 
 ## Locales
 
-`locale` is `en` (default) or `sw` (Kiswahili). If a template has no Kiswahili content, English is used.
+`locale` is a lower-case language tag: `en` (default), `sw` (Kiswahili), or any other you write for your own templates, such
+as `fr` or `pt-br` (`pt_BR` is accepted and normalised). The built-in templates are written in English and Kiswahili.
+If a template has no content in the requested language, English is used. A version can hold up to 20 languages, and
+English is always required as the fallback.
 
 ## Versions and custom templates
 
 Each template has published versions. Omit `template_version` to use the newest published version; pass a number to pin one. Projects can publish their own templates in the dashboard; a template you publish is then usable by its slug, with the variables it declares. There is no public endpoint to list templates: read them in the dashboard.
+
+## Stylesheets, import and export
+
+In the dashboard, **Stylesheets** holds shared CSS (plain CSS only: no `@import`, scripts or template variables) that you
+can add to any of your templates. The CSS is added to the HTML of every language, and each saved version keeps its own
+copy: editing or deleting a stylesheet later never changes a published version, only the next draft that uses it. The
+CSS is inserted as a `<style>` block, so mail clients that ignore `<style>` will not show it.
+
+**Export** downloads a template (its newest published version, or the draft when nothing is published) as a JSON
+bundle. **Import** accepts such a bundle, or a plain HTML file. An import is always a draft: nothing is published until you
+publish it. From an HTML file, `{{name}}` placeholders become variables, scripts, forms and event handlers are removed,
+and the plain-text version is made from the HTML. Check the result before you publish: the clean-up is best effort and
+does not replace reading what you imported.

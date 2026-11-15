@@ -14,6 +14,15 @@ The contract is [`/openapi.yaml`](/openapi.yaml) (also [`/openapi.json`](/openap
 | `GET /v1/inbound` | `inbound:read` | [Inbound mail](/docs/api/inbound) |
 | `GET /v1/inbound/{id}` | `inbound:read` | [Inbound mail](/docs/api/inbound) |
 | `GET /v1/inbound/{id}/attachments/{aid}` | `inbound:read` | [Inbound mail](/docs/api/inbound) |
+| `POST /v1/addresses/verify` | `addresses:verify`, `emails:send` or `emails:send_raw` | [Verify addresses](/docs/api/verify) |
+| `POST /v1/contacts` | `contacts:manage` | [Contacts](/docs/api/contacts) |
+| `DELETE /v1/contacts/{ref}` | `contacts:manage` | [Contacts](/docs/api/contacts) |
+| `GET /v1/lists` | `contacts:manage` | [Contacts](/docs/api/contacts) |
+| `POST /v1/forms/{id}` | none (origin allowlist, limits and spam rules) | [Website forms](/docs/api/forms) |
+| `GET /v1/forms/{id}/nonce` | none | [Website forms](/docs/api/forms) |
+| `GET /v1/chat/{id}/widget.js`, `GET /v1/chat/{id}/config` | none | [Live chat](/docs/api/chat) |
+| `POST /v1/chat/{id}/conversations` | none (origin allowlist, limits and spam rules) | [Live chat](/docs/api/chat) |
+| `GET`, `POST /v1/chat/{id}/conversations/{cid}/messages`, `GET …/stream`, `PUT …/contact` | the conversation's session token | [Live chat](/docs/api/chat) |
 | `GET /v1/suppressions` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |
 | `POST /v1/suppressions` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |
 | `DELETE /v1/suppressions/{id}` | `suppressions:manage` | [Suppressions](/docs/api/suppressions) |

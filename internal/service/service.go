@@ -7,7 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/objstore"
+	"github.com/njiwa-tz/mail/internal/oidc"
+	"github.com/njiwa-tz/mail/internal/verify"
 	"log/slog"
+	"net/http"
+	"net/netip"
 	"regexp"
 	"strings"
 	"sync"
@@ -48,6 +53,9 @@ type Options struct {
 	InboundDomain string
 	BounceAddress string
 	DataDir       string // spool and attachment storage, outside any web root
+	// ObjectStore, when set, holds sealed inbound attachment files instead of DATA_DIR/attachments
+	// (ATTACHMENT_STORE=s3 builds it from the S3_* settings). nil keeps the disk.
+	ObjectStore objstore.Store
 	// InboundAllowedSources is INBOUND_ALLOWED_SOURCES and NjiwaSubnet is
 	// NJIWA_SUBNET. In managed mode host Postfix relays bounces from the
 	// subnet's gateway, which readiness checks is allowed (task T7.3).
@@ -62,6 +70,32 @@ type Options struct {
 	SessionTTL time.Duration
 
 	PublicURL string // origin used in admin password-reset links
+
+	// DisposableFile adds disposable-address domains to the built-in list
+	// used by address verification (one per line).
+	DisposableFile string
+	// VerifyResolver answers address verification's DNS queries (tests);
+	// nil uses the system resolver.
+	VerifyResolver verify.Resolver
+
+	// FormsEnabled turns on contact forms (FORMS_ENABLED). Off by default:
+	// the public form endpoints answer 404 and the workspace pages are hidden.
+	FormsEnabled bool
+	// UpdateCheckURL (UPDATE_CHECK_URL) is an https release feed answering {"tag_name": "..."},
+	// for example a GitHub "latest release" API address. Empty (the default) switches the
+	// operator's update check off.
+	UpdateCheckURL string
+	// UpdateHTTPClient is the client for that request; nil uses a plain one with a timeout. Tests set it.
+	UpdateHTTPClient *http.Client
+	// ChatEnabled turns on the live chat widget (CHAT_ENABLED). Off by default:
+	// the public chat endpoints answer 404 and the workspace pages are hidden.
+	ChatEnabled bool
+	// SSOAllowedNetworks are non-public networks the identity-provider client may reach (SSO_ALLOWED_NETWORKS).
+	SSOAllowedNetworks []netip.Prefix
+	// RelayAddr and RelayImplicitTLS describe the SMTP relay (RELAY_LISTEN_ADDR, RELAY_IMPLICIT_TLS)
+	// for the dashboard; whether it is running comes from its heartbeat.
+	RelayAddr        string
+	RelayImplicitTLS bool
 
 	// AllowUnregisteredLiveDomains: see config. Temporary upgrade escape hatch.
 	AllowUnregisteredLiveDomains bool
@@ -87,9 +121,15 @@ type Service struct {
 	queueDepth int
 	queueAt    time.Time
 
+	oidc oidc.Client // OpenID Connect discovery and key cache
+
 	bdMu  sync.Mutex // per-domain return-path domains (D04), cached briefly
 	bdAt  time.Time
 	bdSet map[string]bool
+
+	verifyOnce sync.Once
+	verifier   *verify.Verifier
+	verifyErr  error
 }
 
 func New(pool *db.DB, box *secure.Box, o Options) *Service {
@@ -113,7 +153,10 @@ func New(pool *db.DB, box *secure.Box, o Options) *Service {
 	}
 	o.InboundDomain = strings.ToLower(o.InboundDomain)
 	o.BounceAddress = strings.ToLower(o.BounceAddress)
-	return &Service{Pool: pool, Box: box, Opts: o}
+	s := &Service{Pool: pool, Box: box, Opts: o}
+	// The identity-provider client reads the allowed networks from the options at each connection.
+	s.oidc.Allowed = func() []netip.Prefix { return s.Opts.SSOAllowedNetworks }
+	return s
 }
 
 // Error is a safe, client-visible failure. Code never contains user content.
@@ -165,9 +208,11 @@ const (
 	ScopeRead         = "emails:read"
 	ScopeInboundRead  = "inbound:read"
 	ScopeSuppressions = "suppressions:manage"
+	ScopeVerify       = "addresses:verify"
+	ScopeContacts     = "contacts:manage"
 )
 
-var allScopes = []string{ScopeSend, ScopeSendRaw, ScopeRead, ScopeInboundRead, ScopeSuppressions}
+var allScopes = []string{ScopeSend, ScopeSendRaw, ScopeRead, ScopeInboundRead, ScopeSuppressions, ScopeVerify, ScopeContacts}
 
 func validScope(sc string) bool {
 	for _, x := range allScopes {

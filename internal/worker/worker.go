@@ -294,6 +294,15 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 		}
 		return
 	}
+	if pl.WebView && html != "" {
+		// The browser copy is the message as sent, without its own link.
+		// If it cannot be stored, the message still goes, without the link.
+		if url, err := w.Svc.StoreWebView(ctx, c.ID, subject, html); err == nil {
+			text, html = service.WithWebViewLink(url, text, html)
+		} else {
+			w.log(c, "web_view_skipped", "store_failed")
+		}
+	}
 	domain := pl.From[strings.LastIndexByte(pl.From, '@')+1:]
 	msgID := c.ID + "@" + domain
 	atts, err := w.Svc.LoadAttachments(ctx, c.ID)

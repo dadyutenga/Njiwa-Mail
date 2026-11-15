@@ -24,6 +24,16 @@ import { Complaints, Mailboxes, Senders, Suppressions } from "@/features/workspa
 import { Templates } from "@/features/workspace/pages/Templates";
 import { Automations } from "@/features/workspace/pages/Automations";
 import { Bulk, CampaignDetail, NewCampaign } from "@/features/workspace/pages/Bulk";
+import { ContactDetail, Contacts, Lists, Segments } from "@/features/workspace/pages/Audience";
+import { Members } from "@/features/workspace/pages/Members";
+import {
+  ChatAnalytics,
+  ChatConversations,
+  ChatSnippets,
+  ChatWidgets,
+} from "@/features/workspace/pages/Chat";
+import { CheckAddresses, RelayStatus } from "@/features/workspace/pages/Tools";
+import { FormFilters, FormInbox, Forms } from "@/features/workspace/pages/Forms";
 import { ApiDocs, ApiKeys, WebhookDetail, Webhooks } from "@/features/workspace/pages/Developers";
 import {
   Alerts,
@@ -34,7 +44,12 @@ import {
   Projects,
   System,
   Users,
+  SingleSignOn,
+  Announcements,
+  DailyReportEmail,
+  Plans,
 } from "@/features/workspace/pages/Admin";
+import { Platform } from "@/features/workspace/pages/Platform";
 import ProjectDetail from "@/features/mail/ProjectDetail";
 import SettingsPage from "@/features/mail/Settings";
 import Profile from "@/features/mail/Profile";
@@ -65,6 +80,20 @@ const workspacePages: [string, ReactNode][] = [
   ["inbox", <Inbox />],
   ["sent", <Sent />],
   ["scheduled", <Scheduled />],
+  ["contacts", <Contacts />],
+  ["contacts/:id", <ContactDetail />],
+  ["chat", <ChatWidgets />],
+  ["chat/conversations", <ChatConversations />],
+  ["chat/snippets", <ChatSnippets />],
+  ["chat/analytics", <ChatAnalytics />],
+  ["forms", <Forms />],
+  ["forms/submissions", <FormInbox />],
+  ["forms/filters", <FormFilters />],
+  ["lists", <Lists />],
+  ["segments", <Segments />],
+  ["members", <Members />],
+  ["verify", <CheckAddresses />],
+  ["relay", <RelayStatus />],
   ["bulk", <Bulk />],
   ["bulk/new", <NewCampaign />],
   ["bulk/:id", <CampaignDetail />],
@@ -94,9 +123,14 @@ const workspacePages: [string, ReactNode][] = [
   ["domain-claims", <DomainClaims />],
   ["mta-queue", <MtaQueue />],
   ["mail-host", <MailHost />],
+  ["sso", <SingleSignOn />],
   ["analytics", <Analytics />],
+  ["announcements", <Announcements />],
+  ["report-email", <DailyReportEmail />],
+  ["plans", <Plans />],
   ["alerts", <Alerts />],
   ["system", <System />],
+  ["platform", <Platform />],
   ["audit", <Audit />],
   ["settings", <SettingsPage />],
   ["profile", <Profile />],

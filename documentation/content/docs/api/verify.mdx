@@ -1,0 +1,29 @@
+---
+title: Verify addresses
+description: Check an address before you send to it, without sending anything.
+---
+
+Use it on a sign-up form or before importing a list: it catches typos, domains that accept no mail, throwaway addresses and
+addresses that already bounced. Any key with `emails:send`, `emails:send_raw` or `addresses:verify` may call it.
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/addresses/verify" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"emails": ["ada@example.com", "info@example.com"]}'
+```
+
+Up to 100 addresses per request (`email` for one, `emails` for many). Each result has a `result` and the `reasons` behind it:
+
+| `result` | Meaning | What to do |
+|---|---|---|
+| `deliverable` | The syntax is valid and the domain accepts mail | Send |
+| `risky` | Deliverable, but a disposable provider (`disposable_domain`) or a role account such as `info@` (`role_account`) | Your choice: accept, or ask for a personal address |
+| `undeliverable` | `invalid_syntax`, `no_mail_server`, or `null_mx` (the domain says it accepts no mail) | Ask the user to correct it |
+| `unknown` | `dns_timeout`: DNS did not answer in time | Try again later; do not reject the user |
+
+`suppressed: true` means the address is on this environment's suppression list (a hard bounce, a complaint or your own
+entry) and sending to it is refused. `unsubscribed: true` means it opted out of bulk mail; transactional mail still goes.
+
+Verification never connects to the recipient's mail server: such probes are unreliable and get the sending IP blocklisted.
+So `deliverable` means the domain accepts mail, not that the mailbox exists. A bounce after sending is still the final answer.

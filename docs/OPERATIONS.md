@@ -39,7 +39,26 @@ njiwa-mail user create -email you@example.com -role admin     # password is read
 njiwa-mail user password -email you@example.com               # reset a password; ends that user's sessions
 njiwa-mail user disable -email someone@example.com
 ```
-There is one user role, `admin`, plus an **installation-operator** permission. Operators manage delivery infrastructure (transport profiles, mail server, domain ownership), users and settings; other admins keep the project work (messages, templates, keys, domains of a project) and read inbound bodies and sandbox captures. `njiwa-mail user create` makes an operator unless `-operator=false` is passed; the admin API and the Users page create a non-operator unless `installation_operator: true` is sent (the Users page asks). `user operator -email E -on=false` changes it. The first user is always an operator and the last enabled operator cannot be demoted or disabled. Old `owner` inputs are accepted as an alias for admin.
+There is one user role, `admin`, plus an **installation-operator** permission. Operators manage delivery infrastructure (transport profiles, mail server, domain ownership), users and settings, and can open every project. Other users work only in the projects they belong to (see *Project members and roles* below). `njiwa-mail user create` makes an operator unless `-operator=false` is passed; the admin API and the Users page create a non-operator unless `installation_operator: true` is sent (the Users page asks). `user operator -email E -on=false` changes it. The first user is always an operator and the last enabled operator cannot be demoted or disabled. Old `owner` inputs are accepted as an alias for admin.
+
+**Project members and roles.** A project is opened only by its members and by installation operators (who count as owners
+everywhere and need no membership). Someone who is not a member gets the same "project not found" answer as for a project that does
+not exist. Roles, weakest first:
+
+| Role | May |
+|---|---|
+| viewer | Read everything in the project, run the read-only checks (address check, previews). |
+| developer | Also send mail and edit templates, contacts, lists, campaigns, drafts, and handle form submissions and chats. |
+| admin | Also API keys, domains and DNS, senders, webhooks, mailboxes, suppressions, form and chat settings, the environment settings (approved origins, recipient restriction) and the personal-data tools. |
+| owner | Also adds, changes and removes members. |
+
+Owners manage members under *Members* in the project (`GET/POST/PATCH/DELETE …/members`); only an owner can add an owner, and a project
+always keeps at least one owner. A member must already have an account: operators create users. A person who creates a project
+(`POST /admin/v1/projects`) owns it; a project created with `njiwa-mail project create` has no members, so only operators can open it
+until one is added. **On upgrade** (migration 0034) every existing non-operator user is made an owner of every existing project, because
+before this everyone could open everything: tighten it by changing roles. The older views that look across all projects
+(`/admin/v1/keys`, `/messages`, `/domains`, `/webhooks`, `/audit`, `/overview` and similar) are operator-only; project members use the
+project's own routes. Every change of membership is audited (`member.add`, `member.role`, `member.remove`).
 
 **Two-step sign-in (TOTP).** Each user can turn it on under Profile (authenticator app; ten one-time recovery codes are shown once). To require it for everyone, tick *Require two-step sign-in for every admin* in Settings (`require_mfa`): admins without it can then only enrol or sign out. Lost device and codes: an operator uses *Reset two-step* on the Users page, or `njiwa-mail user mfa-reset -email E` on the server.
 **What ends a user's sessions.** Every session records the account's credential state (`auth_version`, migration 0023). These end
@@ -283,15 +302,193 @@ ownership check passes. Another project that adds the same domain sees "already 
   `domain_not_registered`. `ALLOW_UNREGISTERED_LIVE_DOMAINS=true` restores the old behaviour for unclaimed names only, as a
   temporary bridge while domains are registered; it never allows a claimed name.
 
+## SMTP relay for applications
+
+`njiwa-mail relay` (Compose: `docker compose --profile relay up -d relay`; native: `deploy/njiwa-mail-relay.service`) accepts
+SMTP from applications that cannot use the HTTP API yet. AUTH PLAIN over TLS only; the password is an API key with
+`emails:send_raw`. Each envelope recipient becomes one message through the normal accept path, with an idempotency key from
+the `Message-ID` and recipient, so a client's retry is not sent twice. Settings: `RELAY_LISTEN_ADDR`, `RELAY_TLS_CERT`,
+`RELAY_TLS_KEY`, `RELAY_IMPLICIT_TLS`. The Compose service listens on host port 2587 (`NJIWA_RELAY_PORT`) bound to
+`127.0.0.1` (`NJIWA_RELAY_BIND`), so it never takes 587 from a mail server on the same host. Guide: the docs portal's
+"SMTP relay" page. The dashboard's *SMTP relay* page (Developers) shows the connection settings and whether the relay has
+checked in: the relay sends a heartbeat every 10 seconds, and "running" means one arrived in the last minute. That is
+evidence the process is up, not proof that the port is reachable from your application's network.
+
+## Announcements, the daily report and usage plans
+
+All three are operator pages in the dashboard (they are hidden from other users).
+
+**Announcements** show in every user's notification bell (title, optional message and a link that must be a path on this
+site or an https address). An operator sees how many users have read each one and can retract it; both are audited.
+Users dismiss them for themselves only.
+
+**The daily report.** Once a day (checked hourly, made once per UTC day so a restart never repeats it) the scheduler records
+the report for yesterday for every project and environment: messages by outcome, hard bounces, complaints, inbound mail and
+open alerts. It shows in every user's notifications. It can also be **emailed**: open *Daily report* in the dashboard, tick
+"Send the daily report by email", list up to 20 recipients and, if you want, choose the sender.
+
+- The mail is queued like any other message (source `automation`) from the chosen sender identity. With none chosen, the
+  default sender of a Live environment is used. If no sender exists at all, nothing is sent and the next hourly run tries
+  again, so add one first (Domains and senders).
+- It goes out at most once per day: the last day mailed is kept in `report_email_settings.last_emailed_day`. Turning the
+  setting off stops it; turning it on again mails the newest report from the last two days that has not been mailed.
+- The text says "submitted" means the mail server accepted the message, not that it reached an inbox. Whether the report
+  itself was delivered is shown in the Mail queue / delivery evidence like any other message.
+
+**Usage plans** are named sets of limits (messages per minute and per day, per recipient, bulk recipients and messages per
+day, **Live messages per month** and **contacts**). Assigning a plan to a project copies its limits to the project; editing
+a plan updates every project on it; a plan in use cannot be deleted. Over the monthly Live quota a request is
+`429 monthly_quota_exceeded` with `Retry-After` and reserves nothing; Sandbox traffic never counts. Over the contact limit,
+adding contacts is `422 contact_limit_reached`.
+
+## Single sign-on (OpenID Connect)
+
+Operators add providers under "Single sign-on" in the dashboard (Google, Keycloak, authentik, any OpenID Connect provider).
+`PUBLIC_URL` must be set. Register `PUBLIC_URL/admin/v1/auth/sso/callback` as the return address at the provider, then enter
+its issuer address (https only; the discovery document must name the same issuer), client id and client secret (stored
+encrypted, covered by `rekey`).
+
+- Sign-in uses the authorization code flow with PKCE and a one-time state and nonce. The ID token must be signed with a key the
+  provider publishes (RS256 of 2048 bits or more, or ES256) and match issuer, audience, expiry and nonce, and carry a
+  **verified** email address.
+- An existing account is found by the provider's subject after the first sign-in (linked then by its email), so a later email
+  change at the provider cannot take over another account. A disabled account never signs in.
+- "Allowed email domains" limits who may use the provider. "Create an account on first sign-in" needs at least one allowed
+  domain; such accounts are never operators and have no known password.
+- An account with an authenticator still enters its code (or a recovery code) after the provider; five wrong codes end that
+  sign-in. Sessions, the throttle and the audit log (`auth.login`, `method: sso`) are the same as for passwords.
+- Every failure shows the same message to the person; the reason is in the server log (`sso sign-in refused`).
+- The server fetches the discovery document, the signing keys and the token from addresses the provider names, so it only
+  connects to **public** addresses (loopback, private, link-local and cloud-metadata ranges are refused at connect time, for
+  redirects too). A provider inside your own network (Keycloak or authentik on a private address) needs that network allowed:
+  `SSO_ALLOWED_NETWORKS=10.20.0.0/16` (comma-separated networks or addresses). For a local test provider use `127.0.0.0/8`.
+
 ## Inbound mail and bounces
 
 Setup: [MAILCOW_SETUP.md](MAILCOW_SETUP.md). The listener writes each message to `DATA_DIR/spool` and records it before answering `250`; the parser runs afterwards.
 
 - A message that cannot be parsed after 5 attempts stays in `inbound_spool` with state `failed`, and its raw file is kept for review (`DATA_DIR/spool/<id>.eml`) until inbound retention.
-- Inbound bodies are encrypted in the database. **Attachments are stored unencrypted** under `DATA_DIR/attachments` with generated names: protect and back up that volume like the database.
+- Inbound bodies are encrypted in the database. Attachments are sealed with `ENCRYPTION_KEY` before they are written (see Encryption at rest below), under generated names in `DATA_DIR/attachments` or, if you choose, in an S3-compatible bucket (next section). Back the volume or the bucket up like the database.
 - Bounce types: `5.1.x` hard (recipient suppressed, source `hard_bounce`), `4.x.x` soft (recorded), `5.7.x` policy (alert, no suppression), anything else `unknown` (recorded for review; includes `5.2.x` mailbox-full).
 - A hard bounce suppresses only when the DSN matches one of our message ids **and** names that message's own recipient.
 - To lift a suppression after the user fixed their mailbox: Suppressions → remove (a reason is required and audited).
+
+## Attachment storage: disk or an S3-compatible bucket
+
+By default sealed inbound attachment files live under `DATA_DIR/attachments`. Set `ATTACHMENT_STORE=s3` to keep them in a bucket
+instead (AWS S3, MinIO, Ceph, Cloudflare R2, Backblaze B2 ...): `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` and
+`S3_SECRET_ACCESS_KEY` (or `S3_SECRET_ACCESS_KEY_FILE`) are required; `S3_ENDPOINT` names a non-AWS service (https only, no path),
+`S3_KEY_PREFIX` shares a bucket between installations, `S3_VIRTUAL_HOSTED=true` puts the bucket in the host name, and
+`S3_ALLOW_HTTP=true` permits a plain-http endpoint such as a local MinIO. Nothing is stored in a bucket unless you set this, and
+using a bucket may cost money with your provider: that is your decision, nothing here creates one.
+
+- The files are already sealed (AES-GCM, bound to the attachment id) before upload, so the provider never sees an attachment in
+  clear and losing `ENCRYPTION_KEY` makes them unreadable, as on disk. `rekey` re-seals objects in the bucket too.
+- The database row keeps the same `storage_path` either way, so switching needs no database change. With a bucket configured,
+  reads fall back to the disk for files that have not moved yet. `njiwa-mail attachments migrate` uploads every sealed file from
+  `DATA_DIR` to the bucket and removes the disk copy after each successful upload (repeatable; run `attachments encrypt` first if
+  it reports files that are not sealed). The raw inbound spool stays on the disk until parsed, so `DATA_DIR` is still needed.
+- Deleting a message, an address or a recipient (privacy request), and retention, remove the objects as well; a bucket that is
+  unreachable at that moment is logged and the objects are left (the rows are gone), so use a bucket lifecycle rule as a backstop.
+- An unreachable bucket answers downloads with 503, never "not found". Requests are signed with AWS Signature V4; the client is
+  checked against the signature example in AWS's documentation, and against a fake S3 in the tests, not against a live provider:
+  try it with a throwaway bucket before relying on it.
+
+## Template languages, stylesheets, import and export
+
+- A template version can hold up to 20 languages (lower-case tags such as `fr` or `pt-br`; English is the required
+  fallback). `messages.locale` and `template_contents.locale` accept any such tag since migration 0037.
+- Project stylesheets (`template_styles`, at most 30 per project, 50 KB each, plain CSS) are copied into the version when a
+  draft is saved (`template_versions.style_css`), so published versions stay immutable.
+- Template bundles (`njiwa-template/1`) and HTML imports always create drafts. They carry no secrets and no sender data.
+  The HTML clean-up removes scripts, forms and event handlers on a best-effort basis; it is not a security boundary.
+
+## Account lifecycle
+
+- Each user can change their own password (`POST /admin/v1/auth/password`, with the current one; every other session ends),
+  sign out all other devices, read their own activity (`GET /admin/v1/auth/audit`) and ask for their account to be deleted.
+  Failed attempts share one budget (10 per 15 minutes) so a stolen session cannot be used to guess the password.
+- Deleting an account needs the password (and the authenticator code when a second factor is on) and takes effect 14 days
+  later; the account works normally until then and the request can be cancelled. The scheduler job `account_deletions`
+  (hourly) removes due accounts. The last enabled user and the last installation operator cannot leave; if an account
+  became one of those during the grace period its request is cleared and `account.deletion_blocked` is audited.
+  Audit rows written by the user keep their email as the actor name.
+- Installation operators can list a user's sessions (`GET /admin/v1/users/{id}/sessions`), end them
+  (`POST /admin/v1/users/{id}/sessions/revoke`), read the user's audit trail (`GET /admin/v1/users/{id}/audit`), reset a
+  second factor and disable or re-password a user (`PATCH /admin/v1/users/{id}`).
+
+## Deleting many recipients
+
+`POST /admin/v1/w/{project}/{mode}/privacy/delete-bulk` (also on the Recipient privacy page) takes up to 500 addresses and
+removes everything stored about each in that environment: messages and their evidence, bounces, suppressions, inbound mail,
+contacts, form submissions and chats. Send `"dry_run": true` first to see a count per address without deleting. Addresses are
+returned masked, duplicates are handled once, one failing address does not stop the others, and the audit log keeps only
+counts (`privacy.delete_bulk`), never addresses.
+
+## Platform page (operators)
+
+The **Platform** page (installation operators only) shows live health over a server-sent stream
+(`GET /admin/v1/platform/stream`: a snapshot every five seconds and each new alert), the scheduler's jobs with their last
+run (`GET /admin/v1/jobs`) and the update check.
+
+- Each scheduler job is registered in `job_runs` when the scheduler starts and records every run. A job is **failing** when
+  its last run returned an error, **stale** when it has not finished a run in three intervals (the scheduler is down or
+  stuck), **never** while it has not run yet. Errors are shortened to 300 characters.
+- The stream holds one connection per open page; the proxy must not buffer `text/event-stream` (same note as for chat).
+- The update check is **off** unless `UPDATE_CHECK_URL` is set to an https feed answering `{"tag_name": "..."}`. It makes a
+  plain GET (no cookies, no installation data) at most every six hours and says "update available" only for a release
+  build whose `VERSION` differs from the feed's tag. Build the image with `--build-arg VERSION=v1.2.3` to name a release;
+  without it the binary reports `dev` and never claims an update.
+- Shared SMTP servers: the installation already has one active transport profile that every project sends through (see
+  Delivery infrastructure). Several operator-offered profiles with a per-project choice are not built.
+
+## Website forms (off by default)
+
+Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer
+`404 forms_disabled`, the dashboard hides the Forms entries and the digest job does nothing. Public docs: [Website
+forms](../documentation/content/docs/api/forms.mdx).
+
+- `POST /v1/forms/{id}` is public. It is guarded by the form's origin allowlist, a hidden honeypot, an optional single-use
+  nonce, per-IP / per-form / per-sender / per-workspace limits and a spam score (flag 30, quarantine 60, reject 90) plus
+  the workspace's own filters. If the service sits behind a proxy, make sure `X-Forwarded-For` carries the visitor's address
+  (`TRUST_PROXY=true`): all visitors behind one proxy address would otherwise share one rate limit.
+- Field values and files are encrypted (`form_submissions`, `form_files`); both are covered by `ENCRYPTION_KEY` rotation.
+  The visitor IP is stored only as a keyed hash. Submissions are deleted with the retention job.
+- Replies go through the normal sending path from the form's "reply from" address, which must be a verified sender; they
+  are "submitted", never "delivered", until the delivery evidence says so.
+- Digest notifications (hourly / daily) are sent by the scheduler once a minute; quarantined messages never notify.
+- Routing rules (`form_rules`, at most 50 per form) set priority, tags and assignee on kept submissions; they hold no secrets.
+  The CSV export returns decrypted field values (at most 20,000 rows), so every export is written to the audit log as
+  `form_submission.export`.
+
+## Live chat (off by default)
+
+Set `CHAT_ENABLED=true` and restart to let projects add a chat widget to their websites. Until then the public chat routes
+answer `404 chat_disabled`, the dashboard hides the Chat entries and the email follow-up job does nothing. Public docs:
+[Live chat](../documentation/content/docs/api/chat.mdx).
+
+- Public routes under `/v1/chat/{id}/…` are guarded by the chat's origin allowlist, per-address / per-chat / per-workspace
+  limits, the spam score and the workspace's form filters, and (after the first message) a per-conversation session token
+  kept only as a hash. With a proxy in front, set `TRUST_PROXY=true` so each visitor has their own limit.
+- Each open visitor page holds one event stream (polled every 2 s on the server, at most 20 opens a minute per address) and
+  the dashboard holds one per open Conversations page. The proxy must not buffer `text/event-stream` (the service sets
+  `X-Accel-Buffering: no`) and should allow responses of about 25 minutes; the widget reconnects by itself.
+- Messages and visitor details are encrypted (`chat_messages`, `chat_conversations`) and covered by `ENCRYPTION_KEY`
+  rotation. The visitor IP is stored only as a keyed hash. Conversations are deleted by the retention job.
+- **Signed visitor identity.** Each chat has an identity secret (sealed, covered by `ENCRYPTION_KEY` rotation; shown once at creation
+  and again only when someone makes a new one under *Identity*). The website's own server signs a signed-in person's email with it
+  (`HMAC-SHA256`, hex) so the chat can trust the address: the conversation is marked identified and the visitor cannot change the
+  address. A wrong signature is refused (`identity_invalid`), not ignored. "Only identified visitors" refuses everyone else. Making a new
+  secret ends the old one for new conversations at once.
+- **Bans.** An agent can ban a visitor from a conversation: it is closed, and the address it came from and the email given (stored only as
+  keyed hashes) can no longer write or start a chat in that environment (`visitor_banned`); lifting the ban undoes it. Behind a proxy,
+  set `TRUST_PROXY=true`, or every visitor shares the proxy's address and one ban would block everyone.
+- **Canned replies** (up to 100 per environment) and **chat analytics** (conversations, answered and unanswered, time to the first answer)
+  are in the dashboard under Chat.
+- Answers a visitor's page never received are emailed by the scheduler (once a minute) to the address the visitor left,
+  through the normal sending path; they are "submitted", never "delivered", until the delivery evidence says so. The
+  sender is the chat's reply sender or the environment's default sender; without one the answer stays pending and the
+  job logs `chat email failed`.
 
 ## Message states
 
@@ -418,7 +615,7 @@ Each run also seals up to 200 inbound attachment files written before encryption
 
 **Encryption at rest.** Inbound attachments are stored sealed with `ENCRYPTION_KEY` (AES-GCM, bound to the attachment id) and decrypted on download; losing the key makes them unreadable, like queued mail. The raw spool file (`DATA_DIR/spool`) is plaintext until parsed, normally seconds. Backups copy the sealed files.
 
-**Data-subject requests.** Recipient privacy page (or `POST /admin/v1/w/{project}/{mode}/privacy/export[?format=csv]` and `/privacy/delete`): export lists message metadata, delivery evidence, bounces, inbound mail and suppression state (no bodies, no variables); delete removes them and the attachment files. A single finished message can be exported (`GET .../messages/{id}/export`) or deleted (`DELETE .../messages/{id}`; queued, retrying, scheduled or unknown messages are refused with `message_active`). All are audited.
+**Data-subject requests.** Recipient privacy page (or `POST /admin/v1/w/{project}/{mode}/privacy/export[?format=csv]` and `/privacy/delete`): export lists message metadata, delivery evidence, bounces, inbound mail and suppression state (no bodies, no variables of mail Njiwa-Mail sent), plus what the person gave us themselves: **the contact record** (name, attributes, lists), **what they wrote in forms** (with the names of uploaded files) and **their chats**. Delete removes all of that and the attachment files; it works even if forms or chat are switched off now, because stored rows outlive the switch. A chat started without an email address cannot be matched to a person and expires with retention. Unsubscribe records keep only a keyed hash. A single finished message can be exported (`GET .../messages/{id}/export`) or deleted (`DELETE .../messages/{id}`; queued, retrying, scheduled or unknown messages are refused with `message_active`). All are audited.
 
 One-off: `njiwa-mail retention`. **Backups can retain older encrypted data until the backup's own retention expires.**
 

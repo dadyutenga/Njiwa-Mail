@@ -22,6 +22,10 @@ export type WorkspaceInfo = {
   bulk_max_per_campaign: number;
   bulk_max_per_day: number;
   temp_inbox_limit: number;
+  forms_enabled?: boolean;
+  chat_enabled?: boolean;
+  /** The signed-in user's role in this project: viewer, developer, admin or owner. */
+  role?: "viewer" | "developer" | "admin" | "owner";
 };
 
 export type ProjectRow = {
@@ -33,6 +37,7 @@ export type ProjectRow = {
   recipient_per_minute: number;
   recipient_per_hour: number;
   created_at: string;
+  role?: string;
 };
 
 const LAST_KEY = "njiwa.workspace";

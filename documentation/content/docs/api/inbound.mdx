@@ -21,3 +21,22 @@ curl -sS "$NJIWA_MAIL_URL/v1/inbound?limit=20" \
 </Callout>
 
 The `inbound.received` [webhook](/docs/webhooks) tells you when something arrived; it carries ids only.
+
+## Receive over HTTP instead of SMTP
+
+If mail reaches a server or provider of yours first, it can hand each message to Njiwa Mail over HTTP. Turn on
+**HTTP ingest** for the environment in the dashboard (Inbound) and keep the secret it shows once. Then POST the raw
+message, signed:
+
+```bash
+TS=$(date +%s)
+SIG="v1=$(printf '%s.' "$TS" | cat - message.eml | openssl dgst -sha256 -hmac "$NJIWA_INGEST_SECRET" -hex | sed 's/^.* //')"
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/inbound/ingest/$NJIWA_ENVIRONMENT_ID" \
+  -H "Content-Type: message/rfc822" -H "X-Njiwa-Timestamp: $TS" -H "X-Njiwa-Signature: $SIG" \
+  --data-binary @message.eml
+```
+
+The timestamp must be within 5 minutes. Recipients come from `X-Njiwa-Recipients` (comma-separated) or the message's
+`To` and `Cc`; only inbound addresses of this environment are kept. The message is then stored, forwarded and reported
+(`inbound.received`) exactly as if it had arrived over SMTP. Sending the same signed request twice stores it once.
+The inbound role must be running: it parses what the API spools.

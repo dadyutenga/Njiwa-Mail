@@ -6,10 +6,14 @@ import (
 	"bufio"
 	"encoding/base64"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/netguard"
 )
 
 type SMTP struct {
@@ -83,6 +87,27 @@ type Config struct {
 	InboundAllowedSources         string // Mailcow host IPs / CIDRs allowed to connect to the listener
 	InboundMaxBytes               int
 	DataDir                       string
+	// AttachmentStore (ATTACHMENT_STORE) is "disk" (default: sealed files under DATA_DIR) or "s3"
+	// (an S3-compatible bucket, configured with the S3_* settings).
+	AttachmentStore string
+	S3              S3Config
+
+	// SMTP relay for applications (the relay role): RELAY_LISTEN_ADDR,
+	// RELAY_TLS_CERT and RELAY_TLS_KEY (PEM files), RELAY_IMPLICIT_TLS for
+	// port 465 instead of STARTTLS.
+	RelayListenAddr, RelayTLSCert, RelayTLSKey string
+	RelayImplicitTLS                           bool
+
+	// FormsEnabled (FORMS_ENABLED) turns on contact forms; off by default.
+	FormsEnabled bool
+	// UpdateCheckURL (UPDATE_CHECK_URL) is an https release feed for the operator's update check;
+	// empty (default) = no check and no outbound request.
+	UpdateCheckURL string
+	// ChatEnabled (CHAT_ENABLED) turns on the live chat widget; off by default.
+	ChatEnabled bool
+	// SSOAllowedNetworks (SSO_ALLOWED_NETWORKS, comma-separated CIDRs) are non-public networks the
+	// server may reach when it talks to an identity provider, for one inside your own network.
+	SSOAllowedNetworks []netip.Prefix
 
 	// DNS health checker expectations.
 	MailHostname string
@@ -98,6 +123,12 @@ type Config struct {
 	LiveGlobalPerMinute, LiveGlobalPerHour int
 	LiveDomainPerMinute, LiveDomainPerHour int
 	LiveQueueMax                           int
+}
+
+// S3Config holds the S3_* settings.
+type S3Config struct {
+	Endpoint, Region, Bucket, AccessKey, SecretKey, KeyPrefix string
+	VirtualHosted, AllowHTTP                                  bool
 }
 
 func boolVar(name string) (bool, error) {
@@ -169,6 +200,17 @@ func key(name string, minLen int, exact bool) ([]byte, error) {
 		return nil, fmt.Errorf("%s must decode to %d bytes", name, minLen)
 	}
 	return b, nil
+}
+
+// commaList splits a comma-separated setting, dropping blanks.
+func commaList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // previousKeys reads ENCRYPTION_KEY_PREVIOUS: zero or more comma-separated
@@ -338,6 +380,20 @@ func Load() (*Config, error) {
 	if c.TrustProxy, err = boolVar("TRUST_PROXY"); err != nil {
 		return nil, err
 	}
+	if c.FormsEnabled, err = boolVar("FORMS_ENABLED"); err != nil {
+		return nil, err
+	}
+	if c.ChatEnabled, err = boolVar("CHAT_ENABLED"); err != nil {
+		return nil, err
+	}
+	if c.UpdateCheckURL = get("UPDATE_CHECK_URL", ""); c.UpdateCheckURL != "" {
+		if u, perr := url.Parse(c.UpdateCheckURL); perr != nil || u.Scheme != "https" || u.Host == "" {
+			return nil, fmt.Errorf("UPDATE_CHECK_URL must be an https address")
+		}
+	}
+	if c.SSOAllowedNetworks, err = netguard.ParseNetworks(commaList(get("SSO_ALLOWED_NETWORKS", ""))); err != nil {
+		return nil, fmt.Errorf("SSO_ALLOWED_NETWORKS: %w", err)
+	}
 	if c.InsecureCookies, err = boolVar("ADMIN_INSECURE_COOKIES"); err != nil {
 		return nil, err
 	}
@@ -356,6 +412,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("METRICS_TOKEN must be at least 16 characters")
 	}
 	c.InboundListenAddr = get("INBOUND_LISTEN_ADDR", "0.0.0.0:2525")
+	c.RelayListenAddr = get("RELAY_LISTEN_ADDR", "0.0.0.0:587")
+	c.RelayTLSCert, c.RelayTLSKey = get("RELAY_TLS_CERT", ""), get("RELAY_TLS_KEY", "")
+	if c.RelayImplicitTLS, err = boolVar("RELAY_IMPLICIT_TLS"); err != nil {
+		return nil, err
+	}
 	c.IMAPHost = get("IMAP_HOST", "")
 	if c.IMAPPort, err = intVar("IMAP_PORT", 993); err != nil {
 		return nil, err
@@ -390,6 +451,28 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	c.DataDir = get("DATA_DIR", "/var/lib/njiwa-mail")
+	switch c.AttachmentStore = strings.ToLower(get("ATTACHMENT_STORE", "disk")); c.AttachmentStore {
+	case "disk":
+	case "s3":
+		c.S3.Endpoint, c.S3.Region, c.S3.Bucket = get("S3_ENDPOINT", ""), get("S3_REGION", ""), get("S3_BUCKET", "")
+		c.S3.AccessKey = get("S3_ACCESS_KEY_ID", "")
+		var serr error
+		if c.S3.SecretKey, serr = secret("S3_SECRET_ACCESS_KEY"); serr != nil {
+			return nil, serr
+		}
+		c.S3.KeyPrefix = get("S3_KEY_PREFIX", "")
+		if c.S3.VirtualHosted, err = boolVar("S3_VIRTUAL_HOSTED"); err != nil {
+			return nil, err
+		}
+		if c.S3.AllowHTTP, err = boolVar("S3_ALLOW_HTTP"); err != nil {
+			return nil, err
+		}
+		if c.S3.Region == "" || c.S3.Bucket == "" || c.S3.AccessKey == "" || c.S3.SecretKey == "" {
+			return nil, fmt.Errorf("ATTACHMENT_STORE=s3 needs S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (or S3_SECRET_ACCESS_KEY_FILE)")
+		}
+	default:
+		return nil, fmt.Errorf("ATTACHMENT_STORE must be disk or s3")
+	}
 	c.MailHostname = strings.ToLower(get("MAIL_HOSTNAME", ""))
 	c.OutboundIP = get("OUTBOUND_IP", "")
 	c.DKIMSelector = get("DKIM_SELECTOR", "dkim")

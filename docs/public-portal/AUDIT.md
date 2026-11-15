@@ -19,13 +19,30 @@ assets → tests → deployment).
 | GET | `/v1/emails/{id}` | `api.go getEmail` | Bearer key | `emails:read` | 200 status object | `test/api_test.go` |
 | POST | `/v1/emails/{id}/cancel` | `product.go cancelEmail` | Bearer key | `emails:send` or `emails:send_raw` | 200 `{status:"cancelled"}`; 409 `not_cancellable` | `test/complete_test.go`, `test/authz_test.go` |
 | GET | `/v1/inbound` | `app.go` | Bearer key | `inbound:read` | 200 page | `test/v2_test.go` |
+| POST | `/v1/inbound/ingest/{env}` | `api.go ingestInbound` | HMAC signature (environment ingest secret) | | 202 `{id,recipients}`; 200 `{duplicate:true}`; 401 `invalid_signature` | `test/ingest_test.go` |
 | GET | `/v1/inbound/{id}` | `app.go` | Bearer key | `inbound:read` | 200 message | `complete_test.go`, `lifecycle_test.go`, `v2_test.go` |
 | GET | `/v1/inbound/{id}/attachments/{aid}` | `app.go` | Bearer key | `inbound:read` | 200 bytes, always `application/octet-stream` | `rekey_test.go`, `lifecycle_test.go`, `complete_test.go` |
+| POST | `/v1/addresses/verify` | `api.go verifyAddresses` | Bearer key | `addresses:verify`, `emails:send` or `emails:send_raw` | 200 `{results:[AddressCheck]}`; 422 over 100 | `test/verify_test.go` |
+| POST | `/v1/contacts` | `app.go` | Bearer key | `contacts:manage` | 200 `{id,created}` | `test/contacts_test.go` |
+| DELETE | `/v1/contacts/{ref}` | `app.go` | Bearer key | `contacts:manage` | 200 `{ok:true}`; `{ref}` may be the address | `test/contacts_test.go` |
+| GET | `/v1/lists` | `app.go` | Bearer key | `contacts:manage` | 200 `{items}` | `test/contacts_test.go` |
 | GET | `/v1/suppressions` | `app.go` | Bearer key | `suppressions:manage` | 200 page | `test/v2_test.go` |
 | POST | `/v1/suppressions` | `app.go` | Bearer key | `suppressions:manage` | 200 `{id}` | `v2_test.go` |
 | DELETE | `/v1/suppressions/{id}` | `app.go` | Bearer key | `suppressions:manage` | 200 `{ok:true}`; `{id}` may be the address | `v2_test.go` |
 | GET | `/v1/unsubscribe/{token}` | `workspace.go` | none (token in URL) | | 200 HTML confirm page | `workspace_test.go`, `security_matrix_test.go` |
 | POST | `/v1/unsubscribe/{token}` | `workspace.go` | none (token in URL) | | 200 / 404 HTML | `workspace_test.go` |
+| GET | `/v1/t/o/{token}` | `workspace.go` | none (signed token) | | 200 GIF always; first open counted | `marketing_test.go`, `security_matrix_test.go` |
+| GET | `/v1/t/c/{token}` | `workspace.go` | none (signed token) | | 302 to a stored campaign link; 404 HTML | `marketing_test.go`, `security_matrix_test.go` |
+| POST | `/v1/forms/{id}` | `forms.go` | none (origin allowlist, limits, spam rules) | | 202 `{id,status}` (JSON) or a page / 303 (HTML forms); 403 `origin_not_allowed`; 422 `spam_rejected` and field errors; 429 | `test/forms_test.go`, `security_matrix_test.go` |
+| GET | `/v1/forms/{id}/nonce` | `forms.go` | none | | 200 `{nonce,expires_in}` | `test/forms_test.go`, `security_matrix_test.go` |
+| GET | `/v1/chat/{id}/widget.js` | `chat.go` | none | | 200 JavaScript (static) | `test/chat_test.go`, `security_matrix_test.go` |
+| GET | `/v1/chat/{id}/config` | `chat.go` | none (CORS for allowed origins) | | 200 title, welcome, announcement, links | `test/chat_test.go`, `security_matrix_test.go` |
+| POST | `/v1/chat/{id}/conversations` | `chat.go` | none (origin allowlist, limits, spam rules) | | 201 `{conversation_id,token}`; 403 `origin_not_allowed`; 422; 429 | `test/chat_test.go`, `security_matrix_test.go` |
+| POST | `/v1/chat/{id}/conversations/{cid}/messages` | `chat.go` | session token | | 201 `{id}`; 404 for a wrong token | `test/chat_test.go`, `security_matrix_test.go` |
+| GET | `/v1/chat/{id}/conversations/{cid}/messages` | `chat.go` | session token | | 200 `{items,cursor}`; marks answers received | `test/chat_test.go`, `security_matrix_test.go` |
+| GET | `/v1/chat/{id}/conversations/{cid}/stream` | `chat.go` | session token | | SSE `message` events | `test/chat_test.go`, `security_matrix_test.go` |
+| PUT | `/v1/chat/{id}/conversations/{cid}/contact` | `chat.go` | session token | | 200 `{ok:true}` | `test/chat_test.go`, `security_matrix_test.go` |
+| GET | `/v1/view/{token}` | `workspace.go` | none (signed token in URL) | | 200 sandboxed HTML; 404 HTML when altered or expired | `webview_test.go`, `security_matrix_test.go` |
 | GET | `/health/live` | `api.go` | none | | 200 `{status:"ok"}` | `api_test.go`, CI smoke |
 | GET | `/health/ready` | `api.go` | none | | 200 `{status:"ready"}` / 503 `{status:"unavailable"}` | `api_test.go`, CI smoke |
 

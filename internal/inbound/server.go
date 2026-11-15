@@ -349,3 +349,21 @@ func (p *Processor) process(ctx context.Context, it service.SpoolItem) (code str
 	slog.Info("inbound processed", "spool", it.ID, "stored", n, "attachments", len(parsed.Attachments))
 	return ""
 }
+
+// SpoolRaw stores a message received by another way than SMTP (HTTP
+// ingest) exactly as the listener does: synced to disk first, then recorded,
+// so the processor parses and routes it like any other inbound mail.
+func SpoolRaw(ctx context.Context, svc *service.Service, id, from string, to []string, raw []byte) error {
+	path := svc.SpoolFile(id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if err := writeSynced(path, raw); err != nil {
+		return err
+	}
+	if err := svc.Spool(ctx, id, service.KindInbound, from, to, len(raw)); err != nil {
+		os.Remove(path)
+		return err
+	}
+	return nil
+}

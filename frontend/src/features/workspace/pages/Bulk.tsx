@@ -165,8 +165,20 @@ export function NewCampaign() {
     recipients: "",
     send_at: "",
     rate_per_minute: "60",
+    list_id: "",
+    segment_id: "",
   });
   const [mode, setMode] = useState<"write" | "template">("write");
+  const [audience, setAudience] = useState<"paste" | "list" | "segment">("paste");
+  const [track, setTrack] = useState({ opens: false, clicks: false });
+  const lists = useQuery({
+    queryKey: key("lists"),
+    queryFn: () => api.get<{ items: Row[] }>("/lists"),
+  });
+  const segments = useQuery({
+    queryKey: key("segments"),
+    queryFn: () => api.get<{ items: Row[] }>("/segments"),
+  });
   const [report, setReport] = useState<Report | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -188,7 +200,9 @@ export function NewCampaign() {
     if (mode === "write" && !f.subject.trim()) e.subject = phrase("Enter a subject.");
     if (mode === "write" && !f.html.trim()) e.html = phrase("Write the message.");
     if (mode === "template" && !f.template_id) e.template = phrase("Choose a template.");
-    if (!f.recipients.trim()) e.recipients = phrase("Add recipients.");
+    if (audience === "paste" && !f.recipients.trim()) e.recipients = phrase("Add recipients.");
+    if (audience === "list" && !f.list_id) e.recipients = phrase("Choose a list.");
+    if (audience === "segment" && !f.segment_id) e.recipients = phrase("Choose a segment.");
     const rate = Number(f.rate_per_minute);
     if (!Number.isInteger(rate) || rate < 1 || rate > 10000)
       e.rate = phrase("1 to 10000 per minute.");
@@ -199,7 +213,12 @@ export function NewCampaign() {
       const body = {
         name: f.name.trim(),
         sender_email: sender,
-        recipients: f.recipients,
+        ...(audience === "paste"
+          ? { recipients: f.recipients }
+          : audience === "list"
+            ? { list_id: f.list_id }
+            : { segment_id: f.segment_id }),
+        ...(mode === "write" ? { track_opens: track.opens, track_clicks: track.clicks } : {}),
         rate_per_minute: rate,
         send_at: f.send_at ? new Date(f.send_at).toISOString() : "",
         ...(mode === "write"
@@ -310,6 +329,27 @@ export function NewCampaign() {
                       onChange={(e) => set("html", e.target.value)}
                     />
                   </Field>
+                  <fieldset className="grid gap-1 text-sm">
+                    <legend className="mb-1 font-medium">
+                      {phrase("Tracking (off by default)")}
+                    </legend>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={track.opens}
+                        onChange={(e) => setTrack({ ...track, opens: e.target.checked })}
+                      />
+                      {phrase("Count opens (an estimate: some mail apps load images on their own)")}
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={track.clicks}
+                        onChange={(e) => setTrack({ ...track, clicks: e.target.checked })}
+                      />
+                      {phrase("Count link clicks")}
+                    </label>
+                  </fieldset>
                 </>
               ) : (
                 <Field
@@ -362,47 +402,98 @@ export function NewCampaign() {
             </div>
           </Section>
           <Section title={phrase("Recipients")}>
-            <Field
-              label={phrase("Paste addresses, or a CSV with an “email” column")}
-              error={errors.recipients}
-            >
-              <textarea
-                className={textareaClass + " font-mono text-xs"}
-                rows={10}
-                value={f.recipients}
-                onChange={(e) => {
-                  set("recipients", e.target.value);
-                  setReport(null);
-                }}
-                placeholder={"email,name\nasha@example.org,Asha"}
-              />
-            </Field>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-muted">
-                <Upload size={14} /> {phrase("Upload CSV")}
-                <input
-                  type="file"
-                  accept=".csv,text/csv,text/plain"
-                  className="sr-only"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      set("recipients", await file.text());
-                      setReport(null);
-                    }
+            <div className="mb-3 flex gap-2 border-b" role="tablist">
+              {(
+                [
+                  ["paste", "Paste or upload"],
+                  ["list", "A list"],
+                  ["segment", "A segment"],
+                ] as const
+              ).map(([a, label]) => (
+                <button
+                  key={a}
+                  type="button"
+                  role="tab"
+                  aria-selected={audience === a}
+                  onClick={() => {
+                    setAudience(a);
+                    setReport(null);
                   }}
-                />
-              </label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!f.recipients.trim()}
-                onClick={check}
-              >
-                {phrase("Check recipients")}
-              </Button>
+                  className={`-mb-px border-b-2 px-3 py-2 text-sm ${audience === a ? "border-primary font-semibold" : "border-transparent text-muted-foreground"}`}
+                >
+                  {phrase(label)}
+                </button>
+              ))}
             </div>
+            {audience !== "paste" ? (
+              <Field
+                label={audience === "list" ? phrase("List") : phrase("Segment")}
+                error={errors.recipients}
+                hint={phrase(
+                  "Only contacts who can receive marketing mail are included. Their name and attributes are the variables.",
+                )}
+              >
+                <select
+                  className={selectClass}
+                  value={audience === "list" ? f.list_id : f.segment_id}
+                  onChange={(e) =>
+                    set(audience === "list" ? "list_id" : "segment_id", e.target.value)
+                  }
+                >
+                  <option value="">{phrase("Choose…")}</option>
+                  {(audience === "list" ? lists.data?.items : segments.data?.items)?.map((x) => (
+                    <option key={s(x.id)} value={s(x.id)}>
+                      {s(x.name)}
+                      {audience === "list" ? ` (${s(x.members)})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <>
+                <Field
+                  label={phrase("Paste addresses, or a CSV with an “email” column")}
+                  error={errors.recipients}
+                >
+                  <textarea
+                    className={textareaClass + " font-mono text-xs"}
+                    rows={10}
+                    value={f.recipients}
+                    onChange={(e) => {
+                      set("recipients", e.target.value);
+                      setReport(null);
+                    }}
+                    placeholder={"email,name\nasha@example.org,Asha"}
+                  />
+                </Field>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-muted">
+                    <Upload size={14} /> {phrase("Upload CSV")}
+                    <input
+                      type="file"
+                      accept=".csv,text/csv,text/plain"
+                      className="sr-only"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          set("recipients", await file.text());
+                          setReport(null);
+                        }
+                      }}
+                    />
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!f.recipients.trim()}
+                    onClick={check}
+                  >
+                    {phrase("Check recipients")}
+                  </Button>
+                </div>
+              </>
+            )}
             {report && (
               <div role="status" className="mt-3 space-y-2 text-sm">
                 <p className="text-lg font-semibold">
@@ -594,6 +685,15 @@ export function CampaignDetail() {
                 );
               })}
             </div>
+            {(c.list_name || c.segment_name) && (
+              <p className="mt-3 text-sm text-muted-foreground">
+                {phrase("Audience:")}{" "}
+                {c.list_name
+                  ? `${phrase("list")} ${s(c.list_name)}`
+                  : `${phrase("segment")} ${s(c.segment_name)}`}
+              </p>
+            )}
+            {Boolean(c.tracking) && <TrackingStats t={c.tracking as Row} />}
             {((c.skip_reasons as Row[]) ?? []).length > 0 && (
               <Section className="mt-4" title={phrase("Why recipients were skipped or failed")}>
                 <ul className="text-sm">
@@ -626,5 +726,43 @@ export function CampaignDetail() {
         );
       }}
     </DataState>
+  );
+}
+
+function TrackingStats({ t }: { t: Row }) {
+  const phrase = usePhrase();
+  const links = (t.links as Row[]) ?? [];
+  return (
+    <Section className="mt-4" title={phrase("Opens and clicks")}>
+      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+        <div className="rounded-xl border p-3">
+          <p className="text-xs text-muted-foreground">{phrase("Unique opens (estimate)")}</p>
+          <p className="mt-1 text-2xl font-bold">{s(t.unique_opens) || "0"}</p>
+        </div>
+        <div className="rounded-xl border p-3">
+          <p className="text-xs text-muted-foreground">{phrase("Unique clicks")}</p>
+          <p className="mt-1 text-2xl font-bold">{s(t.unique_clicks) || "0"}</p>
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {phrase(
+          "Opens are an estimate: some mail apps load images on their own, others block them.",
+        )}
+      </p>
+      {links.length > 0 && (
+        <Table
+          rows={links}
+          rowKey={(r) => s(r.idx)}
+          columns={[
+            {
+              key: "url",
+              label: phrase("Link"),
+              render: (r) => <span className="break-all">{s(r.url)}</span>,
+            },
+            { key: "clicks", label: phrase("Clicks") },
+          ]}
+        />
+      )}
+    </Section>
   );
 }

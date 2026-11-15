@@ -1,0 +1,79 @@
+---
+title: Website forms
+description: Receive contact-form messages from your website, with spam checks and replies by email.
+---
+
+A **form** gives your website a public address that accepts messages without an API key. Create it in the dashboard
+(Forms), list the websites allowed to post to it, and paste the snippet into your page. Forms are off unless the operator
+set `FORMS_ENABLED=true`; until then the calls below answer `404 forms_disabled`.
+
+```html
+<form action="https://mail.example.com/v1/forms/FORM_ID" method="post">
+  <input name="email" type="email" placeholder="Email" required>
+  <textarea name="message" placeholder="Message" required></textarea>
+  <input name="hp_website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
+  <button type="submit">Send</button>
+</form>
+```
+
+A plain HTML post needs no JavaScript: the visitor sees a thank-you page, or is sent to the thank-you address you set.
+JSON and multipart posts (up to 3 files of PDF, PNG, JPEG or plain text, 2 MiB in all) are answered with JSON.
+
+| Call | Returns |
+|---|---|
+| `POST /v1/forms/{id}` | `202` with `{"id": "…", "status": "received"}` |
+| `GET /v1/forms/{id}/nonce` | `{"nonce": "…", "expires_in": 3600}`. Post it back as `_nonce` when the form requires it |
+
+## What protects a form
+
+- **Origin allowlist.** A browser's `Origin` (or `Referer`) must be one of the form's allowed websites, otherwise
+  `403 origin_not_allowed`. Cross-origin answers are given only to those sites.
+- **Honeypot.** Keep `hp_website` empty and hidden. Bots fill it; the post is answered as a success and kept nowhere.
+- **One-time token.** With "require a one-time token" on, the page fetches a single-use `_nonce` first. A script that
+  posts directly gets `422 nonce_required`.
+- **Limits.** Per address (5 a minute, 30 an hour), per form, per sender and per workspace. Over a limit you get `429`
+  with `Retry-After`.
+- **Spam score.** Each message is scored (links, shouting, known phrases, your own filters). It is accepted, flagged for
+  you, quarantined (kept out of your inbox and never notifies you) or rejected (`422 spam_rejected`, not kept).
+
+## The inbox
+
+Submissions appear in **Form inbox** as they arrive. Open one to read it, download its files, set its state (new, open,
+replied, closed, spam), assign it, or reply by email. A reply is accepted for sending from the form's "reply from"
+address; like all mail, it is confirmed delivered only by the message timeline, never by the server accepting it.
+
+Notifications go to the addresses you list, immediately or as an hourly or daily digest. Quarantined messages never
+notify. **Spam filters** holds your own rules (keyword, phrase, regular expression, address, domain or IP) with an action
+of flag, quarantine or reject, and a dry run against past submissions before you save one.
+
+## Priority, tags and routing rules
+
+Every submission has a **priority** (low, normal, high) and up to ten **tags**. You can change both on a submission, and
+filter the inbox by tag or priority. **Rules** (the *Rules* button on a form) set them for you when a message arrives:
+
+- A rule has a condition on one field, or on any field: `contains`, `equals`, `regex`, `domain` (the sender's address)
+  or `exists` (the field is filled in).
+- When it matches it can set the priority, add tags and assign the submission to a user.
+- Rules run in the order you set (move them up and down). The last rule that sets a priority wins, tags from all
+  matching rules are added, and the first rule that names an assignee wins. A rule marked *skip the later rules* ends
+  the run.
+- Suspected spam is never labelled or assigned. **Try it** on a sample submission shows what the rules would do
+  without saving anything.
+
+Rules are managed from the dashboard; the dashboard's own routes are listed in `docs/ENDPOINTS.md` of the repository.
+
+## Spam marking, summary and export
+
+**Mark as spam** moves a submission out of the inbox; tick *Also block this sender* to add a filter that quarantines
+their next messages. **Not spam** brings it back and lifts that filter. The summary strip above the inbox counts the last
+30 days: submissions, unread, open high-priority, replied and spam, with
+counts per form and per day.
+
+**Export CSV** (with the same form, state, tag and priority filters as the inbox) downloads
+up to 20,000 submissions with their decrypted fields, so each export is written to the audit log. Cells that start like
+a spreadsheet formula are protected with a leading apostrophe. Spam is left out unless you ask for `state=spam`.
+
+## What is kept
+
+Field values and files are encrypted at rest. The visitor's IP address is kept only as a keyed hash for rate limits and
+IP filters. Submissions follow the workspace's retention period and are removed with it.

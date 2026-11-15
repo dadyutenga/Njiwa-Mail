@@ -47,6 +47,16 @@ var sealedColumns = []sealedSpec{
 	{"users.totp_secret_enc", "users", "totp_secret_enc", "id::text", "'totp:'||id::text"},
 	{"dns_connections.token_enc", "dns_connections", "token_enc", "id::text", "'dns-connection:'||id::text||':token'"},
 	{"dns_connections.refresh_enc", "dns_connections", "refresh_enc", "id::text", "'dns-connection:'||id::text||':refresh'"},
+	{"contacts.data_enc", "contacts", "data_enc", "id::text", "'contact:'||id::text"},
+	{"web_views.html_enc", "web_views", "html_enc", "message_id::text", "'web-view:'||message_id::text"},
+	{"inbound_ingest.secret_enc", "inbound_ingest", "secret_enc", "environment_id::text", "'ingest:'||environment_id::text"},
+	{"sso_providers.client_secret_enc", "sso_providers", "client_secret_enc", "id::text", "'sso:'||id::text"},
+	{"sso_states.verifier_enc", "sso_states", "verifier_enc", "encode(state_hash,'hex')", "'sso-state:'||encode(state_hash,'hex')"},
+	{"form_submissions.data_enc", "form_submissions", "data_enc", "id::text", "'form-sub:'||id::text"},
+	{"form_files.data_enc", "form_files", "data_enc", "id::text", "'form-file:'||id::text"},
+	{"chat_conversations.visitor_enc", "chat_conversations", "visitor_enc", "id::text", "'chat-visitor:'||id::text"},
+	{"chat_messages.body_enc", "chat_messages", "body_enc", "id::text", "'chat-msg:'||id::text"},
+	{"chat_widgets.identity_secret_enc", "chat_widgets", "identity_secret_enc", "id::text", "'chat-identity:'||id::text"},
 	{"dns_oauth_states.verifier_enc", "dns_oauth_states", "verifier_enc", "encode(state_hash,'hex')", "'dns-oauth:'||encode(state_hash,'hex')"},
 }
 
@@ -172,7 +182,7 @@ func (s *Service) rekeyColumn(ctx context.Context, sp sealedSpec, dryRun bool) (
 // (temp file, then rename, so a reader never sees a half-written file).
 func (s *Service) rekeyAttachmentFiles(ctx context.Context, dryRun bool) (RekeyColumn, error) {
 	out := RekeyColumn{Name: "inbound attachment files"}
-	if s.Opts.DataDir == "" {
+	if s.Opts.DataDir == "" && s.Opts.ObjectStore == nil {
 		return out, nil
 	}
 	last := ""
@@ -194,11 +204,7 @@ func (s *Service) rekeyAttachmentFiles(ctx context.Context, dryRun bool) (RekeyC
 		rows.Close()
 		for _, it := range batch {
 			last = it.id
-			full, err := attachmentPath(s.Opts.DataDir, it.rel)
-			if err != nil {
-				continue
-			}
-			raw, err := os.ReadFile(full)
+			raw, inStore, err := s.attachGet(ctx, it.rel)
 			if err != nil {
 				continue // purged
 			}
@@ -218,6 +224,16 @@ func (s *Service) rekeyAttachmentFiles(ctx context.Context, dryRun bool) (RekeyC
 				sealed, err := s.Box.Seal(pt, attachmentAAD(it.id))
 				if err != nil {
 					return out, err
+				}
+				if inStore { // an object is replaced in one request
+					if err := s.Opts.ObjectStore.Put(ctx, it.rel, sealed); err != nil {
+						return out, err
+					}
+					continue
+				}
+				full, err := attachmentPath(s.Opts.DataDir, it.rel)
+				if err != nil {
+					continue
 				}
 				tmp := filepath.Join(filepath.Dir(full), "."+filepath.Base(full)+".rekey")
 				if err := os.WriteFile(tmp, sealed, 0o600); err != nil {

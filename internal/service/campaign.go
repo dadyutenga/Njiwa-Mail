@@ -32,11 +32,19 @@ type CampaignInput struct {
 	Recipients    string `json:"recipients"` // pasted addresses or CSV with an "email" column
 	SendAt        string `json:"send_at"`
 	RatePerMinute int    `json:"rate_per_minute"`
+	// Audience from contacts instead of pasted Recipients: a list or a
+	// segment. Only contacts that can receive marketing mail are included.
+	ListID    string `json:"list_id"`
+	SegmentID string `json:"segment_id"`
+	// Opt-in tracking (written messages only); off unless asked for.
+	TrackOpens  bool `json:"track_opens"`
+	TrackClicks bool `json:"track_clicks"`
 }
 
 type parsedRecipient struct {
-	Email string
-	Vars  map[string]string
+	Email     string
+	Vars      map[string]string
+	ContactID string
 }
 
 type RecipientReport struct {
@@ -234,7 +242,26 @@ func (s *Service) CreateCampaign(ctx context.Context, sc *Scope, user string, in
 		}
 		sendAt = &t
 	}
-	rep, err := s.CheckCampaignRecipients(ctx, sc, in.Recipients)
+	if (in.TrackOpens || in.TrackClicks) && tplID != nil {
+		return "", nil, badRequest("open and click tracking work with written messages; a template is sent as it is")
+	}
+	var rep *RecipientReport
+	var err error
+	var listID, segmentID *string
+	switch {
+	case in.ListID != "" || in.SegmentID != "":
+		if strings.TrimSpace(in.Recipients) != "" || (in.ListID != "" && in.SegmentID != "") {
+			return "", nil, badRequest("choose one audience: pasted addresses, a list or a segment")
+		}
+		rep, err = s.audienceRecipients(ctx, sc, in.ListID, in.SegmentID)
+		if in.ListID != "" {
+			listID = &in.ListID
+		} else {
+			segmentID = &in.SegmentID
+		}
+	default:
+		rep, err = s.CheckCampaignRecipients(ctx, sc, in.Recipients)
+	}
 	if err != nil {
 		return "", nil, err
 	}
@@ -254,9 +281,11 @@ func (s *Service) CreateCampaign(ctx context.Context, sc *Scope, user string, in
 	}
 	defer tx.Rollback(ctx)
 	var id string
-	err = tx.QueryRow(ctx, `INSERT INTO campaigns(project_id, environment_id, name, sender_email, subject, html, text_body, template_id, locale, send_at, rate_per_minute, created_by)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id::text`,
-		sc.ProjectID, sc.EnvID, in.Name, sender, in.Subject, in.HTML, in.Text, tplID, in.Locale, sendAt, in.RatePerMinute, user).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO campaigns(project_id, environment_id, name, sender_email, subject, html, text_body, template_id, locale, send_at, rate_per_minute, created_by,
+  list_id, segment_id, track_opens, track_clicks)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id::text`,
+		sc.ProjectID, sc.EnvID, in.Name, sender, in.Subject, in.HTML, in.Text, tplID, in.Locale, sendAt, in.RatePerMinute, user,
+		listID, segmentID, in.TrackOpens, in.TrackClicks).Scan(&id)
 	if err != nil {
 		return "", nil, unavailable("campaign_create", err)
 	}
@@ -273,15 +302,97 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id::text`,
 				return "", nil, unavailable("seal", err)
 			}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO campaign_recipients(campaign_id, recipient_hash, recipient_masked, email_enc, vars_enc) VALUES ($1,$2,$3,$4,$5)
-ON CONFLICT DO NOTHING`, id, h, maskEmail(r.Email), enc, varsEnc); err != nil {
+		var contactID *string
+		if r.ContactID != "" {
+			contactID = &r.ContactID
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO campaign_recipients(campaign_id, recipient_hash, recipient_masked, email_enc, vars_enc, contact_id) VALUES ($1,$2,$3,$4,$5,$6)
+ON CONFLICT DO NOTHING`, id, h, maskEmail(r.Email), enc, varsEnc, contactID); err != nil {
 			return "", nil, unavailable("campaign_recipient", err)
+		}
+	}
+	if in.TrackClicks {
+		if err := storeCampaignLinks(ctx, tx, id, in.HTML); err != nil {
+			return "", nil, unavailable("campaign_links", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", nil, unavailable("commit", err)
 	}
 	return id, rep, nil
+}
+
+// audienceRecipients takes the contacts of a list or segment that can
+// receive marketing mail now: active (not unsubscribed, bounced or
+// complained), on the list without having left it, and on the live
+// allowlist when the environment restricts recipients.
+func (s *Service) audienceRecipients(ctx context.Context, sc *Scope, listID, segmentID string) (*RecipientReport, error) {
+	where, args := "", []any{sc.EnvID}
+	if listID != "" {
+		if !uuidRe.MatchString(listID) {
+			return nil, newErr(404, "list_not_found")
+		}
+		var ok bool
+		if err := s.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM contact_lists WHERE id=$1 AND environment_id=$2)`, listID, sc.EnvID).Scan(&ok); err != nil || !ok {
+			return nil, newErr(404, "list_not_found")
+		}
+		where, args = "EXISTS (SELECT 1 FROM contact_list_members m WHERE m.contact_id=c.id AND m.list_id=$2::uuid AND m.unsubscribed_at IS NULL)", append(args, listID)
+	} else {
+		r, err := s.segmentRules(ctx, sc, segmentID)
+		if err != nil {
+			return nil, err
+		}
+		w, a, err := segmentSQL(r, 2)
+		if err != nil {
+			return nil, err
+		}
+		where, args = w, append(args, a...)
+	}
+	rows, err := s.Pool.Query(ctx, `SELECT c.id::text, c.data_enc, c.attributes, (`+contactStatusSQL+`) FROM contacts c
+WHERE c.environment_id=$1 AND `+where+` ORDER BY c.created_at`, args...)
+	if err != nil {
+		return nil, unavailable("audience", err)
+	}
+	defer rows.Close()
+	p, err := s.principal(ctx, sc)
+	if err != nil {
+		return nil, err
+	}
+	rep := &RecipientReport{Columns: []string{}}
+	cols := map[string]bool{}
+	for rows.Next() {
+		var id, status string
+		var enc, aj []byte
+		if err := rows.Scan(&id, &enc, &aj, &status); err != nil {
+			return nil, unavailable("audience", err)
+		}
+		var attrs map[string]any
+		_ = json.Unmarshal(aj, &attrs)
+		email, vars := s.contactVars(id, enc, attrs)
+		if email == "" {
+			continue
+		}
+		switch {
+		case status == "bounced" || status == "complained":
+			rep.Suppressed = append(rep.Suppressed, maskEmail(email))
+		case status == "unsubscribed":
+			rep.Unsubscribed = append(rep.Unsubscribed, maskEmail(email))
+		case p.Mode == "live" && p.RestrictRecipients && !allowlisted(p.Allowlist, email):
+			rep.NotAllowed = append(rep.NotAllowed, maskEmail(email))
+		default:
+			rep.Valid++
+			for k := range vars {
+				cols[k] = true
+			}
+			rep.recipients = append(rep.recipients, parsedRecipient{Email: email, Vars: vars, ContactID: id})
+		}
+	}
+	for k := range cols {
+		rep.Columns = append(rep.Columns, k)
+	}
+	rep.Duplicates, rep.Invalid = []string{}, []string{}
+	rep.Suppressed, rep.Unsubscribed, rep.NotAllowed = capList(rep.Suppressed), capList(rep.Unsubscribed), capList(rep.NotAllowed)
+	return rep, rows.Err()
 }
 
 func (s *Service) ListCampaigns(ctx context.Context, sc *Scope, pg Page) ([]map[string]any, bool, error) {
@@ -306,10 +417,19 @@ func (s *Service) GetCampaign(ctx context.Context, sc *Scope, id string) (map[st
   (SELECT count(*) FROM messages m WHERE m.campaign_id=c.id AND m.state IN ('failed','expired','unknown')) AS send_failed,
   (SELECT count(*) FROM messages m WHERE m.campaign_id=c.id AND m.bounce_state='hard') AS bounced,
   (SELECT count(*) FROM bounces b JOIN messages m ON m.id=b.message_id WHERE m.campaign_id=c.id AND b.type='complaint') AS complaints,
-  (SELECT count(*) FROM bulk_unsubscribes u WHERE u.campaign_id=c.id) AS unsubscribed
+  (SELECT count(*) FROM bulk_unsubscribes u WHERE u.campaign_id=c.id)
+    + (SELECT count(*) FROM tracking_events e WHERE e.campaign_id=c.id AND e.kind='unsubscribe') AS unsubscribed,
+  c.list_id::text AS list_id, (SELECT name FROM contact_lists WHERE id=c.list_id) AS list_name,
+  c.segment_id::text AS segment_id, (SELECT name FROM contact_segments WHERE id=c.segment_id) AS segment_name,
+  c.track_opens, c.track_clicks
 FROM campaigns c LEFT JOIN templates t ON t.id=c.template_id WHERE c.id=$1 AND c.environment_id=$2`, id, sc.EnvID)
 	if err != nil {
 		return nil, err
+	}
+	if c["track_opens"] == true || c["track_clicks"] == true {
+		if c["tracking"], err = s.trackingStats(ctx, id); err != nil {
+			return nil, err
+		}
 	}
 	if c["skip_reasons"], err = s.maps(ctx, `SELECT skip_reason AS reason, count(*) AS n FROM campaign_recipients WHERE campaign_id=$1 AND state IN ('skipped','failed') GROUP BY 1 ORDER BY 2 DESC`, id); err != nil {
 		return nil, err
@@ -393,29 +513,95 @@ func (s *Service) UnsubscribeURL(campaignID string, hash []byte) string {
 	return strings.TrimRight(s.Opts.PublicURL, "/") + "/v1/unsubscribe/" + s.unsubToken(campaignID, hash)
 }
 
-// Unsubscribe records a bulk-only unsubscribe from a signed token. It is
-// idempotent and says nothing about whether the address existed.
-func (s *Service) Unsubscribe(ctx context.Context, token string) error {
+// UnsubscribeScope answers what an unsubscribe link applies to: the name of
+// the campaign's list, or "" for all bulk mail of the environment.
+func (s *Service) UnsubscribeScope(ctx context.Context, token string) (string, error) {
+	campaignID, _, err := s.checkUnsubToken(token)
+	if err != nil {
+		return "", err
+	}
+	var name *string
+	if err := s.Pool.QueryRow(ctx, `SELECT l.name FROM campaigns c LEFT JOIN contact_lists l ON l.id=c.list_id WHERE c.id=$1`, campaignID).Scan(&name); err != nil {
+		return "", notFound(err)
+	}
+	if name == nil {
+		return "", nil
+	}
+	return *name, nil
+}
+
+func (s *Service) checkUnsubToken(token string) (string, []byte, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 || !uuidRe.MatchString(parts[0]) {
-		return newErr(404, "not_found")
+		return "", nil, newErr(404, "not_found")
 	}
 	hash, err := hex.DecodeString(parts[1])
 	if err != nil {
-		return newErr(404, "not_found")
+		return "", nil, newErr(404, "not_found")
 	}
 	if !hmac.Equal([]byte(s.unsubToken(parts[0], hash)), []byte(token)) {
-		return newErr(404, "not_found")
+		return "", nil, newErr(404, "not_found")
+	}
+	return parts[0], hash, nil
+}
+
+// Unsubscribe records an unsubscribe from a signed token. A campaign sent to
+// a list unsubscribes from that list only, unless all is set (the reader
+// chose "all marketing mail"); any other campaign unsubscribes from all bulk
+// mail of the environment. Transactional mail is never affected. It is
+// idempotent, emits email.unsubscribed, and says nothing about whether the
+// address existed.
+func (s *Service) Unsubscribe(ctx context.Context, token string, all bool) error {
+	campaignID, hash, err := s.checkUnsubToken(token)
+	if err != nil {
+		return err
 	}
 	var envID, masked string
-	err = s.Pool.QueryRow(ctx, `SELECT c.environment_id::text, r.recipient_masked FROM campaigns c JOIN campaign_recipients r ON r.campaign_id=c.id
-WHERE c.id=$1 AND r.recipient_hash=$2`, parts[0], hash).Scan(&envID, &masked)
+	var listID, contactID *string
+	var rid int64
+	err = s.Pool.QueryRow(ctx, `SELECT c.environment_id::text, r.recipient_masked, c.list_id::text, r.contact_id::text, r.id
+FROM campaigns c JOIN campaign_recipients r ON r.campaign_id=c.id WHERE c.id=$1 AND r.recipient_hash=$2`, campaignID, hash).
+		Scan(&envID, &masked, &listID, &contactID, &rid)
 	if err != nil {
 		return notFound(err)
 	}
-	_, err = s.Pool.Exec(ctx, `INSERT INTO bulk_unsubscribes(environment_id, recipient_hash, recipient_masked, campaign_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-		envID, hash, masked, parts[0])
-	return opErr(err)
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return unavailable("begin", err)
+	}
+	defer tx.Rollback(ctx)
+	scope := "all"
+	if listID != nil && !all {
+		scope = "list"
+		tag, err := tx.Exec(ctx, `UPDATE contact_list_members m SET unsubscribed_at=now() FROM contacts k
+WHERE m.list_id=$1 AND m.contact_id=k.id AND k.environment_id=$2 AND k.email_hash=$3 AND m.unsubscribed_at IS NULL`, *listID, envID, hash)
+		if err != nil {
+			return unavailable("unsubscribe", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return tx.Commit(ctx) // already unsubscribed (or removed): nothing new
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO tracking_events(campaign_id, recipient_id, kind) VALUES ($1,$2,'unsubscribe')`, campaignID, rid); err != nil {
+			return unavailable("unsubscribe", err)
+		}
+	} else {
+		tag, err := tx.Exec(ctx, `INSERT INTO bulk_unsubscribes(environment_id, recipient_hash, recipient_masked, campaign_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+			envID, hash, masked, campaignID)
+		if err != nil {
+			return unavailable("unsubscribe", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE contacts SET unsubscribed_at=now(), updated_at=now() WHERE environment_id=$1 AND email_hash=$2 AND unsubscribed_at IS NULL`, envID, hash); err != nil {
+			return unavailable("unsubscribe", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return tx.Commit(ctx)
+		}
+	}
+	if _, err := tx.Exec(ctx, `SELECT dm_emit($1::uuid, 'email.unsubscribed', jsonb_build_object('campaign_id', $2::text, 'scope', $3::text,
+  'list_id', $4::text, 'contact_id', $5::text, 'recipient', $6::text))`, envID, campaignID, scope, listID, contactID, masked); err != nil {
+		return unavailable("unsubscribe_event", err)
+	}
+	return tx.Commit(ctx)
 }
 
 // ---------------------------------------------------------------- pump
@@ -470,10 +656,26 @@ FROM campaigns c JOIN projects p ON p.id=c.project_id JOIN environments e ON e.i
 func (s *Service) pumpOne(ctx context.Context, sc *Scope, campaignID string, n int) (int, error) {
 	var sender, subject, htmlBody, textBody, locale, state string
 	var tplSlug *string
-	err := s.Pool.QueryRow(ctx, `SELECT c.sender_email, c.subject, c.html, c.text_body, c.locale, t.slug, c.state FROM campaigns c LEFT JOIN templates t ON t.id=c.template_id WHERE c.id=$1`,
-		campaignID).Scan(&sender, &subject, &htmlBody, &textBody, &locale, &tplSlug, &state)
+	var trackOpens, trackClicks bool
+	err := s.Pool.QueryRow(ctx, `SELECT c.sender_email, c.subject, c.html, c.text_body, c.locale, t.slug, c.state, c.track_opens, c.track_clicks
+FROM campaigns c LEFT JOIN templates t ON t.id=c.template_id WHERE c.id=$1`,
+		campaignID).Scan(&sender, &subject, &htmlBody, &textBody, &locale, &tplSlug, &state, &trackOpens, &trackClicks)
 	if err != nil || state != "sending" {
 		return 0, nil
+	}
+	// Someone who left the list (or unsubscribed from everything) since the
+	// campaign was created is not sent to.
+	if _, err := s.Pool.Exec(ctx, `UPDATE campaign_recipients r SET state='skipped', skip_reason='unsubscribed'
+FROM campaigns c WHERE c.id=r.campaign_id AND r.campaign_id=$1 AND r.state='pending' AND r.contact_id IS NOT NULL AND (
+  EXISTS (SELECT 1 FROM contacts k WHERE k.id=r.contact_id AND k.unsubscribed_at IS NOT NULL)
+  OR (c.list_id IS NOT NULL AND EXISTS (SELECT 1 FROM contact_list_members m WHERE m.list_id=c.list_id AND m.contact_id=r.contact_id AND m.unsubscribed_at IS NOT NULL)))`, campaignID); err != nil {
+		return 0, err
+	}
+	var links map[string]int
+	if trackClicks {
+		if links, err = s.campaignLinks(ctx, campaignID); err != nil {
+			return 0, err
+		}
 	}
 	p, err := s.principal(ctx, sc)
 	if err != nil {
@@ -527,7 +729,11 @@ AND NOT EXISTS (SELECT 1 FROM campaign_recipients WHERE campaign_id=$1 AND state
 			req.Subject = fill(subject, vars, false)
 			req.Text = fill(textBody, vars, false) + "\n\n--\nTo stop receiving these announcements: " + unsub
 			if htmlBody != "" {
-				req.HTML = fill(htmlBody, vars, true) + `<hr><p style="font-size:12px;color:#666">To stop receiving these announcements, <a href="` + html.EscapeString(unsub) + `">unsubscribe</a>.</p>`
+				body := fill(htmlBody, vars, true)
+				if trackOpens || trackClicks {
+					body = s.applyTracking(body, r.id, links, trackOpens)
+				}
+				req.HTML = body + `<hr><p style="font-size:12px;color:#666">To stop receiving these announcements, <a href="` + html.EscapeString(unsub) + `">unsubscribe</a>.</p>`
 			}
 		}
 		v, err := s.validateRequest(ctx, p, req, nil)
