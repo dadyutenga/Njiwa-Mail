@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
+	"github.com/njiwa-tz/mail/internal/objstore"
 	"github.com/njiwa-tz/mail/internal/oidc"
 	"github.com/njiwa-tz/mail/internal/verify"
 	"log/slog"
@@ -50,6 +51,9 @@ type Options struct {
 	InboundDomain string
 	BounceAddress string
 	DataDir       string // spool and attachment storage, outside any web root
+	// ObjectStore, when set, holds sealed inbound attachment files instead of DATA_DIR/attachments
+	// (ATTACHMENT_STORE=s3 builds it from the S3_* settings). nil keeps the disk.
+	ObjectStore objstore.Store
 	// InboundAllowedSources is INBOUND_ALLOWED_SOURCES and NjiwaSubnet is
 	// NJIWA_SUBNET. In managed mode host Postfix relays bounces from the
 	// subnet's gateway, which readiness checks is allowed (task T7.3).

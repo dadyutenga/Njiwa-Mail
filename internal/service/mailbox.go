@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"os"
 	"strings"
 	"time"
 
@@ -117,7 +116,7 @@ func (s *Service) deleteAddresses(ctx context.Context, where string, args ...any
 		return unavailable("commit", err)
 	}
 	for _, id := range ids {
-		os.RemoveAll(s.attachmentDir(id))
+		s.attachDeleteMessage(ctx, id)
 	}
 	return nil
 }
@@ -291,7 +290,7 @@ func (s *Service) DeleteInbox(ctx context.Context, sc *Scope, id string) error {
 	if tag.RowsAffected() == 0 {
 		return newErr(404, "not_found")
 	}
-	os.RemoveAll(s.attachmentDir(id))
+	s.attachDeleteMessage(ctx, id)
 	return nil
 }
 
