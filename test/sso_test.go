@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -105,6 +106,7 @@ func TestSSOSignIn(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 	e.svc.Opts.PublicURL = "http://localhost:3000"
+	e.svc.Opts.SSOAllowedNetworks = loopbackNets() // the fake identity provider listens on 127.0.0.1
 	op := e.user("op@njiwa.co.tz", "admin")
 	_, err := e.svc.CreateUserWith(ctx, "dev@njiwa.co.tz", adminPass, "admin", false)
 	e.must(err)
@@ -208,6 +210,7 @@ func TestSSOCreationMFAAndRefusals(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 	e.svc.Opts.PublicURL = "http://localhost:3000"
+	e.svc.Opts.SSOAllowedNetworks = loopbackNets() // the fake identity provider listens on 127.0.0.1
 	op := e.user("op@njiwa.co.tz", "admin")
 	idp := newFakeIdP(t)
 	pid := str(e.admOK(op, "POST", "/admin/v1/sso-providers", map[string]any{"name": "Company", "issuer": idp.srv.URL, "client_id": "njiwa",
@@ -294,4 +297,28 @@ func TestSSOCreationMFAAndRefusals(t *testing.T) {
 	if n := e.count(`SELECT count(*) FROM sso_identities`); n != 0 {
 		t.Fatalf("identities left after delete: %d", n)
 	}
+}
+
+func loopbackNets() []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")} }
+
+// The server fetches the discovery document, the keys and the token from addresses an identity
+// provider names. By default it refuses to connect to a loopback, private or link-local address
+// (cloud metadata included), so a hostile or compromised provider cannot make it probe the
+// internal network; an operator may allow the networks the provider really lives in.
+func TestSSOGuardsInternalAddresses(t *testing.T) {
+	e := setup(t)
+	op := e.user("op@njiwa.co.tz", "admin")
+	idp := newFakeIdP(t)
+	body := map[string]any{"name": "Internal", "issuer": idp.srv.URL, "client_id": "njiwa", "client_secret": idp.secret}
+	for _, nets := range [][]netip.Prefix{nil, {netip.MustParsePrefix("10.0.0.0/8")}} {
+		e.svc.Opts.SSOAllowedNetworks = nets
+		if r := e.adm(op, "POST", "/admin/v1/sso-providers", body); r.Code == 200 {
+			t.Fatalf("a provider on a loopback address was accepted with allowed networks %v: %s", nets, r.Raw)
+		}
+	}
+	if n := e.count(`SELECT count(*) FROM sso_providers`); n != 0 {
+		t.Fatalf("a refused provider was stored: %d", n)
+	}
+	e.svc.Opts.SSOAllowedNetworks = loopbackNets()
+	e.admOK(op, "POST", "/admin/v1/sso-providers", body)
 }
