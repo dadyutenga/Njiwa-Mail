@@ -21,6 +21,8 @@ type Scope struct {
 	EnvID     string `json:"-"`
 	Project   string `json:"project"`
 	Mode      string `json:"mode"`
+	// Role is the signed-in user's role in this project (set by the API layer; "owner" for operators).
+	Role string `json:"-"`
 }
 
 // ResolveScope maps a project name and mode to ids. An unknown project or
@@ -71,6 +73,7 @@ FROM projects p JOIN environments e ON e.project_id=p.id WHERE e.id=$1`, sc.EnvI
 	m["api_host"] = s.Opts.PublicURL
 	m["forms_enabled"] = s.Opts.FormsEnabled
 	m["chat_enabled"] = s.Opts.ChatEnabled
+	m["role"] = sc.Role
 	return m, nil
 }
 

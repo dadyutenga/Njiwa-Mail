@@ -17,8 +17,16 @@ import (
 func (s *Server) adminRoutes(app *fiber.App) {
 	svc := s.Svc
 	q := func(c fiber.Ctx, k string) string { return c.Query(k) }
+	// These routes look across every project, so they are for installation operators. What a
+	// project's own members may do is under /admin/v1/w/{project}/{mode}. The few below are open
+	// to every signed-in user: their own account, and the projects they belong to.
+	userRoutes := map[string]bool{"GET /projects": true, "POST /projects": true,
+		"PATCH /projects/{name}/environments/{mode}": true, "GET /template-meta": true}
 	h := func(pattern string, fn adminFn) {
 		method, path, _ := strings.Cut(pattern, " ")
+		if !userRoutes[pattern] && !strings.HasPrefix(path, "/auth/") {
+			fn = s.op(fn)
+		}
 		path = strings.ReplaceAll(strings.ReplaceAll(path, "{", ":"), "}", "")
 		route(app, method, "/admin/v1"+path, s.adm(fn))
 	}
@@ -204,7 +212,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 
 	// ---- projects and environments
 	h("GET /projects", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
-		items, more, err := svc.AdminProjects(reqCtx(c), pageOf(c))
+		items, more, err := svc.ProjectsOf(reqCtx(c), u, pageOf(c))
 		return list(c, items, more, err)
 	})
 	h("POST /projects", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
@@ -215,6 +223,9 @@ func (s *Server) adminRoutes(app *fiber.App) {
 			return nil, err
 		}
 		if err := svc.CreateProjectWithDefaults(reqCtx(c), in.Name); err != nil {
+			return nil, err
+		}
+		if err := svc.AddCreatorAsOwner(reqCtx(c), u, strings.TrimSpace(in.Name)); err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "project.create", "project", in.Name, nil)
@@ -260,6 +271,11 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		name, mode, ctx := c.Params("name"), c.Params("mode"), reqCtx(c)
 		if mode != "sandbox" && mode != "live" {
 			return nil, &service.Error{Status: 404, Code: "not_found"}
+		}
+		if ok, err := svc.CanManageProject(ctx, u, name); err != nil {
+			return nil, err
+		} else if !ok {
+			return nil, &service.Error{Status: 404, Code: "project_not_found"} // not a member, or only a viewer or developer
 		}
 		if in.ApprovedOrigins != nil {
 			if err := svc.SetOrigins(ctx, name, mode, *in.ApprovedOrigins); err != nil {

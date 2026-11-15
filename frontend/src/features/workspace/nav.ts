@@ -102,6 +102,7 @@ export const navGroups: NavGroup[] = [
     label: "Workspace",
     items: [
       { path: "domains", label: "Domains", icon: Globe },
+      { path: "members", label: "Members", icon: Users },
       { path: "dns-guide", label: "DNS setup guide", icon: HelpCircle },
       { path: "mailboxes", label: "Mailboxes", icon: Mailbox },
       { path: "senders", label: "Sender addresses", icon: UserRoundCheck },
