@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Upload } from "lucide-react";
+import { Code2, Plus, Trash2, Upload, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
@@ -87,72 +87,129 @@ export function Contacts() {
           </span>
         }
       />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <SendingMode value={env} onChange={setEnv} />
-        <Field label={phrase("Status")}>
-          <select
-            className={selectClass}
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            <option value="">{phrase("All")}</option>
-            {["active", "unsubscribed", "bounced", "complained"].map((x) => (
-              <option key={x} value={x}>
-                {phrase(x)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={phrase("List")}>
-          <select className={selectClass} value={list} onChange={(e) => setList(e.target.value)}>
-            <option value="">{phrase("All")}</option>
-            {lists.data?.items.map((l) => (
-              <option key={s(l.id)} value={s(l.id)}>
-                {s(l.name)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <form
-          className="flex items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setQ(search.trim());
-          }}
-        >
-          <Field label={phrase("Find by exact address")}>
-            <input
-              className={inputClass}
-              type="email"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="name@example.com"
-            />
+      <section className="mb-4 rounded-xl border bg-card p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(12rem,auto)_9rem_10rem_1fr_auto] lg:items-end">
+          <SendingMode value={env} onChange={setEnv} />
+          <Field label={phrase("Status")}>
+            <select
+              className={selectClass}
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="">{phrase("All")}</option>
+              {["active", "unsubscribed", "bounced", "complained"].map((x) => (
+                <option key={x} value={x}>
+                  {phrase(x)}
+                </option>
+              ))}
+            </select>
           </Field>
-          <Button type="submit" variant="outline">
-            {phrase("Find")}
-          </Button>
-        </form>
-      </div>
+          <Field label={phrase("List")}>
+            <select className={selectClass} value={list} onChange={(e) => setList(e.target.value)}>
+              <option value="">{phrase("All")}</option>
+              {lists.data?.items.map((l) => (
+                <option key={s(l.id)} value={s(l.id)}>
+                  {s(l.name)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <form
+            className="flex items-end gap-2 lg:col-span-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setQ(search.trim());
+            }}
+          >
+            <Field label={phrase("Find by exact address")} className="min-w-0 flex-1">
+              <input
+                className={inputClass}
+                type="email"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="name@example.com"
+              />
+            </Field>
+            <Button type="submit" variant="outline">
+              {phrase("Find")}
+            </Button>
+          </form>
+        </div>
+      </section>
       <DataState
         q={page}
         isEmpty={(d) => d.items.length === 0}
         empty={
-          <div className="rounded-xl border bg-card">
-            <Empty
-              title={phrase("No contacts")}
-              description={phrase(
-                "Import a CSV or JSON file, add someone, or let your application add sign-ups with the API.",
-              )}
-              action={
-                <Button onClick={() => setImporting(true)}>{phrase("Import contacts")}</Button>
-              }
-            />
-          </div>
+          q || status || list ? (
+            <div className="rounded-xl border bg-card px-6 py-12 text-center">
+              <p className="font-semibold">{phrase("No matching contacts")}</p>
+              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                {phrase("Nothing matches these filters. Clear them to see everyone.")}
+              </p>
+              <Button
+                className="mt-4"
+                variant="outline"
+                onClick={() => {
+                  setSearch("");
+                  setQ("");
+                  setStatus("");
+                  setList("");
+                }}
+              >
+                {phrase("Clear")}
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-card p-6">
+              <h2 className="text-lg font-semibold">{phrase("No contacts")}</h2>
+              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                {phrase(
+                  "Import a CSV or JSON file, add someone, or let your application add sign-ups with the API.",
+                )}
+              </p>
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <button
+                  type="button"
+                  className="rounded-lg border bg-background p-4 text-left transition hover:border-primary hover:bg-primary/5"
+                  onClick={() => setImporting(true)}
+                >
+                  <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Upload size={18} aria-hidden />
+                  </span>
+                  <span className="mt-3 block font-medium">{phrase("Import a file")}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {phrase("CSV or JSON, with an email column.")}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border bg-background p-4 text-left transition hover:border-primary hover:bg-primary/5"
+                  onClick={() => setAdding(true)}
+                >
+                  <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <UserPlus size={18} aria-hidden />
+                  </span>
+                  <span className="mt-3 block font-medium">{phrase("Add one person")}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {phrase("Type an address and put them on a list.")}
+                  </span>
+                </button>
+                <div className="rounded-lg border bg-background p-4">
+                  <span className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <Code2 size={18} aria-hidden />
+                  </span>
+                  <span className="mt-3 block font-medium">{phrase("From your application")}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {phrase("Sign-ups can be added with the API.")}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )
         }
       >
         {(d) => (
-          <>
+          <div className="overflow-hidden rounded-xl border bg-card">
             <Table
               rows={d.items}
               rowKey={(r) => s(r.id)}
@@ -184,8 +241,10 @@ export function Contacts() {
                 },
               ]}
             />
-            <Pager page={d} />
-          </>
+            <div className="px-4 pb-3">
+              <Pager page={d} />
+            </div>
+          </div>
         )}
       </DataState>
       <ImportDialog open={importing} onOpenChange={setImporting} lists={lists.data?.items ?? []} />

@@ -172,6 +172,15 @@ export const swExtra: Record<string, string> = {
   "New segment": "Kundi jipya",
   Newsletter: "Jarida",
   "No contacts": "Hakuna waasiliani",
+  "No matching contacts": "Hakuna waasiliani wanaolingana",
+  "Nothing matches these filters. Clear them to see everyone.":
+    "Hakuna kinacholingana na vichujio hivi. Vifute ili uone kila mtu.",
+  "Import a file": "Ingiza faili",
+  "CSV or JSON, with an email column.": "CSV au JSON, lenye safu ya barua pepe.",
+  "Add one person": "Ongeza mtu mmoja",
+  "Type an address and put them on a list.": "Andika anwani na umuweke kwenye orodha.",
+  "From your application": "Kutoka kwenye programu yako",
+  "Sign-ups can be added with the API.": "Waliojisajili wanaweza kuongezwa kwa API.",
   "No lists": "Hakuna orodha",
   "Not on any list.": "Hayupo kwenye orodha yoyote.",
   "Only contacts who can receive marketing mail are included. Their name and attributes are the variables.":
