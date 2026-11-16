@@ -1084,18 +1084,56 @@ export function Analytics() {
         title={phrase("Analytics")}
         description={`${project}: ${phrase("this period compared with the one before it.")}`}
       />
-      <section className="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border bg-card p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <SendingMode value={env} onChange={setEnv} />
-          <Field label={phrase("Period")}>
-            <select className={selectClass} value={days} onChange={(e) => setDays(e.target.value)}>
-              <option value="7">{phrase("Last 7 days")}</option>
-              <option value="30">{phrase("Last 30 days")}</option>
-              <option value="90">{phrase("Last 90 days")}</option>
-            </select>
-          </Field>
+      <section className="mb-4 rounded-xl border bg-card p-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">{phrase("Sending mode")}</p>
+            <div className="mt-2 inline-flex rounded-lg border p-1" role="group" aria-label={phrase("Sending mode")}>
+              {(
+                [
+                  ["live", phrase("Live — send to real recipients")],
+                  ["sandbox", phrase("Sandbox — capture only")],
+                ] as const
+              ).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={env === mode}
+                  className={`rounded-md px-3 py-1.5 text-sm ${env === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => setEnv(mode)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">{phrase("Period")}</p>
+            <div className="mt-2 inline-flex rounded-lg border p-1" role="group" aria-label={phrase("Period")}>
+              {(
+                [
+                  ["7", phrase("Last 7 days")],
+                  ["30", phrase("Last 30 days")],
+                  ["90", phrase("Last 90 days")],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={days === value}
+                  className={`rounded-md px-3 py-1.5 text-sm ${days === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => setDays(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground" role="status">
+            {periodLabel}
+            {q.isFetching ? ` · ${phrase("Loading…")}` : ""}
+          </p>
         </div>
-        <p className="text-sm text-muted-foreground">{periodLabel}</p>
       </section>
       <DataState q={q}>
         {(r) => {
