@@ -1078,25 +1078,17 @@ export function Analytics() {
   };
   const shownEnd = new Date(end.getTime() - 86400000);
   const periodLabel = `${start.toISOString().slice(0, 10)} – ${shownEnd.toISOString().slice(0, 10)}`;
-  const glass =
-    "border border-white/60 bg-white/45 shadow-lg shadow-sky-500/10 backdrop-blur-xl dark:border-white/15 dark:bg-white/10 dark:shadow-black/20";
   return (
-    <div className="relative">
-      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-16 top-4 h-64 w-64 rounded-full bg-sky-400/40 blur-3xl" />
-        <div className="absolute right-0 top-36 h-72 w-72 rounded-full bg-emerald-400/35 blur-3xl" />
-        <div className="absolute bottom-8 left-1/3 h-56 w-56 rounded-full bg-primary/30 blur-3xl" />
-      </div>
-      <div className="relative">
+    <>
       <PageHeader
         title={phrase("Analytics")}
         description={`${project}: ${phrase("this period compared with the one before it.")}`}
       />
-      <section className={`mb-4 rounded-2xl p-4 ${glass}`}>
+      <section className="mb-4 rounded-xl border bg-card p-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-medium text-muted-foreground">{phrase("Sending mode")}</p>
-            <div className="mt-2 inline-flex rounded-xl border border-white/50 bg-white/30 p-1 backdrop-blur dark:border-white/10 dark:bg-white/5" role="group" aria-label={phrase("Sending mode")}>
+            <div className="mt-2 inline-flex rounded-lg border p-1" role="group" aria-label={phrase("Sending mode")}>
               {(
                 [
                   ["live", phrase("Live — send to real recipients")],
@@ -1117,7 +1109,7 @@ export function Analytics() {
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground">{phrase("Period")}</p>
-            <div className="mt-2 inline-flex rounded-xl border border-white/50 bg-white/30 p-1 backdrop-blur dark:border-white/10 dark:bg-white/5" role="group" aria-label={phrase("Period")}>
+            <div className="mt-2 inline-flex rounded-lg border p-1" role="group" aria-label={phrase("Period")}>
               {(
                 [
                   ["7", phrase("Last 7 days")],
@@ -1174,7 +1166,7 @@ export function Analytics() {
                 {metrics.map(([k, label]) => {
                   const c = ch[k];
                   return (
-                    <article key={k} className={`rounded-2xl p-4 ${glass}`}>
+                    <article key={k} className="rounded-xl border bg-card p-4">
                       <p className="text-sm text-muted-foreground">{phrase(label)}</p>
                       <p className="mt-2 text-3xl font-bold tracking-tight">{s(tot[k]) || "0"}</p>
                       <p className={`mt-2 text-xs font-medium ${changeClass(k, c)}`}>
@@ -1190,7 +1182,7 @@ export function Analytics() {
                 <h2 className="mb-3 text-sm font-semibold">{phrase("How long it took")}</h2>
                 <div className="grid gap-3 lg:grid-cols-2">
                   {timings.map((t) => (
-                    <article key={t.k} className={`rounded-2xl p-4 ${glass}`}>
+                    <article key={t.k} className="rounded-xl border bg-card p-4">
                       <h3 className="text-sm font-medium">{t.label}</h3>
                       <dl className="mt-4 grid grid-cols-3 gap-3">
                         {(
@@ -1214,7 +1206,7 @@ export function Analytics() {
                 </div>
               </section>
               <Section
-                className={`mt-4 rounded-2xl ${glass}`}
+                className="mt-4"
                 title={phrase("By mailbox provider")}
                 action={
                   <a className="text-sm text-primary" href={csv("providers")}>
@@ -1240,7 +1232,7 @@ export function Analytics() {
                 )}
               </Section>
               <Section
-                className={`mt-4 rounded-2xl ${glass}`}
+                className="mt-4"
                 title={phrase("Per day")}
                 action={
                   <span className="flex gap-3 text-sm">
@@ -1271,7 +1263,7 @@ export function Analytics() {
                 )}
               </Section>
               {((r.notes as string[]) ?? []).length > 0 && (
-                <ul className={`mt-4 space-y-1 rounded-2xl px-4 py-3 text-xs text-muted-foreground ${glass}`}>
+                <ul className="mt-4 space-y-1 rounded-xl border bg-card px-4 py-3 text-xs text-muted-foreground">
                   {((r.notes as string[]) ?? []).map((note) => (
                     <li key={note}>{note}</li>
                   ))}
@@ -1281,8 +1273,7 @@ export function Analytics() {
           );
         }}
       </DataState>
-      </div>
-    </div>
+    </>
   );
 }
 
