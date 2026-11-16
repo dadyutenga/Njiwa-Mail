@@ -28,7 +28,7 @@ type Snapshot = {
 };
 
 /** The installation operator's view of the platform: live health, scheduled jobs and updates. */
-export function Platform() {
+export function Platform({ embedded = false }: { embedded?: boolean }) {
   const phrase = usePhrase();
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [alerts, setAlerts] = useState<Row[]>([]);
@@ -67,18 +67,35 @@ export function Platform() {
     : [];
   return (
     <>
-      <PageHeader
-        title={phrase("Platform")}
-        description={phrase(
-          "Live health of this installation, what the scheduler's jobs last did, and whether a newer release exists.",
-        )}
-        action={
+      {embedded ? (
+        <div className="mt-8 mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">{phrase("Platform")}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {phrase(
+                "Live health of this installation, what the scheduler's jobs last did, and whether a newer release exists.",
+              )}
+            </p>
+          </div>
           <StateBadge
             state={live ? "active" : "cancelled"}
             label={phrase(live ? "Live" : "Reconnecting")}
           />
-        }
-      />
+        </div>
+      ) : (
+        <PageHeader
+          title={phrase("Platform")}
+          description={phrase(
+            "Live health of this installation, what the scheduler's jobs last did, and whether a newer release exists.",
+          )}
+          action={
+            <StateBadge
+              state={live ? "active" : "cancelled"}
+              label={phrase(live ? "Live" : "Reconnecting")}
+            />
+          }
+        />
+      )}
       <Section title={phrase("Now")} className="mb-4">
         {snap ? (
           <>

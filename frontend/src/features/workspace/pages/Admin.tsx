@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { Sessions } from "@/features/mail/Sessions";
+import { Platform } from "./Platform";
 import { useAuth } from "@/features/auth/auth";
 import { admin, getCsrf } from "@/lib/admin-api";
 import { toast } from "sonner";
@@ -1437,6 +1438,7 @@ type Overview = {
 
 export function System() {
   const phrase = usePhrase();
+  const { user } = useAuth();
   const { to } = useWorkspace();
   const q = useQuery({
     queryKey: ["overview"],
@@ -1447,7 +1449,9 @@ export function System() {
     <>
       <PageHeader
         title={phrase("System")}
-        description={phrase("The whole service, across all projects.")}
+        description={phrase(
+          "The whole service, across all projects, with live health, scheduled jobs and updates.",
+        )}
       />
       <DataState q={q}>
         {(d) => (
@@ -1503,6 +1507,7 @@ export function System() {
           </div>
         )}
       </DataState>
+      {user?.installation_operator && <Platform embedded />}
     </>
   );
 }
