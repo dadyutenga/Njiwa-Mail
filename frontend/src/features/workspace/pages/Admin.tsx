@@ -1068,75 +1068,105 @@ export function Analytics() {
     if (v === null || v === undefined || Number.isNaN(n)) return "—";
     return n < 60 ? `${n.toFixed(1)} s` : `${(n / 60).toFixed(1)} min`;
   };
+  const upIsGood = new Set(["messages", "submitted", "remote_accepted"]);
+  const changeClass = (key: string, value: unknown) => {
+    if (value === null || value === undefined) return "text-muted-foreground";
+    const n = Number(value);
+    if (!n) return "text-muted-foreground";
+    const better = upIsGood.has(key) ? n > 0 : n < 0;
+    return better ? "text-primary" : "text-destructive";
+  };
+  const shownEnd = new Date(end.getTime() - 86400000);
+  const periodLabel = `${start.toISOString().slice(0, 10)} – ${shownEnd.toISOString().slice(0, 10)}`;
   return (
     <>
       <PageHeader
         title={phrase("Analytics")}
         description={`${project}: ${phrase("this period compared with the one before it.")}`}
       />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <SendingMode value={env} onChange={setEnv} />
-        <Field label={phrase("Period")}>
-          <select className={selectClass} value={days} onChange={(e) => setDays(e.target.value)}>
-            <option value="7">{phrase("Last 7 days")}</option>
-            <option value="30">{phrase("Last 30 days")}</option>
-            <option value="90">{phrase("Last 90 days")}</option>
-          </select>
-        </Field>
-      </div>
+      <section className="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border bg-card p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <SendingMode value={env} onChange={setEnv} />
+          <Field label={phrase("Period")}>
+            <select className={selectClass} value={days} onChange={(e) => setDays(e.target.value)}>
+              <option value="7">{phrase("Last 7 days")}</option>
+              <option value="30">{phrase("Last 30 days")}</option>
+              <option value="90">{phrase("Last 90 days")}</option>
+            </select>
+          </Field>
+        </div>
+        <p className="text-sm text-muted-foreground">{periodLabel}</p>
+      </section>
       <DataState q={q}>
         {(r) => {
           const tot = (r.totals as Row) ?? {};
           const ch = (r.change_percent as Row) ?? {};
           const tm = (r.timing_seconds as Row) ?? {};
+          const providers = (r.providers as Row[]) ?? [];
+          const daily = (r.daily as Row[]) ?? [];
+          const timings = [
+            {
+              k: "submit",
+              label: phrase("Until the mail server accepted it"),
+              p50: tm.submit_p50,
+              p90: tm.submit_p90,
+              p99: tm.submit_p99,
+              n: tm.submit_samples,
+            },
+            {
+              k: "remote",
+              label: phrase("Until the recipient's server accepted it"),
+              p50: tm.remote_p50,
+              p90: tm.remote_p90,
+              p99: tm.remote_p99,
+              n: tm.remote_samples,
+            },
+          ];
           return (
             <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                 {metrics.map(([k, label]) => {
                   const c = ch[k];
                   return (
-                    <div key={k} className="rounded-xl border bg-card p-3">
-                      <p className="text-xs text-muted-foreground">{phrase(label)}</p>
-                      <p className="mt-1 text-2xl font-bold">{s(tot[k]) || "0"}</p>
-                      <p className="text-xs text-muted-foreground">
+                    <article key={k} className="rounded-xl border bg-card p-4">
+                      <p className="text-sm text-muted-foreground">{phrase(label)}</p>
+                      <p className="mt-2 text-3xl font-bold tracking-tight">{s(tot[k]) || "0"}</p>
+                      <p className={`mt-2 text-xs font-medium ${changeClass(k, c)}`}>
                         {c === null || c === undefined
                           ? phrase("no earlier data")
                           : `${Number(c) > 0 ? "+" : ""}${Number(c).toFixed(0)}% ${phrase("vs previous period")}`}
                       </p>
-                    </div>
+                    </article>
                   );
                 })}
               </div>
-              <Section className="mt-4" title={phrase("How long it took")}>
-                <Table
-                  rows={[
-                    {
-                      k: "submit",
-                      label: phrase("Until the mail server accepted it"),
-                      p50: tm.submit_p50,
-                      p90: tm.submit_p90,
-                      p99: tm.submit_p99,
-                      n: tm.submit_samples,
-                    },
-                    {
-                      k: "remote",
-                      label: phrase("Until the recipient's server accepted it"),
-                      p50: tm.remote_p50,
-                      p90: tm.remote_p90,
-                      p99: tm.remote_p99,
-                      n: tm.remote_samples,
-                    },
-                  ]}
-                  rowKey={(x) => s(x.k)}
-                  columns={[
-                    { key: "label", label: "" },
-                    { key: "p50", label: phrase("Median"), render: (x) => secs(x.p50) },
-                    { key: "p90", label: "p90", render: (x) => secs(x.p90) },
-                    { key: "p99", label: "p99", render: (x) => secs(x.p99) },
-                    { key: "n", label: phrase("Messages measured") },
-                  ]}
-                />
-              </Section>
+              <section className="mt-4">
+                <h2 className="mb-3 text-sm font-semibold">{phrase("How long it took")}</h2>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {timings.map((t) => (
+                    <article key={t.k} className="rounded-xl border bg-card p-4">
+                      <h3 className="text-sm font-medium">{t.label}</h3>
+                      <dl className="mt-4 grid grid-cols-3 gap-3">
+                        {(
+                          [
+                            [phrase("Median"), t.p50],
+                            ["p90", t.p90],
+                            ["p99", t.p99],
+                          ] as const
+                        ).map(([label, value]) => (
+                          <div key={label}>
+                            <dt className="text-xs text-muted-foreground">{label}</dt>
+                            <dd className="mt-1 text-lg font-semibold">{secs(value)}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        {s(t.n) || "0"} {phrase("Messages measured")}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </section>
               <Section
                 className="mt-4"
                 title={phrase("By mailbox provider")}
@@ -1146,18 +1176,22 @@ export function Analytics() {
                   </a>
                 }
               >
-                <Table
-                  rows={(r.providers as Row[]) ?? []}
-                  rowKey={(x) => s(x.provider)}
-                  columns={[
-                    { key: "provider", label: phrase("Provider") },
-                    { key: "messages", label: phrase("Messages") },
-                    { key: "submitted", label: phrase("Submitted") },
-                    { key: "remote_accepted", label: phrase("Remote accepted") },
-                    { key: "hard_bounces", label: phrase("Hard bounces") },
-                    { key: "complaints", label: phrase("Complaints") },
-                  ]}
-                />
+                {providers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{phrase("No activity in this period")}</p>
+                ) : (
+                  <Table
+                    rows={providers}
+                    rowKey={(x) => s(x.provider)}
+                    columns={[
+                      { key: "provider", label: phrase("Provider") },
+                      { key: "messages", label: phrase("Messages") },
+                      { key: "submitted", label: phrase("Submitted") },
+                      { key: "remote_accepted", label: phrase("Remote accepted") },
+                      { key: "hard_bounces", label: phrase("Hard bounces") },
+                      { key: "complaints", label: phrase("Complaints") },
+                    ]}
+                  />
+                )}
               </Section>
               <Section
                 className="mt-4"
@@ -1173,11 +1207,11 @@ export function Analytics() {
                   </span>
                 }
               >
-                {((r.daily as Row[]) ?? []).length === 0 ? (
+                {daily.length === 0 ? (
                   <Empty title={phrase("No activity in this period")} />
                 ) : (
                   <Table
-                    rows={r.daily as Row[]}
+                    rows={daily}
                     rowKey={(x) => s(x.day)}
                     columns={[
                       { key: "day", label: phrase("Day") },
@@ -1190,11 +1224,13 @@ export function Analytics() {
                   />
                 )}
               </Section>
-              <ul className="mt-3 list-disc pl-5 text-xs text-muted-foreground">
-                {((r.notes as string[]) ?? []).map((n) => (
-                  <li key={n}>{n}</li>
-                ))}
-              </ul>
+              {((r.notes as string[]) ?? []).length > 0 && (
+                <ul className="mt-4 space-y-1 rounded-xl border bg-card px-4 py-3 text-xs text-muted-foreground">
+                  {((r.notes as string[]) ?? []).map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              )}
             </>
           );
         }}
