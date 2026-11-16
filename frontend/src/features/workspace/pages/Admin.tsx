@@ -1456,36 +1456,57 @@ export function System() {
       <DataState q={q}>
         {(d) => (
           <div className="grid gap-4 lg:grid-cols-2">
-            <Section title={phrase("Processes")}>
+            <section className="rounded-2xl border bg-card p-5">
+              <h2 className="font-semibold">{phrase("Processes")}</h2>
               {d.workers.length === 0 ? (
-                <p className="text-sm text-destructive">
+                <p className="mt-3 text-sm text-destructive">
                   {phrase("No worker, scheduler or inbound process has reported in the last hour.")}
                 </p>
               ) : (
-                <ul className="space-y-1 text-sm">
+                <ul className="mt-4 space-y-2">
                   {d.workers.map((w) => (
-                    <li key={w.role + w.instance} className="flex items-center gap-2">
+                    <li
+                      key={w.role + w.instance}
+                      className="flex items-center gap-3 rounded-xl border bg-background px-3 py-3"
+                    >
                       <StateBadge
                         state={w.healthy ? "pass" : "fail"}
                         label={w.healthy ? phrase("healthy") : phrase("silent")}
-                      />{" "}
-                      {w.role} <span className="text-xs text-muted-foreground">{w.instance}</span>
-                      <span className="ml-auto text-xs">
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{w.role}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {w.instance}
+                        </span>
+                      </span>
+                      <span className="ml-auto text-xs text-muted-foreground">
                         <Time value={w.last_seen} relative />
                       </span>
                     </li>
                   ))}
                 </ul>
               )}
-            </Section>
-            <Section title={phrase("Service")}>
-              <dl className="space-y-2 text-sm">
+            </section>
+            <section className="rounded-2xl border bg-card p-5">
+              <h2 className="font-semibold">{phrase("Service")}</h2>
+              <div className="mt-4 grid grid-cols-2 gap-3">
                 {(
                   [
                     ["Submitted today (all projects)", d.sent_today],
                     ["Queue depth", d.queue_depth],
                     ["Webhook backlog", d.webhook_backlog],
                     ["Open alerts", d.open_alerts],
+                  ] as [string, unknown][]
+                ).map(([label, value]) => (
+                  <div key={label} className="rounded-xl border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">{phrase(label)}</p>
+                    <p className="mt-1 text-2xl font-semibold">{s(value)}</p>
+                  </div>
+                ))}
+              </div>
+              <dl className="mt-4 space-y-2 text-sm">
+                {(
+                  [
                     [
                       "SMTP from environment",
                       d.smtp_configured ? phrase("yes") : phrase("no — see Mail server"),
@@ -1493,17 +1514,17 @@ export function System() {
                     ["Inbound domain", d.inbound_domain || phrase("not set")],
                     ["Bounce address", d.bounce_address || phrase("not set")],
                   ] as [string, unknown][]
-                ).map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-2">
-                    <dt>{phrase(k)}</dt>
-                    <dd>{s(v)}</dd>
+                ).map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-3 border-t pt-2">
+                    <dt className="text-muted-foreground">{phrase(label)}</dt>
+                    <dd className="text-right">{s(value)}</dd>
                   </div>
                 ))}
               </dl>
-              <Link className="mt-3 inline-block text-sm text-primary" to={to("mail-server")}>
+              <Link className="mt-4 inline-block text-sm text-primary" to={to("mail-server")}>
                 {phrase("Mail server →")}
               </Link>
-            </Section>
+            </section>
           </div>
         )}
       </DataState>
