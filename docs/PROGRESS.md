@@ -2,7 +2,7 @@
 
 The public API is `/v1` and the operator API is `/admin/v1`. The workspace API is `/admin/v1/w/{project}/{env}/…`.
 
-## Workspace and UX task (`NJIWA_MAIL_WORKSPACE_AND_UX_TASK.md`), 11 November 2026
+## Workspace and UX task (`docs/planning/NJIWA_MAIL_WORKSPACE_AND_UX_TASK.md`), 11 November 2026
 
 | Step | Work | State |
 |---|---|---|

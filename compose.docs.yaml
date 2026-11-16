@@ -6,7 +6,7 @@ services:
   docs:
     build:
       context: .
-      dockerfile: documentation/Dockerfile
+      dockerfile: apps/docs/Dockerfile
       args:
         DOCS_BASE_URL: ${DOCS_BASE_URL:-https://docs.example.com}
         DOCS_COMMIT: ${DOCS_COMMIT:-dev}

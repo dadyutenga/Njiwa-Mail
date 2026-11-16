@@ -9,7 +9,7 @@ docker compose -f compose.docs.yaml build \
   --build-arg DOCS_BASE_URL=https://docs.example.com \
   --build-arg DOCS_COMMIT=$(git rev-parse --short HEAD)
 DOCS_COMMIT=$(git rev-parse --short HEAD) docker compose -f compose.docs.yaml up -d      # 127.0.0.1:8088
-sh documentation/scripts/smoke.sh http://127.0.0.1:8088 $(git rev-parse --short HEAD)
+sh apps/docs/scripts/smoke.sh http://127.0.0.1:8088 $(git rev-parse --short HEAD)
 ```
 
 `DOCS_BASE_URL` is the public origin (used in `llms.txt` and prompts). There is no default hosted site: `https://docs.example.com` is a placeholder you must replace. The Docker build itself runs the content lint, the static export and the export-parity check, so a broken or contradictory page cannot produce an image.
@@ -31,7 +31,7 @@ Images are tagged with the source commit. To deploy a build, start its tag; to r
 ```bash
 docker rm -f docs; docker run -d --name docs -p 127.0.0.1:8088:8080 --read-only --tmpfs /tmp --cap-drop ALL \
   --security-opt no-new-privileges:true njiwa-mail-docs:<tag>
-sh documentation/scripts/smoke.sh http://127.0.0.1:8088 <tag>
+sh apps/docs/scripts/smoke.sh http://127.0.0.1:8088 <tag>
 ```
 
 Pages are served with `Cache-Control: no-cache`, so a deploy or rollback is visible at once; only content-addressed `/_next/static/` files are cached long-term.

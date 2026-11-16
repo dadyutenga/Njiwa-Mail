@@ -8,7 +8,7 @@ Ways to help, from smallest to largest:
 - Fix a typo, a doc page, or the English or Kiswahili wording.
 - Run the installer or `scripts/discover.sh` on a distribution you use, and report the result.
 - Add a test for behaviour that is not covered yet.
-- Implement an open item from [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md) or [task.md](task.md). For anything larger than a
+- Implement an open item from [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md) or [task.md](docs/planning/task.md). For anything larger than a
   small fix, open an issue first so we can agree on the approach before you spend time on it.
 
 Security problems go to [SECURITY.md](SECURITY.md), never to a public issue.
@@ -34,14 +34,14 @@ export TEST_DATABASE_URL='postgres://USER@/njiwa_mail_test?host=/var/run/postgre
 go vet ./... && go test ./... -race -count=1
 ```
 
-### Dashboard (React, `frontend/`)
+### Dashboard (React, `apps/dashboard/`)
 
 ```bash
-cd frontend && npm ci
+cd apps/dashboard && npm ci
 npm run typecheck && npm run lint && npm test && npm run build
 ```
 
-### Documentation portal (`documentation/`)
+### Documentation portal (`apps/docs/`)
 
 See [docs/public-portal/CONTRIBUTING.md](docs/public-portal/CONTRIBUTING.md).
 

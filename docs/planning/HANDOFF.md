@@ -12,17 +12,17 @@ an installation requirement. New: read-only host discovery (`njiwa-mail discover
 recommendation. The managed installer now refuses any host whose mail service is in use, whatever the flags (the old `-adopt` could
 replace Mailcow or Exim); it installs missing packages safely and can purge them on rollback. Also new: a ten-step resumable setup
 journey in the dashboard, configurable host ports, a fixed PostgreSQL address for host commands, the install guide `docs/INSTALL.md`
-(user requirements vs release validation), and backup/restore with the Compose volume checked in CI. task.md items done: T1 (reviewed;
+(user requirements vs release validation), and backup/restore with the Compose volume checked in CI. docs/planning/task.md items done: T1 (reviewed;
 a recovery-code sign-in now ends other sessions), T3.1, T3.3, T3.4, T3.5, T3.6, T3.7, T3.9, T7.2, T7.3, T8.1, T8.3, T8.4. Still for
-the owner: T3.2 (a decision), T3.8 (optional), and everything that needs real infrastructure (sections 2 and 4 of task.md).
+the owner: T3.2 (a decision), T3.8 (optional), and everything that needs real infrastructure (sections 2 and 4 of docs/planning/task.md).
 Managed mode needs a host **without a mail service in use**, not a fresh one; on a host like `rida-server` the installer refuses and
 changes nothing, and Njiwa-Mail is meant to connect to the existing server instead (but the task rules forbid creating a Mailcow
 mailbox on `rida-server`).
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of
-gaps is [`REMAINING_WORK.md`](docs/REMAINING_WORK.md); operating instructions are in [`OPERATIONS.md`](docs/OPERATIONS.md); the security
-review is [`SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md).
+gaps is [`REMAINING_WORK.md`](../REMAINING_WORK.md); operating instructions are in [`OPERATIONS.md`](../OPERATIONS.md); the security
+review is [`SECURITY_REVIEW.md`](../SECURITY_REVIEW.md).
 
 **Update on 2026-11-12 (long autonomous session):** every item in section 4 that does not need a real mail host is now implemented, tested and
 pushed, one commit per objective: C01 verified, F09 (operator permission + optional TOTP), F10 (sealed attachments, retention, export/delete),
@@ -37,10 +37,10 @@ blocking and green on GitHub) and G10 (release report with compatibility table a
 `rida-server` turned out to be a live multi-service host: Mailcow owns ports 25/465/587 and the installer correctly refuses such a host, so
 managed mode (G05) and the other real-delivery items need a **clean VPS** plus DNS and Gmail/Outlook mailboxes. Also still open: a manual
 screen-reader/phone pass and a native-speaker review of the Kiswahili; Fiber was migrated from v2 to v3 afterwards, and one-click Cloudflare DNS
-setup was added after that (STATUS.md, `docs/DNS_SETUP.md`). **DNS setup has only run against an in-memory DNS host and test servers:** before
+setup was added after that (docs/planning/STATUS.md, `docs/DNS_SETUP.md`). **DNS setup has only run against an in-memory DNS host and test servers:** before
 trusting it, a person must run it once against a real Cloudflare zone they own (token connect, analyze, approve, apply, verify, rollback), and
 register a Cloudflare OAuth client (and, if wanted, a Domain Connect template) before enabling "Sign in with Cloudflare".
-The public documentation portal (`documentation/`, `docs/public-portal/`) was added after that; it is built and tested but **not published**: pick a host, set
+The public documentation portal (`apps/docs/`, `docs/public-portal/`) was added after that; it is built and tested but **not published**: pick a host, set
 `DOCS_BASE_URL`, deploy per `docs/public-portal/DEPLOY.md`, then run `docs/public-portal/RELEASE_CHECKLIST.md` (the "Open in …" URL formats need a real-browser check).
 How the work was verified: Go and frontend suites, Playwright and a Compose smoke stack were run in throwaway Docker containers on
 `rida-server` (nothing installed on the workstation, no production container touched; the throwaway containers, volumes and images were
@@ -85,7 +85,7 @@ Everything is on `main`. Start new work on a new branch (`git checkout -b <name>
 | Tool | Version | Used for |
 |---|---|---|
 | Go | 1.26 (`go.mod`: `go 1.26.0`) | backend, CLI, installer, tests |
-| Node.js | ≥ 24 (`frontend/package.json` engines) | dashboard |
+| Node.js | ≥ 24 (`apps/dashboard/package.json` engines) | dashboard |
 | PostgreSQL | 16 | tests need a throwaway database |
 | Docker + Compose v2 | recent | running the stack, `docker compose config` checks |
 | ssh | any | reaching the server |
@@ -106,10 +106,10 @@ export TEST_DATABASE_URL="postgres://postgres:pw@localhost:5433/postgres?sslmode
 set -o pipefail; go vet ./... && go test ./... -race -count=1 -timeout 500s
 ```
 
-Frontend (from `frontend/`):
+Frontend (from `apps/dashboard/`):
 
 ```bash
-cd frontend && npm ci && npm run typecheck && npx vitest run && npm run lint && npm run build
+cd apps/dashboard && npm ci && npm run typecheck && npx vitest run && npm run lint && npm run build
 ```
 
 Expected today: Go packages all `ok`; frontend 55 tests pass, lint 0 errors (24 warnings are pre-existing).
@@ -145,15 +145,15 @@ Environment knobs: `NJIWA_E2E_SELECTOR` (default `njiwa`), `NJIWA_E2E_CAPTURE` (
 | Host preflight | `internal/installer/preflight/` |
 | Migrations (0001–0015) | `internal/db/migrations/` |
 | Integration tests | `test/` (helpers in `helpers_test.go`, `v2_test.go`, `transport_test.go`) |
-| Dashboard | `frontend/src/features/` (`installation/`, `workspace/pages/`) |
+| Dashboard | `apps/dashboard/src/features/` (`installation/`, `workspace/pages/`) |
 | Deployment | `compose.yaml`, `compose.mailcow.yaml`, `Dockerfile`, `deploy/` (nginx, systemd units, Prometheus rules), `scripts/backup.sh`, `scripts/restore.sh` |
-| CI | `.github/workflows/ci.yml` (jobs: `test`, `frontend`, `image`, `govulncheck`, `managed-mta`) |
+| CI | `.github/workflows/ci.yml` (jobs: `test`, `apps/dashboard`, `image`, `govulncheck`, `managed-mta`) |
 
 ---
 
 ## 3. Work that needs the real server
 
-Do these in order. Record the evidence for each (commands, outputs, headers, screenshots) and add a row to `STATUS.md` when done.
+Do these in order. Record the evidence for each (commands, outputs, headers, screenshots) and add a row to `docs/planning/STATUS.md` when done.
 
 ### 3.0 Server requirements (check before starting)
 
@@ -284,7 +284,7 @@ Do these in order. Record the evidence for each (commands, outputs, headers, scr
 15. **HTTPS:** install nginx + certbot, use `deploy/nginx.conf`, `certbot certonly --webroot -w /var/www/certbot -d mail-api.example.com`.
 
 **Done when:** Gmail and Outlook both show SPF/DKIM/DMARC pass with the headers saved in `docs/` (e.g. `docs/evidence/G05.md`,
-addresses removed), the systemd path worked (or was fixed), and `STATUS.md` has a G05 row.
+addresses removed), the systemd path worked (or was fixed), and `docs/planning/STATUS.md` has a G05 row.
 
 ### 3.2 E06 — direct-to-MX delivery and queue durability
 
@@ -292,7 +292,7 @@ addresses removed), the systemd path worked (or was fixed), and `STATUS.md` has 
 - [ ] Queue survives restart: block outbound 25 temporarily (`nft add rule …` or provider firewall), send, see `deferred` in
       `postqueue -p`, reboot the host, unblock, confirm delivery.
 - [ ] Queue survives an upgrade: `apt-get upgrade postfix` with mail in the queue.
-- **Done when:** evidence recorded in `STATUS.md` (E06 row).
+- **Done when:** evidence recorded in `docs/planning/STATUS.md` (E06 row).
 
 ### 3.3 E07 — real bounce through managed Postfix
 
@@ -300,7 +300,7 @@ addresses removed), the systemd path worked (or was fixed), and `STATUS.md` has 
 - [ ] The DSN arrives at `bounces+<id>.<tag>@bounce.example.com` (signed return path, F06) → port 25 → relayed to `127.0.0.1:2525` → inbound listener.
 - [ ] The message shows `bounced`, the recipient is suppressed (hard bounce), a `email.bounced` webhook fires, the Installation
       page `bounce_reports` step shows "Bounce reports are received" with the time.
-- **Done when:** recorded in `STATUS.md` (E07 row).
+- **Done when:** recorded in `docs/planning/STATUS.md` (E07 row).
 
 ### 3.4 E05 remainder — certificate and HELO
 
@@ -379,7 +379,7 @@ Each item: what to build, where, and acceptance criteria. Suggested order: F09 �
 
 - Agent, API, dashboard page, unit and compose override are done and tested with a fake runner (`docs/OPERATIONS.md`, "Mail queue controls").
 - **Still to do on the managed server (with E06):** install the agent unit, open Admin → Mail queue, block outbound 25 to create a deferred
-  message, hold / release / requeue / delete it, and confirm the timeline note and the audit rows. Record it in `STATUS.md`.
+  message, hold / release / requeue / delete it, and confirm the timeline note and the audit rows. Record it in `docs/planning/STATUS.md`.
 
 ### F07 — webhook event versioning — **done**
 
@@ -412,7 +412,7 @@ Done: Kiswahili for every static string (with a coverage test), labelled/describ
 
 Original list:
 
-- Kiswahili for all older strings (`frontend/src/features/i18n`), keyboard and screen-reader pass, DNS record table usable on
+- Kiswahili for all older strings (`apps/dashboard/src/features/i18n`), keyboard and screen-reader pass, DNS record table usable on
   phones.
 - Health card: managed details (Postfix deferred count, signer status) — needs E10's agent or the metrics.
 - Screens: installer receipts list, delivery-evidence ingestion status (last `mta-log` event time), edit an existing transport
@@ -478,7 +478,7 @@ Original list:
 
 Copy this as the first message in a Claude Code session started inside the cloned `Njiwa-Mail` folder:
 
-> Read docs/HANDOFF.md, STATUS.md, docs/REMAINING_WORK.md and docs/OPERATIONS.md. We are continuing from the handoff. The
+> Read docs/HANDOFF.md, docs/planning/STATUS.md, docs/REMAINING_WORK.md and docs/OPERATIONS.md. We are continuing from the handoff. The
 > server is reachable with `ssh <user>@<server>`. Start with section 3.1 (G05), step by step: run each command, show me the
 > output, and stop before anything that changes DNS or sends Live mail so I can confirm. Record evidence as the handoff
 > describes. Do not change code without running the suites in section 1.3.

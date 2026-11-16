@@ -16,7 +16,7 @@ belong to Mailcow, and the installer (correctly) refuses a host that already run
 | Claim | Evidence |
 |---|---|
 | Go suite, race detector, real PostgreSQL 16 | CI job `test` (`go test ./... -race`); also run on a throwaway PostgreSQL 16 in Docker on the development server |
-| Frontend: typecheck, 67 unit tests, lint (0 errors), build | CI job `frontend` |
+| Frontend: typecheck, 67 unit tests, lint (0 errors), build | CI job `apps/dashboard` |
 | Browser tests (Chromium) against the Compose stack: wrong password, sign-in and reload, protected redirect, delivery-mode wizard, add domain | CI job `e2e`; also run on the development server against an isolated Compose project |
 | The shipped stack starts from nothing, is ready, accepts a sign-in, refuses an unauthenticated admin call, runs `rekey -check` and `retention` | CI job `smoke` |
 | Managed installer against **real Postfix and OpenDKIM**: no open relay, mutual-TLS-only submission, sender restrictions, DKIM-signed mail | CI job `managed-mta` (Ubuntu 26.04 runner: Postfix 3.10.6, OpenDKIM 2.11.0~beta2); earlier on Postfix 3.8.6 |
@@ -24,7 +24,7 @@ belong to Mailcow, and the installer (correctly) refuses a host that already run
 | Reproducible build; dependency inventory | CI job `supply-chain` (two builds from different directories are byte-identical; SBOM artifact) |
 | Security matrix over every route (auth, CSRF, no secrets in any GET) | `TestEveryRouteRequiresAuthAndCSRF`, `TestNoSecretInAnyAdminResponse`; `docs/SECURITY_REVIEW.md` |
 
-The detailed ticket-by-ticket record is `STATUS.md`; open items are `docs/REMAINING_WORK.md` and `HANDOFF.md`.
+The detailed ticket-by-ticket record is `docs/planning/STATUS.md`; open items are `docs/REMAINING_WORK.md` and `docs/planning/HANDOFF.md`.
 
 ## What changed in this release (since the first build)
 
@@ -75,7 +75,7 @@ Back up `ENCRYPTION_KEY`, `HMAC_KEY` and, during a rotation, `ENCRYPTION_KEY_PRE
 
 ## What a person must still do before production
 
-1. A clean VPS, then `HANDOFF.md` section 3 in order (G05), with the evidence written into `docs/evidence/`.
+1. A clean VPS, then `docs/planning/HANDOFF.md` section 3 in order (G05), with the evidence written into `docs/evidence/`.
 2. E06/E07 (real delivery, queue durability across reboot and upgrade, a real bounce — including `correlated_by = verp`).
 3. E12 on Debian 12 and Ubuntu 22.04/24.04, then fill the compatibility table above.
 4. G04: a real Mailcow and a generic Postfix/Exim server; G06: a mode switch with queued mail.
@@ -94,7 +94,7 @@ Kept as the original record; the current status is above.
 
 **Decision:** the portal is implemented and verified as far as an automated environment can verify it; it is **not** yet published anywhere (there is no central hosted site, and the operator chooses the host). What a person must still do is listed under "Not done".
 
-What exists: `documentation/` (Next.js 16 + Fumadocs 16 + MDX, static export, 29 pages), generated from one source: per-page `.md`, `llms.txt`, `llms-full.txt`, `openapi.yaml`/`openapi.json` and the skill `skills/njiwa-mail-integration` (`SKILL.md` + 6 playbooks). `docs/openapi.yaml` was rewritten from the handlers (it had described 3 of 14 public operations, with a wrong request schema, missing states and a wrong size limit). The audit, discrepancy list (12 items) and plan are in `docs/public-portal/AUDIT.md`.
+What exists: `apps/docs/` (Next.js 16 + Fumadocs 16 + MDX, static export, 29 pages), generated from one source: per-page `.md`, `llms.txt`, `llms-full.txt`, `openapi.yaml`/`openapi.json` and the skill `skills/njiwa-mail-integration` (`SKILL.md` + 6 playbooks). `docs/openapi.yaml` was rewritten from the handlers (it had described 3 of 14 public operations, with a wrong request schema, missing states and a wrong size limit). The audit, discrepancy list (12 items) and plan are in `docs/public-portal/AUDIT.md`.
 
 ### Evidence (commands and real results, run on `rida-server` in throwaway containers; nothing installed on the workstation)
 
@@ -103,14 +103,14 @@ What exists: `documentation/` (Next.js 16 + Fumadocs 16 + MDX, static export, 29
 | OpenAPI drift (routes, scopes, states, error codes, request/response fields; documented examples sent to the real handlers) | `go test ./test -run TestPublicOpenAPI` | 5 tests pass. Mutation-checked: a wrong path, a wrong field and an invented error code each fail it |
 | Docs vs code (every `curl-check` snippet replayed against the real handlers: 8; Go snippets compiled with `go vet`: 3; webhook events, scopes, states and error codes equal the source; only real endpoints named in the docs and the skill; no delivery claim, no Mailcow requirement) | `go test ./test -run 'TestDocs\|TestDocumented'` | 6 tests pass. Mutation-checked: a wrong field in a documented request, a fake `email.delivered` event and an invented endpoint in the skill each fail it |
 | Full Go suite with the race detector | `go vet ./... && go test ./... -race -count=1` | `go vet` clean; every package passes, `test` in 238 s (includes the 11 portal tests above) |
-| Typecheck, lint, content lint | `npm run typecheck && npm run lint` (in `documentation/`) | clean (eslint 0 errors; content lint ok on 29 pages) |
+| Typecheck, lint, content lint | `npm run typecheck && npm run lint` (in `apps/docs/`) | clean (eslint 0 errors; content lint ok on 29 pages) |
 | Unit tests (markdown conversion, 22 content-lint rejection cases, AI-service URL rules, version switching) | `npm test` | 33 pass |
 | Static export | `npm run build` | 33 static routes; search index as a file |
 | Snippets | `npm run check:snippets` | curl 8 validated against the OpenAPI schemas, TypeScript 3 compiled, Python 2 compiled |
 | Export parity | `npm run check:export` | every page's `.md` equals the source, `llms.txt` lists and resolves every page, `openapi.yaml` byte-identical to `docs/openapi.yaml`, `openapi.json` the same document, skill files identical, one version and one commit everywhere, no secret pattern in `out/` |
 | Browser tests (Chromium via Playwright 1.65.0) | `npx playwright test` | 22 pass: landing, sidebar/breadcrumb/TOC, next/previous, code tabs, keyboard search, Copy Markdown (real clipboard, refused-clipboard fallback, failure toast), Open menu (prefill link with a short prompt, copy-and-open, Escape, local origin gets no link), 404, version selector, theme, machine-readable routes, axe WCAG 2 A/AA with no serious or critical violation on six pages, mobile navigation, no horizontal scroll at 375 px |
-| Frontend (dashboard) | `npm run typecheck && npm run lint && npm test` (in `frontend/`) | 0 errors; 81 tests pass (documentation link: shown with `rel="noopener noreferrer"` when configured, an explanation instead of a dead link when not) |
-| Independent deployment | `docker build -f documentation/Dockerfile …`; `documentation/scripts/smoke.sh` | image builds (the build runs the lint, export and parity checks); runs as uid 101, read-only filesystem, all capabilities dropped, no environment secrets; smoke: 41 checks (200 pages, types of `.md`/`llms.txt`/`openapi.*`/search, real 404 page, **404 for `/admin/v1/*`, `/v1/*`, `/console`, `/metrics`, `/health/*`, dotfiles** including a POST with a bearer header, CSP and nosniff headers, no server version, one commit everywhere) |
+| Frontend (dashboard) | `npm run typecheck && npm run lint && npm test` (in `apps/dashboard/`) | 0 errors; 81 tests pass (documentation link: shown with `rel="noopener noreferrer"` when configured, an explanation instead of a dead link when not) |
+| Independent deployment | `docker build -f apps/docs/Dockerfile …`; `apps/docs/scripts/smoke.sh` | image builds (the build runs the lint, export and parity checks); runs as uid 101, read-only filesystem, all capabilities dropped, no environment secrets; smoke: 41 checks (200 pages, types of `.md`/`llms.txt`/`openapi.*`/search, real 404 page, **404 for `/admin/v1/*`, `/v1/*`, `/console`, `/metrics`, `/health/*`, dotfiles** including a POST with a bearer header, CSP and nosniff headers, no server version, one commit everywhere) |
 | Deploy, upgrade and rollback | image `aaaa111` deployed, `bbbb222` deployed over it, rolled back to `aaaa111`, smoke after each | all passed; asking the smoke for the wrong commit failed, as it must. The run also exposed a typo in `nginx.conf` that made the container exit, fixed |
 
 Screenshots (desktop and mobile) of the landing page, a docs page, search, the Open menu, the 404 page and the mobile navigation were produced by the browser tests (`SHOT_DIR=… npx playwright test`) and reviewed.
@@ -217,7 +217,7 @@ template editor/publishing; analytics/complaint feedback; scale/availability (HA
 
 ## Mail workspace and Mailcow checks (2026-11-11)
 
-Scope: `NJIWA_MAIL_WORKSPACE_AND_UX_TASK.md`. **All results below are local**: a development stack on one machine (PostgreSQL, API, worker, scheduler, inbound listener on 127.0.0.1, Vite). No Mailcow server was available, so nothing below proves delivery through Mailcow.
+Scope: `docs/planning/NJIWA_MAIL_WORKSPACE_AND_UX_TASK.md`. **All results below are local**: a development stack on one machine (PostgreSQL, API, worker, scheduler, inbound listener on 127.0.0.1, Vite). No Mailcow server was available, so nothing below proves delivery through Mailcow.
 
 | Check (task §9) | Result | Evidence |
 |---|---|---|

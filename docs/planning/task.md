@@ -1,4 +1,4 @@
-# task.md: work the agent still has to complete
+# docs/planning/task.md: work the agent still has to complete
 
 **Branch rule:** all development happens on `dev`. `main` only receives work that has been tested together (owner + assistant). Do not push
 unfinished work to `main`.
@@ -6,7 +6,7 @@ unfinished work to `main`.
 **How we finish:** the agent implements the items below on `dev`, one commit per item, and runs the automated tests itself. Real-host and
 manual checks are done later by the owner and the assistant together; each item says what that joint test is.
 
-**Rules that stay in force** (from `HANDOFF.md` section 6):
+**Rules that stay in force** (from `docs/planning/HANDOFF.md` section 6):
 - never say a message was "delivered" because SMTP accepted it; delivery is shown by received mail and its headers
 - readiness must be honest: a check that could not be proven is `cannot_confirm`, never green
 - every new route goes into the security matrix test (`TestEveryRouteRequiresAuthAndCSRF`) and `docs/ENDPOINTS.md` is regenerated
@@ -114,12 +114,12 @@ Built and tested against fakes only (`docs/DNS_SETUP.md`).
 - [ ] **T5.2** Register a Cloudflare OAuth client (the OAuth flow is built but needs an operator-registered client id).
 - [ ] **T5.3** Domain Connect is not built (the flag is always false); decide whether to build it.
 - [ ] **T5.4** Access is per project, not per user; decide whether per-user connections are needed.
-- [ ] **T5.5** Native-speaker review of the Kiswahili in `frontend/src/features/i18n/sw-dns.ts`.
+- [ ] **T5.5** Native-speaker review of the Kiswahili in `apps/dashboard/src/features/i18n/sw-dns.ts`.
 
 ## 6. Public documentation portal (P1)
 
-Built and tested (`documentation/`, `docs/public-portal/`), not published anywhere.
-- [ ] **T6.1** Choose a host and domain; set `DOCS_BASE_URL`; deploy with `docs/public-portal/DEPLOY.md`; run `documentation/scripts/smoke.sh` against it.
+Built and tested (`apps/docs/`, `docs/public-portal/`), not published anywhere.
+- [ ] **T6.1** Choose a host and domain; set `DOCS_BASE_URL`; deploy with `docs/public-portal/DEPLOY.md`; run `apps/docs/scripts/smoke.sh` against it.
 - [ ] **T6.2** Check the "Open in ChatGPT / Scira / T3 Chat" links in a real browser (the `q` prefill formats came from community sources, not the providers);
   Claude's link copies the prompt instead.
 - [ ] **T6.3** A second documentation version so the version selector has something to switch (the logic is unit-tested with two).
@@ -139,20 +139,20 @@ Built and tested (`documentation/`, `docs/public-portal/`), not published anywhe
 
 ## 8. Repository housekeeping (P2)
 
-- [x] **T8.1** `docs/REMAINING_WORK.md` and `STATUS.md` still name the deleted branch `claude/happy-brahmagupta-pbfu6r`; point them at `dev`/`main` and
+- [x] **T8.1** `docs/REMAINING_WORK.md` and `docs/planning/STATUS.md` still name the deleted branch `claude/happy-brahmagupta-pbfu6r`; point them at `dev`/`main` and
   fold their open rows into this file or delete the duplicates.
-  **Done (2026-11-13):** REMAINING_WORK and HANDOFF point at `dev`/`main`; REMAINING_WORK says task.md is the live list.
+  **Done (2026-11-13):** REMAINING_WORK and HANDOFF point at `dev`/`main`; REMAINING_WORK says docs/planning/task.md is the live list.
 - [ ] **T8.2** `lab/qemu` scripts are kept in the repo but the VMs and images were deleted; decide whether to keep the lab in the repo.
 - [x] **T8.3** Add `dev` to the CI triggers in `.github/workflows/ci.yml` (check what branches it listens to) and consider branch protection on `main`.
   **Done (2026-11-13):** CI runs on pull requests and on pushes to `main` and `dev`. Branch protection on `main` is a repository setting for the owner.
-- [x] **T8.4** Update `HANDOFF.md` after each item above; it is the source of truth for the next session.
+- [x] **T8.4** Update `docs/planning/HANDOFF.md` after each item above; it is the source of truth for the next session.
   **Done (2026-11-13):** HANDOFF has an update block for this round.
 
 ## 9. Intelligent installation and existing-infrastructure reuse (done in code on 2026-11-13; joint tests open)
 
 Spec: install on new **or existing** servers; discover and reuse existing mail infrastructure; never disrupt a production mail service.
 Guide: `docs/INSTALL.md`. Code: `internal/installer/discover`, `internal/installer/managed` (blockers, packages), `internal/service/setup.go`,
-`internal/service/discovery.go`, `frontend/src/features/installation/Setup.tsx`, `scripts/discover.sh`.
+`internal/service/discovery.go`, `apps/dashboard/src/features/installation/Setup.tsx`, `scripts/discover.sh`.
 
 - [x] **T9.1** Read-only discovery (`njiwa-mail discover`, `-json`, `-record`, `-root`): Mailcow and Compose stacks, Postfix/Exim/sendmail/
   OpenSMTPD/OpenDKIM/Dovecot with in-use evidence, listening ports with their owner (incl. docker-proxy), proxies, certificates, Docker

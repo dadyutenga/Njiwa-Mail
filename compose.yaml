@@ -33,7 +33,7 @@ x-app: &app
 
 services:
   frontend:
-    build: ./frontend
+    build: ./apps/dashboard
     restart: unless-stopped
     # Host ports are configurable so Njiwa-Mail never competes with an
     # application already on this server (njiwa-mail discover reports one).

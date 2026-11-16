@@ -75,13 +75,13 @@ environment), **Missing**, **Misdesigned** (works but contradicts the scope).
 |---|---|---|---|
 | Project-scoped keys, reliable submission | Implemented | scoped keys per environment, idempotency, sender approval, domain gate | |
 | Documented contract preserved | Implemented | `test/public_openapi_test.go`: routes, scopes, states, error codes, schemas and examples are all checked against the server and Go types; webhook `schema_version` (F07) | no automated check that the current contract stays compatible with the last released one (CT-07) |
-| Backward compatibility, explicit versioned migration | Partial | a written policy exists (`documentation/content/docs/versions.mdx`: a breaking change to `/v1` would be `/v2`, additive changes are not breaking; webhook `schema_version`); additive database migrations; `docs/RELEASE_REPORT.md` states the rollback boundary | the policy is not enforced by a test (CT-07) |
+| Backward compatibility, explicit versioned migration | Partial | a written policy exists (`apps/docs/content/docs/versions.mdx`: a breaking change to `/v1` would be `/v2`, additive changes are not breaking; webhook `schema_version`); additive database migrations; `docs/RELEASE_REPORT.md` states the rollback boundary | the policy is not enforced by a test (CT-07) |
 
 ### 2.6 Reliable sending
 
 Implemented: durable PostgreSQL queue and worker, retry with backoff, idempotency keys, uncertain-outcome handling and the unknown queue
 (F02), suppression list, bounce parsing with signed VERP return path (F06), accurate states ("submitted" is never "delivered"), queue
-backpressure and a circuit breaker for transport outages (F03). Tests are named in `STATUS.md`. **Not verified:** a real bounce
+backpressure and a circuit breaker for transport outages (F03). Tests are named in `docs/planning/STATUS.md`. **Not verified:** a real bounce
 end to end, durability across a reboot or `apt upgrade postfix` (E06, E07).
 
 ### 2.7 Delivery tracking is the same shape but not the same depth
@@ -104,7 +104,7 @@ tracking" is only true up to `submitted`. Candidate (CT-04): an opt-in, read-onl
 
 ### 2.9 Documentation
 
-Implemented: documentation portal (`documentation/`), generated agent-readable Markdown for every page, `llms.txt`, `llms-full.txt`,
+Implemented: documentation portal (`apps/docs/`), generated agent-readable Markdown for every page, `llms.txt`, `llms-full.txt`,
 `openapi.yaml/json`, `skills/`, `versions.json`, all from one source with one version and commit; content tests keep docs equal to the
 code; SDK material: Go client (`client/`, `njiwamail/`), TypeScript client (`clients/typescript`), curl/Go/Node/Python examples
 (`docs/EXAMPLES.md`), troubleshooting by error code. A lint rule forbids the Ditronics name in public pages. **Not done:** the portal is
@@ -126,7 +126,7 @@ Good: `INFRA_VALIDATION.md` separates "what a user needs to install" from "what 
 tests need a public VPS and which do not, and says nothing in it has been run. `lab/qemu` carries a header "SIMULATED networking only:
 results are NOT production evidence". CI runs the managed installer in containers and on hosted runners, existing-SMTP tests against
 fakes and Mailpit, a container smoke test, govulncheck, an SBOM and a reproducible-build check. **Not done:** all rows of the
-real-infrastructure table. `REMAINING_WORK.md` and `STATUS.md` agree on that.
+real-infrastructure table. `REMAINING_WORK.md` and `docs/planning/STATUS.md` agree on that.
 
 ### 2.12 Definition of done, walked through
 
@@ -150,8 +150,8 @@ None is blocking. All are cheap to fix and are listed so they are not forgotten.
 | `internal/service/dns.go:259`, `:319` | In existing-SMTP mode the DNS check text says "MX pointing at the Mailcow host" and "inbound mail is relayed by Mailcow" for any server | low, misleading for Postfix/Exim users |
 | `internal/service/dns.go:32`, `config.go:68,86`, `inbound/imap.go`, `service/setup.go:59` | comments and operator-facing wording assume Mailcow as the typical server (`OUTBOUND_IP`, `INBOUND_ALLOWED_SOURCES`, IMAP fallback) | low |
 | `compose.mailcow.yaml` in the repo root | an optional override that joins Mailcow's Docker network | none (documented as optional); consider `deploy/` |
-| `docs/INFRA_VALIDATION.md`, `HANDOFF.md`, `task.md`, `RELEASE_REPORT.md`, `public-portal/DEPLOY.md` | the owner's production host name `rida-server` appears in tracked files of an open-source repository | medium for privacy; keep only in a private note |
-| `frontend/.../Layout.tsx:110` | the "new project" placeholder is `sacas`, a client application's name | low; the scope says the product is not application-specific |
+| `docs/INFRA_VALIDATION.md`, `docs/planning/HANDOFF.md`, `docs/planning/task.md`, `RELEASE_REPORT.md`, `public-portal/DEPLOY.md` | the owner's production host name `rida-server` appears in tracked files of an open-source repository | medium for privacy; keep only in a private note |
+| `apps/dashboard/.../Layout.tsx:110` | the "new project" placeholder is `sacas`, a client application's name | low; the scope says the product is not application-specific |
 | `docs/REMAINING_WORK.md:39` and the "installer does not install packages" row | statements that code no longer matches | low, but it is the document a reader trusts for "what is not done" |
 | managed installer | Debian/Ubuntu/RHEL family with systemd and Postfix + OpenDKIM only | by design (scope names Postfix and DKIM signing) |
 | application stack | Docker Compose, fixed-purpose private subnet `172.30.0.0/24` | by design, configurable, conflict-checked by discovery |
@@ -190,8 +190,8 @@ Acceptance: a test builds the DNS requirements for a `generic` profile and fails
 keeps its wording.
 
 **CT-02 Documentation truth pass and de-identification.**
-Files: `docs/REMAINING_WORK.md`, `docs/INFRA_VALIDATION.md`, `HANDOFF.md`, `task.md`, `docs/RELEASE_REPORT.md`,
-`docs/public-portal/DEPLOY.md`, `frontend/src/features/workspace/Layout.tsx`. Migrations: none.
+Files: `docs/REMAINING_WORK.md`, `docs/INFRA_VALIDATION.md`, `docs/planning/HANDOFF.md`, `docs/planning/task.md`, `docs/RELEASE_REPORT.md`,
+`docs/public-portal/DEPLOY.md`, `apps/dashboard/src/features/workspace/Layout.tsx`. Migrations: none.
 Acceptance: extend the guard in `test/docs_content_test.go` (today it forbids "ditronics" and "njiwa.co.tz" in public docs) with the
 production host name and the client app name; a test that `REMAINING_WORK.md` does not contradict `installer plan` (package installation).
 
@@ -210,7 +210,7 @@ changed on the existing server; Mailcow users keep working without it.
 
 **CT-05 Real-infrastructure verification program.**
 Follow `INFRA_VALIDATION.md` phases A to I: G05, E06, E07/F06/D04, E10, E12, G04(a)(b), C06, G06, G03/G02, G09, a real Cloudflare run.
-Needs approval at each gate (VPS, DNS, first Live message). Acceptance: an evidence file per ID under `docs/evidence/` and a `STATUS.md` row;
+Needs approval at each gate (VPS, DNS, first Live message). Acceptance: an evidence file per ID under `docs/evidence/` and a `docs/planning/STATUS.md` row;
 the readiness page never says ready earlier. Until then the README and `RELEASE_REPORT.md` state "not verified on real infrastructure".
 
 **CT-06 Application upgrade and rollback runbook.**
@@ -225,7 +225,7 @@ Acceptance: removing a documented field fails the test; adding one does not.
 
 **CT-08 Isolation of out-of-scope modules.**
 Verify and, where missing, add feature switches for contacts and campaigns and for SSO (forms and chat already have them); hide their
-navigation and routes when off. Files: `internal/config/config.go`, `internal/api`, `frontend/src/features/workspace/nav.ts`.
+navigation and routes when off. Files: `internal/config/config.go`, `internal/api`, `apps/dashboard/src/features/workspace/nav.ts`.
 Migrations: none. Acceptance: with every optional module off, the core flow (register domain, create key, send, inspect, webhook) passes
 and the optional routes answer `404 <module>_disabled`; the security matrix test lists them.
 
@@ -239,7 +239,7 @@ Needs a Cloudflare account and one throwaway zone and the owner's yes. Register 
 preview, approve, apply and rollback on the throwaway zone, an existing conflicting record is refused, the manual fallback produces the same
 records; evidence in `docs/evidence/`.
 
-**CT-11 Merge order and scope of the open pull requests** (section 4). Acceptance: the owner's decision; `task.md` updated to match.
+**CT-11 Merge order and scope of the open pull requests** (section 4). Acceptance: the owner's decision; `docs/planning/task.md` updated to match.
 
 ## 6. What must still be reported as a limitation
 

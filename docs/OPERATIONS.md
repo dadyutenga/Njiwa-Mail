@@ -446,7 +446,7 @@ run (`GET /admin/v1/jobs`) and the update check.
 
 Set `FORMS_ENABLED=true` and restart to let projects create contact forms. Until then the public form routes answer
 `404 forms_disabled`, the dashboard hides the Forms entries and the digest job does nothing. Public docs: [Website
-forms](../documentation/content/docs/api/forms.mdx).
+forms](../apps/docs/content/docs/api/forms.mdx).
 
 - `POST /v1/forms/{id}` is public. It is guarded by the form's origin allowlist, a hidden honeypot, an optional single-use
   nonce, per-IP / per-form / per-sender / per-workspace limits and a spam score (flag 30, quarantine 60, reject 90) plus
@@ -465,7 +465,7 @@ forms](../documentation/content/docs/api/forms.mdx).
 
 Set `CHAT_ENABLED=true` and restart to let projects add a chat widget to their websites. Until then the public chat routes
 answer `404 chat_disabled`, the dashboard hides the Chat entries and the email follow-up job does nothing. Public docs:
-[Live chat](../documentation/content/docs/api/chat.mdx).
+[Live chat](../apps/docs/content/docs/api/chat.mdx).
 
 - Public routes under `/v1/chat/{id}/…` are guarded by the chat's origin allowlist, per-address / per-chat / per-workspace
   limits, the spam score and the workspace's form filters, and (after the first message) a per-conversation session token

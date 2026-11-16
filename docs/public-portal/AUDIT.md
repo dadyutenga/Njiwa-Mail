@@ -1,7 +1,7 @@
 # Public documentation portal: contract audit and plan
 
 Source commit audited: `531c7b4` (2026-11-13). Inputs read: `internal/api/{api,app,product,workspace}.go`, `internal/service/{accept,auth,product,status,adminviews,inbound}.go`,
-`docs/{openapi,INTEGRATION,WEBHOOKS}.yaml/md`, `client/`, `njiwamail/`, `clients/typescript/index.ts`, `frontend/src/features/workspace/pages/Developers.tsx`,
+`docs/{openapi,INTEGRATION,WEBHOOKS}.yaml/md`, `client/`, `njiwamail/`, `clients/typescript/index.ts`, `apps/dashboard/src/features/workspace/pages/Developers.tsx`,
 `.github/workflows/ci.yml`, `README.md`, `docs/RELEASE_REPORT.md`.
 
 **Package note.** The brief refers to `07_IMPLEMENTATION_BACKLOG.md` and other package documents. Only `09_CODING_AGENT_MASTER_TASK.md` was supplied, so
@@ -87,7 +87,7 @@ No repository constraint mandates an alternative. Output is a **static export** 
 |---|---|---|
 | 0 | this audit | reviewed |
 | 1 Contract | complete `docs/openapi.yaml` (public), Go parity tests (routes, scopes, states, error codes, request/response examples against the live handlers) | `go test` fails on any drift |
-| 2 Scaffold | `documentation/` Next.js + Fumadocs, static export, lockfile, lint, typecheck, CSP-safe | `npm run build` produces `out/` |
+| 2 Scaffold | `apps/docs/` Next.js + Fumadocs, static export, lockfile, lint, typecheck, CSP-safe | `npm run build` produces `out/` |
 | 3 Content | real MDX for every page in the brief, snippets as compiled files, fixes D7/D9 | content lint + snippet tests pass |
 | 4 UI | landing, header actions (Copy Markdown, Open ▾), version selector, search, 404 | Playwright passes |
 | 5 Agent assets | `llms.txt`, `llms-full.txt`, per-page `.md`, OpenAPI JSON/YAML, `skills/njiwa-mail-integration` | export parity tests pass |

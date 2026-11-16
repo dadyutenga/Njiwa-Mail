@@ -6,7 +6,7 @@ The operator UI uses the Go admin API at `/admin/v1`. The browser sends an HttpO
 
 1. Start PostgreSQL and the backend, configure `DATABASE_URL`, `ENCRYPTION_KEY`, `HMAC_KEY`, and run migrations.
 2. For local HTTP, set `ADMIN_INSECURE_COOKIES=true` in the backend environment.
-3. From `frontend`, run `npm ci && npm run dev`. Vite proxies `/admin` to `http://127.0.0.1:8080`.
+3. From `apps/dashboard`, run `npm ci && npm run dev`. Vite proxies `/admin` to `http://127.0.0.1:8080`.
 4. Open the local Vite URL and sign in with an operator account created by the backend CLI.
 
 `docker compose up -d --build` also starts the frontend at `http://127.0.0.1:3000`; its Nginx container proxies `/admin/v1` to the `api` container. Use HTTPS and secure cookies for a deployed site.

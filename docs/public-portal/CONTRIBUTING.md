@@ -1,13 +1,13 @@
 # Contributing to the public documentation
 
-The portal lives in `documentation/`. Pages are MDX in `documentation/content/docs/`. The API contract is `docs/openapi.yaml`. Everything agents fetch (`llms.txt`, `.md` pages, OpenAPI, the skill) is generated from those two sources, so there is nothing else to edit.
+The portal lives in `apps/docs/`. Pages are MDX in `apps/docs/content/docs/`. The API contract is `docs/openapi.yaml`. Everything agents fetch (`llms.txt`, `.md` pages, OpenAPI, the skill) is generated from those two sources, so there is nothing else to edit.
 
 ## Run it (no installs on your machine needed)
 
 Use a throwaway container, or local Node 24:
 
 ```bash
-cd documentation
+cd apps/docs
 npm ci --ignore-scripts
 node node_modules/fumadocs-mdx/bin.js      # generates .source
 npm run typecheck && npm run lint && npm test

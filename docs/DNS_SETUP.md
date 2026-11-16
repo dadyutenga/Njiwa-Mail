@@ -33,7 +33,7 @@ The wizard's last step shows the same records, built from your actual delivery m
 | Plan engine (pure function: requirements + existing zone → change set) | `internal/service/dnsplan.go` | No |
 | Connections, OAuth, setups, apply, rollback, verify | `internal/service/dnsconn.go`, `dnssetup.go` | No (uses the interface) |
 | HTTP | `internal/api/dnssetup.go` | No |
-| Wizard | `frontend/src/features/workspace/pages/DnsSetup.tsx` | No |
+| Wizard | `apps/dashboard/src/features/workspace/pages/DnsSetup.tsx` | No |
 
 A second provider means one new adapter and one line in `dnsprovider.New`.
 

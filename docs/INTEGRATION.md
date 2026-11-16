@@ -1,6 +1,6 @@
 # App integration
 
-> The public, versioned developer documentation (with the OpenAPI file, `llms.txt` and an agent skill) is built from `documentation/` and described in [public-portal/DEPLOY.md](public-portal/DEPLOY.md). This page stays as the short integration contract.
+> The public, versioned developer documentation (with the OpenAPI file, `llms.txt` and an agent skill) is built from `apps/docs/` and described in [public-portal/DEPLOY.md](public-portal/DEPLOY.md). This page stays as the short integration contract.
 
 Every Njiwa app uses this contract. There is no per-app adapter and no app-specific mail package in this repository. An app is a project with its own API keys.
 

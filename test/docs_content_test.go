@@ -15,10 +15,10 @@ import (
 	"github.com/njiwa-tz/mail/internal/service"
 )
 
-// The public documentation (documentation/content/docs) makes claims. These tests tie
+// The public documentation (apps/docs/content/docs) makes claims. These tests tie
 // the claims to the running code, so the portal cannot publish a contradiction.
 
-const docsDir = "../documentation/content/docs"
+const docsDir = "../apps/docs/content/docs"
 
 type fence struct {
 	file, lang string
@@ -211,7 +211,7 @@ func TestDocumentedCurlSnippetsWorkAgainstTheHandlers(t *testing.T) {
 
 // Go snippets in the docs must compile (go vet type-checks them against the real client).
 func TestDocumentedGoSnippetsCompile(t *testing.T) {
-	root := filepath.Join("..", "documentation", "zz_snippets_tmp")
+	root := filepath.Join("..", "apps", "docs", "zz_snippets_tmp")
 	_ = os.RemoveAll(root)
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	n := 0
@@ -232,7 +232,7 @@ func TestDocumentedGoSnippetsCompile(t *testing.T) {
 	if n < 3 {
 		t.Fatalf("only %d checked Go snippets", n)
 	}
-	cmd := exec.Command("go", "vet", "./documentation/zz_snippets_tmp/...")
+	cmd := exec.Command("go", "vet", "./apps/docs/zz_snippets_tmp/...")
 	cmd.Dir = ".."
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("documented Go code does not compile:\n%s", out)

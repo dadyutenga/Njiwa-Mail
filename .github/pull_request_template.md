@@ -9,7 +9,7 @@
 ## Checklist
 
 - [ ] The pull request targets `dev`.
-- [ ] Tests added or updated, and `go test ./... -race` (and the frontend/docs checks, if touched) pass locally.
+- [ ] Tests added or updated, and `go test ./... -race` (and the dashboard/docs checks, if touched) pass locally.
 - [ ] New dashboard strings have a Kiswahili translation.
 - [ ] New routes are in the security matrix test, and `docs/ENDPOINTS.md` is regenerated.
 - [ ] Migrations are additive.

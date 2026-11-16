@@ -2,7 +2,7 @@
 
 Every file here comes from `lab/qemu/` (Ubuntu 24.04 cloud image in KVM, a second VM as DNS and mail receiver, a private network with no
 route to the internet). Verdicts come from software in the lab (Postfix, an independent DKIM/SPF/DMARC verifier written for the lab), not from
-Gmail or Outlook. Nothing here replaces the real-host checks in HANDOFF.md section 3. The lab was deleted afterwards; `lab/qemu` can recreate it.
+Gmail or Outlook. Nothing here replaces the real-host checks in docs/planning/HANDOFF.md section 3. The lab was deleted afterwards; `lab/qemu` can recreate it.
 
 | File | What it shows |
 |---|---|

@@ -46,7 +46,7 @@ configuration and release cycle. Every app is an API client with its own key. Th
 - Per-project, per-environment (sandbox/live) API keys, approved senders, approved link origins, recipient allowlist, rate limits.
 - Single static Go binary with four roles (`serve`, `worker`, `inbound`, `scheduler`) and the operator CLI. The HTTP API is Fiber v3. Persistence is GORM on PostgreSQL. The dashboard is React.
 
-> **Project status: pre-1.0.** See [STATUS.md](STATUS.md) and [docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md). The managed
+> **Project status: pre-1.0.** See [STATUS.md](docs/planning/STATUS.md) and [docs/RELEASE_REPORT.md](docs/RELEASE_REPORT.md). The managed
 > installer is checked on every change against real Postfix and OpenDKIM (no open relay, mutual-TLS submission, DKIM signing) on
 > Ubuntu, AlmaLinux, Rocky Linux and Fedora. Real delivery to external providers and an HTTPS deployment have **not** been
 > verified yet. Help with that is very welcome.
@@ -89,11 +89,11 @@ The contract is in [docs/openapi.yaml](docs/openapi.yaml).
 
 ## Operator UI
 
-`frontend` is the operator UI for `/admin/v1`. The browser holds a session cookie, never a project API key.
+`apps/dashboard` is the operator UI for `/admin/v1`. The browser holds a session cookie, never a project API key.
 
 1. Create the first admin: `njiwa-mail user create -email you@example.com -role admin` (password on stdin).
 2. For local HTTP, set `ADMIN_INSECURE_COOKIES=true` in the API environment. Leave it false behind HTTPS.
-3. Start the API on `127.0.0.1:8080`. From `frontend`: `cp .env.example .env && npm install && npm run dev`.
+3. Start the API on `127.0.0.1:8080`. From `apps/dashboard`: `cp .env.example .env && npm install && npm run dev`.
 4. Open `http://localhost:3000` and sign in with that email and password.
 
 Vite proxies `/admin` to the API. The UI can create projects, keys, senders, templates and the rest of the admin surface. Message pages stay metadata-only. Inbound HTML is shown in a sandboxed frame. The older `/console` routes remain for the previous read-only session.
@@ -111,7 +111,7 @@ curl -X POST https://mail-api.example.com/v1/emails \
 Sandbox keys (`dmk_sbx_…`) never contact SMTP; messages end as `captured` (inspect with `njiwa-mail capture show -id ID`).
 Live keys (`dmk_liv_…`) submit through the active delivery profile (managed Postfix or your existing SMTP server; Mailcow is optional), initially only to recipients on the environment allowlist.
 
-**Public developer documentation** (landing page, quickstart, API reference, webhooks, setup guides, `llms.txt`, per-page Markdown, an agent skill): built from [documentation/](documentation/), deployed with [docs/public-portal/DEPLOY.md](docs/public-portal/DEPLOY.md), contributed to with [docs/public-portal/CONTRIBUTING.md](docs/public-portal/CONTRIBUTING.md). It is a static site you publish yourself; there is no central hosted instance.
+**Public developer documentation** (landing page, quickstart, API reference, webhooks, setup guides, `llms.txt`, per-page Markdown, an agent skill): built from [apps/docs/](apps/docs/), deployed with [docs/public-portal/DEPLOY.md](docs/public-portal/DEPLOY.md), contributed to with [docs/public-portal/CONTRIBUTING.md](docs/public-portal/CONTRIBUTING.md). It is a static site you publish yourself; there is no central hosted instance.
 
 Full contract: [docs/openapi.yaml](docs/openapi.yaml) (application API) and [docs/openapi-admin.yaml](docs/openapi-admin.yaml) (admin API); every route and table: [docs/ENDPOINTS.md](docs/ENDPOINTS.md). Client libraries/integration guide: [docs/INTEGRATION.md](docs/INTEGRATION.md), code in curl, Go, Node and Python: [docs/EXAMPLES.md](docs/EXAMPLES.md). Problem and error codes: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 Running it: [docs/OPERATIONS.md](docs/OPERATIONS.md).
@@ -129,7 +129,9 @@ go vet ./... && go test ./... -race -count=1
 ## Layout
 
 ```
-cmd/njiwa-mail   CLI entrypoint (serve | worker | inbound | scheduler | migrate | provisioning | ops)
+apps/dashboard/      React operator dashboard (Vite)
+apps/docs/           Public documentation website (Next.js + Fumadocs)
+cmd/njiwa-mail       CLI entrypoint (serve | worker | inbound | scheduler | migrate | provisioning | ops)
 internal/api         Fiber HTTP: application API, admin API, legacy console
 internal/service     auth, accept, dispatch state machine, templates, webhooks outbox, inbound, bounces, users, DNS, stats
 internal/worker      outbound claim/dispatch loop      internal/webhook   signed webhook delivery (SSRF-guarded)
@@ -137,7 +139,16 @@ internal/inbound     private SMTP listener + MIME/DSN parsing
 internal/mailer      MIME + SMTP transport             internal/tmpl      template engine + seed content (en, sw)
 internal/secure      AES-GCM + keyed HMAC              internal/db        GORM session, models, SQL migrations
 client/              dependency-free Go client and webhook verifier
-test/                acceptance tests                  deploy/            nginx + systemd; Dockerfile, compose.yaml at root
+njiwamail/           convenience wrapper for the Go client
+clients/typescript/  TypeScript client
+docs/                API contracts, setup guides, operations, and evidence
+docs/planning/       status, tasks, handoff, and original briefs (original/)
+test/                Go acceptance tests
+deploy/              nginx, systemd, and Prometheus configuration
+scripts/             discovery, backup, and recovery tools
+lab/                 disposable infrastructure validation environments
+skills/              distributable integration skill
+Dockerfile           backend image; compose*.yaml at root for stack management
 ```
 
 ## What a message can carry
@@ -159,7 +170,7 @@ the checks CI runs. Good places to start:
   Real-host runs with SELinux enforcing on AlmaLinux or Rocky Linux are especially wanted.
 - **Kiswahili and English wording** in the dashboard and the email templates.
 - **Client libraries and examples** beyond the [Go client](client/) and [docs/EXAMPLES.md](docs/EXAMPLES.md).
-- **Open items** in [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md) and [task.md](task.md).
+- **Open items** in [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md) and [task.md](docs/planning/task.md).
 
 Please report security problems privately, not in issues: see [SECURITY.md](SECURITY.md). Everyone taking part follows the
 [Code of Conduct](CODE_OF_CONDUCT.md).

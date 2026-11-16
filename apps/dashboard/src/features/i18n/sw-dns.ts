@@ -135,6 +135,6 @@ export const swDns: Record<string, string> = {
   "Every endpoint, the webhook signature steps, delivery setup and troubleshooting are in the public developer documentation, including pages written for coding agents (llms.txt).":
     "Kila endpoint, hatua za saini ya webhook, usanidi wa utumaji na utatuzi wa matatizo vipo kwenye nyaraka za wazi za wasanidi, pamoja na kurasa zilizoandikwa kwa mawakala wa uandishi wa msimbo (llms.txt).",
   "Open the documentation": "Fungua nyaraka",
-  "No documentation site is configured for this installation. Publish the one in documentation/ and set VITE_DOCS_URL.":
-    "Hakuna tovuti ya nyaraka iliyosanidiwa kwa usakinishaji huu. Chapisha ile iliyo kwenye documentation/ kisha weka VITE_DOCS_URL.",
+  "No documentation site is configured for this installation. Publish the one in apps/docs/ and set VITE_DOCS_URL.":
+    "Hakuna tovuti ya nyaraka iliyosanidiwa kwa usakinishaji huu. Chapisha ile iliyo kwenye apps/docs/ kisha weka VITE_DOCS_URL.",
 };

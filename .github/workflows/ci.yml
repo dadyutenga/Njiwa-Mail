@@ -33,15 +33,15 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm ci
-        working-directory: frontend
+        working-directory: apps/dashboard
       - run: npm run typecheck
-        working-directory: frontend
+        working-directory: apps/dashboard
       - run: npm run lint
-        working-directory: frontend
+        working-directory: apps/dashboard
       - run: npm test
-        working-directory: frontend
+        working-directory: apps/dashboard
       - run: npm run build
-        working-directory: frontend
+        working-directory: apps/dashboard
 
   image:
     runs-on: ubuntu-latest
@@ -238,15 +238,15 @@ jobs:
           printf 'ci-password-12345\n' | docker compose exec -T api njiwa-mail user create -email ci@example.com
           curl -fsS -o /dev/null http://127.0.0.1:3000/login
       - run: npm ci
-        working-directory: frontend
+        working-directory: apps/dashboard
       - run: npx playwright install --with-deps chromium
-        working-directory: frontend
+        working-directory: apps/dashboard
       - run: npm run e2e
-        working-directory: frontend
+        working-directory: apps/dashboard
         env: { CI: "1", E2E_BASE_URL: "http://127.0.0.1:3000" }
       - uses: actions/upload-artifact@v4
         if: failure()
-        with: { name: playwright-report, path: "frontend/playwright-report\nfrontend/test-results", retention-days: 7 }
+        with: { name: playwright-report, path: "apps/dashboard/playwright-report\napps/dashboard/test-results", retention-days: 7 }
       - if: always()
         run: docker compose down -v
 
@@ -259,30 +259,30 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "24" }
       - run: npm ci --ignore-scripts
-        working-directory: documentation
+        working-directory: apps/docs
       - run: node node_modules/fumadocs-mdx/bin.js
-        working-directory: documentation
+        working-directory: apps/docs
       - run: npm run typecheck
-        working-directory: documentation
+        working-directory: apps/docs
       - run: npm run lint
-        working-directory: documentation
+        working-directory: apps/docs
       - run: npm test
-        working-directory: documentation
+        working-directory: apps/docs
       - run: npm run build
-        working-directory: documentation
+        working-directory: apps/docs
         env: { NEXT_PUBLIC_DOCS_COMMIT: "${{ github.sha }}" }
       - run: npm run check:snippets
-        working-directory: documentation
+        working-directory: apps/docs
       - run: npm run check:export
-        working-directory: documentation
+        working-directory: apps/docs
         env: { NEXT_PUBLIC_DOCS_COMMIT: "${{ github.sha }}" }
       - run: npx playwright install --with-deps chromium
-        working-directory: documentation
+        working-directory: apps/docs
       - run: npx playwright test
-        working-directory: documentation
+        working-directory: apps/docs
       - uses: actions/upload-artifact@v4
         if: failure()
-        with: { name: docs-playwright, path: "documentation/test-results", retention-days: 7 }
+        with: { name: docs-playwright, path: "apps/docs/test-results", retention-days: 7 }
 
   # The docs container must start, serve every agent file with the right type, answer 404 for any
   # API path, and carry the commit it was built from.
@@ -291,12 +291,12 @@ jobs:
     needs: docs
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -f documentation/Dockerfile --build-arg DOCS_COMMIT=${{ github.sha }} -t njiwa-mail-docs:ci .
+      - run: docker build -f apps/docs/Dockerfile --build-arg DOCS_COMMIT=${{ github.sha }} -t njiwa-mail-docs:ci .
         env: { DOCKER_BUILDKIT: "1" }
       - run: |
           docker run -d --name docs --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true -p 127.0.0.1:8088:8080 njiwa-mail-docs:ci
           for i in $(seq 1 20); do curl -fsS -o /dev/null http://127.0.0.1:8088/docs && break; sleep 1; done
-          sh documentation/scripts/smoke.sh http://127.0.0.1:8088 "${{ github.sha }}"
+          sh apps/docs/scripts/smoke.sh http://127.0.0.1:8088 "${{ github.sha }}"
       - if: always()
         run: docker rm -f docs || true
 
@@ -322,6 +322,6 @@ jobs:
           mkdir sbom
           go list -m -json all > sbom/go-modules.json
           go version -m /tmp/a > sbom/binary-build-info.txt
-          (cd frontend && npm ci --ignore-scripts --no-audit --no-fund && npm ls --all --json > ../sbom/npm-packages.json || true)
+          (cd apps/dashboard && npm ci --ignore-scripts --no-audit --no-fund && npm ls --all --json > ../../sbom/npm-packages.json || true)
       - uses: actions/upload-artifact@v4
         with: { name: sbom, path: sbom, retention-days: 90 }

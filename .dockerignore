@@ -1,7 +1,6 @@
 .git
 .env
 *.env
-frontend/node_modules
-frontend/dist
+apps
 **/*_test.go
 docs

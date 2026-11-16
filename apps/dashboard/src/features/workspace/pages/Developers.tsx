@@ -687,7 +687,7 @@ export function ApiDocs() {
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">
             {phrase(
-              "No documentation site is configured for this installation. Publish the one in documentation/ and set VITE_DOCS_URL.",
+              "No documentation site is configured for this installation. Publish the one in apps/docs/ and set VITE_DOCS_URL.",
             )}
           </p>
         )}

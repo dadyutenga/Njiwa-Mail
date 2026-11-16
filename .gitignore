@@ -4,5 +4,5 @@
 /bin/
 /dm
 
-frontend/playwright-report/
-frontend/test-results/
+apps/dashboard/playwright-report/
+apps/dashboard/test-results/

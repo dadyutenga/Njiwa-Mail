@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Problems are reported with a stable **code**: in the dashboard (Installation, Delivery infrastructure), in `GET /admin/v1/installation` (`problem_code`) and in `njiwa-mail preflight`. The fix text below is the one the dashboard shows; it is kept in `frontend/src/features/installation/Installation.tsx` (`problemFixes`). Codes returned by API calls are in the second half.
+Problems are reported with a stable **code**: in the dashboard (Installation, Delivery infrastructure), in `GET /admin/v1/installation` (`problem_code`) and in `njiwa-mail preflight`. The fix text below is the one the dashboard shows; it is kept in `apps/dashboard/src/features/installation/Installation.tsx` (`problemFixes`). Codes returned by API calls are in the second half.
 
 ## Readiness and connection problems
 

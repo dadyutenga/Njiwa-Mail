@@ -6,7 +6,7 @@ import YAML from "yaml";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const CONTENT = path.join(ROOT, "content", "docs");
-export const REPO = path.resolve(ROOT, "..");
+export const REPO = path.resolve(ROOT, "..", "..");
 
 export function readMeta(dir) {
   const f = path.join(dir, "meta.json");

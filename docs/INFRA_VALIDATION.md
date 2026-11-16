@@ -1,6 +1,6 @@
 # Infrastructure validation checklist (real-host evidence)
 
-Status: **plan only. Nothing here has been run, provisioned or approved.** Source of every test ID and acceptance criterion: `HANDOFF.md`
+Status: **plan only. Nothing here has been run, provisioned or approved.** Source of every test ID and acceptance criterion: `docs/planning/HANDOFF.md`
 sections 3 and 4 (commit `f18cf11`). Where this file adds something (sizing advice, safety steps) it says so.
 
 **Installation vs validation.** This file is what the *project* runs to validate a release. It is not what a user needs to
@@ -19,11 +19,11 @@ providers use a public VPS.
    DMARC or MX records on a name Mailcow sends or receives mail for.
 4. **Recipients are the owner's own Gmail and Outlook mailboxes only**, plus the deliberate non-existent Gmail address for E07. Low volume.
 5. **Never write "delivered"** from SMTP acceptance. Delivery evidence is the received message and its headers.
-6. Evidence goes in `docs/evidence/<ID>.md` with addresses removed, and a row in `STATUS.md`.
+6. Evidence goes in `docs/evidence/<ID>.md` with addresses removed, and a row in `docs/planning/STATUS.md`.
 
 ## 1. Tests and acceptance criteria
 
-| ID | What | Acceptance (from HANDOFF.md) |
+| ID | What | Acceptance (from docs/planning/HANDOFF.md) |
 |---|---|---|
 | **G05** (3.1, P0 blocker) | Managed mode end to end on a fresh server | Gmail **and** Outlook both show `spf=pass`, `dkim=pass header.d=<sending domain> header.s=<selector>`, `dmarc=pass`; headers saved in `docs/evidence/G05.md`; the systemd path worked or was fixed; STATUS row. Also: preflight lines all `pass` or understood; connection test on the managed profile passes; readiness shows every required step ready; port 25 refuses relaying (`554 5.7.1`); submission without the client certificate is refused; "Check signature" records DKIM proof; log collector `njiwa-mail-mta-log` shows delivery evidence on the message page; HTTPS in front of the API |
 | **E06** (3.2) | Direct-to-MX delivery, queue durability | 3+ external providers show `remote_accepted` in `njiwa-mail mta-log`; with outbound 25 blocked a message sits `deferred` in `postqueue -p`, survives a reboot, and is delivered after unblocking; the queue survives `apt-get upgrade postfix` with mail queued; STATUS row |
@@ -145,7 +145,7 @@ from the list; destroying the VPS is the full reset. None of this involves `rida
 
 ## 6. Evidence needed to call each mode production-ready
 
-**Managed delivery** is ready only when all of these are recorded in `docs/evidence/` and `STATUS.md`:
+**Managed delivery** is ready only when all of these are recorded in `docs/evidence/` and `docs/planning/STATUS.md`:
 G05 headers from Gmail and Outlook (SPF, DKIM, DMARC pass, inbox vs spam noted); E06 (3+ providers, reboot and upgrade durability); E07 + F06 + D04
 (real bounce, suppression, webhook, `correlated_by = verp`); E10 (queue controls, audit rows); E05 HELO matches PTR; E12 on all three distros
 with the compatibility table; the closed-port `nmap` result and the managed e2e suite output from the host; the backup, restore and e2e result

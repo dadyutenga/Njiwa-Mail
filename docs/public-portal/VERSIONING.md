@@ -6,7 +6,7 @@
 - Webhook payloads carry their own `schema_version`; the operator pins endpoints per version (see the Webhooks page).
 - Minor documentation versions (`1.1`, …) are published when the contract grows compatibly. They replace `1.0` as "latest"; the version string, the source commit and the OpenAPI file are stamped into every generated file.
 - A published version is immutable except for fixing errors; a correction is a new commit and the same version.
-- To add an archived version: add its content tree and an entry to `documentation/lib/versions.ts` (and `scripts/generate-assets.mjs`), keep `docs/openapi.yaml` for each version under its own name, and extend the export check. The selector then switches between them keeping the page when it exists in both.
+- To add an archived version: add its content tree and an entry to `apps/docs/lib/versions.ts` (and `scripts/generate-assets.mjs`), keep `docs/openapi.yaml` for each version under its own name, and extend the export check. The selector then switches between them keeping the page when it exists in both.
 - Today exactly one version is published (`1.0`).
 
 ## Release steps
