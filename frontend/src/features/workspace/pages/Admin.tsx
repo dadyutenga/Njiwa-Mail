@@ -1530,59 +1530,78 @@ export function Audit() {
         description={phrase("Every change made by a person or an API key.")}
       />
       <form
-        className="mb-4 flex flex-wrap items-end gap-2"
+        className="relative mb-4"
         onSubmit={(e) => {
           e.preventDefault();
           setQuery(draft.trim());
         }}
       >
-        <Field label={phrase("Search the log")} className="min-w-64 flex-1">
-          <input
-            className={inputClass}
-            type="search"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={phrase("Actor, action, or target")}
-          />
-        </Field>
-        <Button type="submit">{phrase("Search")}</Button>
-        {query && (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setDraft("");
-              setQuery("");
-            }}
-          >
-            {phrase("Clear")}
-          </Button>
-        )}
+        <div aria-hidden className="absolute inset-0 rounded-2xl bg-gradient-to-r from-sky-400/35 to-emerald-300/30" />
+        <div className="relative flex flex-wrap items-end gap-2 rounded-2xl border border-white/70 bg-white/40 p-4 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10">
+          <Field label={phrase("Search the log")} className="min-w-64 flex-1">
+            <input
+              className={inputClass}
+              type="search"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={phrase("Actor, action, or target")}
+            />
+          </Field>
+          <Button type="submit">{phrase("Search")}</Button>
+          {query && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDraft("");
+                setQuery("");
+              }}
+            >
+              {phrase("Clear")}
+            </Button>
+          )}
+          {query && (
+            <p className="w-full text-xs text-muted-foreground">
+              {phrase("Showing events that match")} <strong>{query}</strong>
+            </p>
+          )}
+        </div>
       </form>
-      <DataState q={q}>
+      <DataState
+        q={q}
+        isEmpty={(d) => d.items.length === 0}
+        empty={
+          <div className="rounded-xl border bg-card px-6 py-12 text-center">
+            <p className="font-semibold">{phrase("No events match this search.")}</p>
+          </div>
+        }
+      >
         {(d) => (
           <>
-            <Table
-              rows={d.items}
-              rowKey={(r) => s(r.id)}
-              columns={[
-                { key: "at", label: phrase("When"), render: (r) => <Time value={r.at} /> },
-                { key: "actor", label: phrase("Actor") },
-                { key: "action", label: phrase("Action") },
-                {
-                  key: "target",
-                  label: phrase("Target"),
-                  render: (r) => `${s(r.target_type)} ${s(r.target_id)}`,
-                },
-                {
-                  key: "details",
-                  label: phrase("Details"),
-                  render: (r) => (
-                    <code className="text-xs">{r.details ? JSON.stringify(r.details) : ""}</code>
-                  ),
-                },
-              ]}
-            />
+            <ol className="space-y-2">
+              {d.items.map((r) => (
+                <li key={s(r.id)} className="rounded-xl border bg-card p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <code className="text-sm font-semibold">{s(r.action)}</code>
+                      <p className="mt-1 text-sm text-muted-foreground">{s(r.actor) || "—"}</p>
+                    </div>
+                    <Time value={r.at} />
+                  </div>
+                  <p className="mt-3 text-sm">
+                    <span className="text-muted-foreground">{phrase("Target")}: </span>
+                    {s(r.target_type)} {s(r.target_id)}
+                  </p>
+                  {r.details != null &&
+                    typeof r.details === "object" &&
+                    Object.keys(r.details as object).length > 0 && (
+                    <pre className="mt-2 overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                      {JSON.stringify(r.details)}
+                    </pre>
+                  )}
+                </li>
+              ))}
+            </ol>
             <Pager page={d} />
           </>
         )}
