@@ -1088,7 +1088,9 @@ export function Analytics() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-medium text-muted-foreground">{phrase("Sending mode")}</p>
-            <div className="mt-2 inline-flex rounded-lg border p-1" role="group" aria-label={phrase("Sending mode")}>
+            <div className="relative mt-2 inline-flex">
+              <div aria-hidden className="absolute inset-0 rounded-xl bg-gradient-to-r from-sky-400/45 to-emerald-300/40" />
+              <div className="relative inline-flex rounded-xl border border-white/70 bg-white/35 p-1 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10" role="group" aria-label={phrase("Sending mode")}>
               {(
                 [
                   ["live", phrase("Live — send to real recipients")],
@@ -1099,17 +1101,20 @@ export function Analytics() {
                   key={mode}
                   type="button"
                   aria-pressed={env === mode}
-                  className={`rounded-md px-3 py-1.5 text-sm ${env === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  className={`rounded-lg px-3 py-1.5 text-sm backdrop-blur ${env === mode ? "bg-white/75 text-foreground shadow-sm dark:bg-white/20 dark:text-white" : "text-muted-foreground hover:bg-white/40 dark:hover:bg-white/10"}`}
                   onClick={() => setEnv(mode)}
                 >
                   {label}
                 </button>
               ))}
+              </div>
             </div>
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground">{phrase("Period")}</p>
-            <div className="mt-2 inline-flex rounded-lg border p-1" role="group" aria-label={phrase("Period")}>
+            <div className="relative mt-2 inline-flex">
+              <div aria-hidden className="absolute inset-0 rounded-xl bg-gradient-to-r from-emerald-300/40 to-sky-400/45" />
+              <div className="relative inline-flex rounded-xl border border-white/70 bg-white/35 p-1 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10" role="group" aria-label={phrase("Period")}>
               {(
                 [
                   ["7", phrase("Last 7 days")],
@@ -1121,12 +1126,13 @@ export function Analytics() {
                   key={value}
                   type="button"
                   aria-pressed={days === value}
-                  className={`rounded-md px-3 py-1.5 text-sm ${days === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  className={`rounded-lg px-3 py-1.5 text-sm backdrop-blur ${days === value ? "bg-white/75 text-foreground shadow-sm dark:bg-white/20 dark:text-white" : "text-muted-foreground hover:bg-white/40 dark:hover:bg-white/10"}`}
                   onClick={() => setDays(value)}
                 >
                   {label}
                 </button>
               ))}
+              </div>
             </div>
           </div>
           <p className="text-sm text-muted-foreground" role="status">
