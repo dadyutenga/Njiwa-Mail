@@ -36,7 +36,7 @@ type Warning = { code: string; severity: "info" | "warning" | "blocker"; message
 type Plan = {
   items: PlanItem[];
   warnings: Warning[];
-  existing_mail: string[];
+  existing_mail: string[] | null;
   blocked: boolean;
   required_acks: string[];
   rollback: string;
@@ -543,6 +543,7 @@ function ReviewPanel({
 }) {
   const phrase = usePhrase();
   const plan = setup.plan;
+  const existingMail = plan.existing_mail ?? [];
   const by = (a: PlanItem["action"]) => plan.items.filter((i) => i.action === a);
   const [acked, setAcked] = useState<Record<string, boolean>>({});
   const actionable = by("create").length + by("modify").length;
@@ -593,9 +594,9 @@ function ReviewPanel({
           ))}
         </ul>
       )}
-      {plan.existing_mail.length > 0 && (
+      {existingMail.length > 0 && (
         <p className="text-sm">
-          {phrase("Existing email detected")}: <strong>{plan.existing_mail.join(", ")}</strong>
+          {phrase("Existing email detected")}: <strong>{existingMail.join(", ")}</strong>
         </p>
       )}
       <Group title={phrase("Will be created")} items={by("create")} />

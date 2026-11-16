@@ -57,44 +57,60 @@ const recordName: Record<string, string> = {
 function AddDomainDialog({
   open,
   onOpenChange,
+  domain,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  domain?: Row;
 }) {
   const phrase = usePhrase();
   const { api, to } = useWorkspace();
   const key = useWsKey();
   const client = useQueryClient();
   const navigate = useNavigate();
-  const [name, setName] = useState("");
-  const [purpose, setPurpose] = useState("sending");
-  const [bulk, setBulk] = useState(false);
+  const editing = !!domain;
+  const [name, setName] = useState(s(domain?.name));
+  const [purpose, setPurpose] = useState(s(domain?.purpose) || "sending");
+  const [bulk, setBulk] = useState(!!domain?.bulk);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const valid = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(name.trim());
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogTitle>{phrase("Add domain")}</DialogTitle>
+        <DialogTitle>{editing ? phrase("Edit domain") : phrase("Add domain")}</DialogTitle>
         <DialogDescription>
-          {phrase("You will get the DNS records to publish next.")}
+          {editing
+            ? phrase(
+                "Change how this project uses the domain. A purpose change requires another DNS check.",
+              )
+            : phrase("You will get the DNS records to publish next.")}
         </DialogDescription>
         <form
           className="space-y-4"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!valid) return setError(phrase("Enter a domain such as notify.example.com"));
+            if (!editing && !valid)
+              return setError(phrase("Enter a domain such as notify.example.com"));
             setBusy(true);
             setError("");
             try {
-              const r = await api.send<{ id: string }>("/domains", "POST", {
-                name: name.trim().toLowerCase(),
-                purpose,
-                bulk,
-              });
+              const r = editing
+                ? await api.send<{ id: string }>(`/domains/${s(domain.id)}`, "PATCH", {
+                    purpose,
+                    bulk,
+                  })
+                : await api.send<{ id: string }>("/domains", "POST", {
+                    name: name.trim().toLowerCase(),
+                    purpose,
+                    bulk,
+                  });
               client.invalidateQueries({ queryKey: key("domains") });
+              client.invalidateQueries({ queryKey: key("domain", r.id) });
+              client.invalidateQueries({ queryKey: key("checklist") });
+              client.invalidateQueries({ queryKey: ["installation", "setup"] });
               onOpenChange(false);
-              navigate(to(`domains/${r.id}`), { state: { created: true } });
+              if (!editing) navigate(to(`domains/${r.id}`), { state: { created: true } });
             } catch (err) {
               setError(errorMessage(err));
             } finally {
@@ -102,17 +118,26 @@ function AddDomainDialog({
             }
           }}
         >
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
           <Field
             label={phrase("Domain")}
-            error={error}
-            hint={phrase(
-              "A subdomain such as notify.example.com keeps mail separate from your main domain.",
-            )}
+            hint={
+              editing
+                ? phrase("To use a different domain name, add a new domain.")
+                : phrase(
+                    "A subdomain such as notify.example.com keeps mail separate from your main domain.",
+                  )
+            }
           >
             <input
               autoFocus
               className={inputClass}
               value={name}
+              readOnly={editing}
               onChange={(e) => setName(e.target.value)}
               placeholder="notify.example.com"
             />
@@ -144,9 +169,19 @@ function AddDomainDialog({
               </span>
             </span>
           </label>
-          <Button type="submit" disabled={busy || !valid}>
-            {busy ? phrase("Adding…") : phrase("Add domain")}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={busy || (!editing && !valid)}>
+              {busy ? phrase("Saving…") : editing ? phrase("Save domain") : phrase("Add domain")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onOpenChange(false)}
+            >
+              {phrase("Cancel")}
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -168,6 +203,8 @@ export function Domains() {
   const [attention, setAttention] = useParam("attention");
   const [search, setSearch] = useState(q);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const client = useQueryClient();
   const offset = useOffset();
   const params = new URLSearchParams({ limit: "50", offset: String(offset) });
   if (q) params.set("q", q);
@@ -288,6 +325,38 @@ export function Domains() {
                   label: phrase("Last checked"),
                   render: (r) => <Time value={r.last_checked_at} relative />,
                 },
+                {
+                  key: "actions",
+                  label: phrase("Actions"),
+                  render: (r) => (
+                    <div className="flex gap-2" onKeyDown={(e) => e.stopPropagation()}>
+                      <Button size="sm" variant="outline" onClick={() => setEditing(r)}>
+                        {phrase("Edit")}
+                      </Button>
+                      <ConfirmButton
+                        title={`${phrase("Delete this domain?")} ${s(r.name)}`}
+                        description={phrase(
+                          "Deleting removes this domain from the project and stops Live sending from it. Existing DNS records are kept. Domains used by senders or mailboxes cannot be deleted.",
+                        )}
+                        confirm="Delete domain"
+                        onConfirm={async () => {
+                          if (
+                            await run(
+                              () => api.send(`/domains/${s(r.id)}`, "DELETE"),
+                              phrase("Domain deleted."),
+                            )
+                          ) {
+                            client.invalidateQueries({ queryKey: key("domains") });
+                            client.invalidateQueries({ queryKey: key("checklist") });
+                            client.invalidateQueries({ queryKey: ["installation", "setup"] });
+                          }
+                        }}
+                      >
+                        {phrase("Delete")}
+                      </ConfirmButton>
+                    </div>
+                  ),
+                },
               ]}
             />
             <Pager page={d} />
@@ -295,6 +364,16 @@ export function Domains() {
         )}
       </DataState>
       <AddDomainDialog open={adding} onOpenChange={setAdding} />
+      {editing && (
+        <AddDomainDialog
+          key={s(editing.id)}
+          domain={editing}
+          open
+          onOpenChange={(open) => {
+            if (!open) setEditing(null);
+          }}
+        />
+      )}
     </>
   );
 }

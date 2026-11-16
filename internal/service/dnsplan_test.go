@@ -1,11 +1,27 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/njiwa-tz/mail/internal/dnsprovider"
 )
+
+func TestDNSPlanNoExistingMailEncodesAnEmptyList(t *testing.T) {
+	p := BuildDNSPlan(baseIn())
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if string(wire["existing_mail"]) != "[]" {
+		t.Fatalf("existing_mail must be an empty JSON array, got %s", wire["existing_mail"])
+	}
+}
 
 func rec(typ, name, content string, extra ...any) dnsprovider.Record {
 	r := dnsprovider.Record{ID: "id-" + typ + "-" + name + "-" + content, Type: typ, Name: name, Content: content, TTL: 300, Modified: "m1"}

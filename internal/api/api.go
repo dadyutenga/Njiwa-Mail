@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/service"
 )
@@ -43,6 +44,9 @@ type Server struct {
 
 	// MTA is the host agent behind the mail queue controls (E10); nil when none is configured.
 	MTA MTAAgent
+	// DiscoverHost is set only for a native host process; containers use the host agent.
+	DiscoverHost   func(context.Context) (*discover.Report, error)
+	DiscoveryNeeds discover.Needs
 }
 
 const (

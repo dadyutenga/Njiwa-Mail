@@ -400,3 +400,16 @@ it("a rejected connection asks to connect again", async () => {
   expect(await screen.findByLabelText("API token")).toBeInTheDocument();
   expect(current()).toContain("Connect Cloudflare");
 });
+
+it.each(["analyzed", "blocked"])(
+  "renders a DNS review with no existing mail services (%s)",
+  async (status) => {
+    renderWizard({
+      conns: [conn],
+      setup: setupRow(status, { plan: plan({ existing_mail: null }) }),
+    });
+    expect(
+      await screen.findByRole("button", { name: "Approve these exact changes" }),
+    ).toBeInTheDocument();
+  },
+);

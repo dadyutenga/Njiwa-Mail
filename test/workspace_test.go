@@ -131,6 +131,9 @@ func TestWorkspaceDomainsSendersAndChecklist(t *testing.T) {
 		t.Fatalf("senders: %v", senders)
 	}
 	// Domain delete blocked while used, and names the user.
+	if r := e.adm(admin, "PATCH", wsBase+"/domains/"+domainID, map[string]any{"purpose": "receiving", "bulk": false}); r.Code != 409 || errCode(r) != "domain_in_use" {
+		t.Fatalf("cannot remove sending purpose while used: %d %s", r.Code, r.Raw)
+	}
 	if r := e.adm(admin, "DELETE", wsBase+"/domains/"+domainID, nil); r.Code != 409 || !strings.Contains(r.Raw, "hello@notify.example.com") {
 		t.Fatalf("delete in-use domain: %d %s", r.Code, r.Raw)
 	}
@@ -140,6 +143,39 @@ func TestWorkspaceDomainsSendersAndChecklist(t *testing.T) {
 	cl := e.admOK(admin, "GET", wsBase+"/checklist", nil).JSON
 	if st := stepByKey(cl, "domain"); st["done"] != false {
 		t.Fatalf("checklist after delete: %v", cl["steps"])
+	}
+}
+
+func TestWorkspaceDomainSettings(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.must(e.svc.CreateProject(ctx, "sacas"))
+	e.must(e.svc.CreateProject(ctx, "other"))
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	created := e.admOK(admin, "POST", wsBase+"/domains", map[string]any{"name": "notify.example.com", "purpose": "sending"})
+	id := str(created.JSON, "id")
+	path := wsBase + "/domains/" + id
+	_, err := e.pool.Exec(ctx, `UPDATE domains SET verified_at=now(), spf_ok=true, dkim_ok=true, dmarc_ok=true, mx_ok=true, last_checked_at=now() WHERE id=$1`, id)
+	e.must(err)
+	updated := e.admOK(admin, "PATCH", path, map[string]any{"purpose": "sending", "bulk": true})
+	if updated.JSON["bulk"] != true || updated.JSON["spf_ok"] != true {
+		t.Fatalf("bulk setting should preserve DNS checks: %s", updated.Raw)
+	}
+	updated = e.admOK(admin, "PATCH", path, map[string]any{"purpose": "both", "bulk": false})
+	if updated.JSON["purpose"] != "both" || updated.JSON["bulk"] != false || updated.JSON["spf_ok"] != false || updated.JSON["mx_ok"] != false || updated.JSON["verified_at"] == nil {
+		t.Fatalf("purpose changes require fresh checks, preserving ownership: %s", updated.Raw)
+	}
+	if r := e.adm(admin, "PATCH", path, map[string]any{"purpose": "invalid", "bulk": false}); r.Code != 400 {
+		t.Fatalf("invalid purpose: %d %s", r.Code, r.Raw)
+	}
+	if r := e.adm(admin, "PATCH", path, map[string]any{"bulk": false}); r.Code != 422 {
+		t.Fatalf("incomplete edit: %d %s", r.Code, r.Raw)
+	}
+	if r := e.adm(admin, "PATCH", "/admin/v1/w/other/live/domains/"+id, map[string]any{"purpose": "sending", "bulk": false}); r.Code != 404 {
+		t.Fatalf("cross-project edit: %d %s", r.Code, r.Raw)
+	}
+	if e.count(`SELECT count(*) FROM audit_log WHERE action='domain.update'`) != 2 {
+		t.Fatal("domain edits must be audited")
 	}
 }
 

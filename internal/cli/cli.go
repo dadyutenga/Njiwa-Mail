@@ -393,8 +393,18 @@ func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	if cfg.MTAAgentSocket != "" {
 		agent = mtaagent.NewClient(cfg.MTAAgentSocket, cfg.MTAAgentToken)
 	}
+	var scanHost func(context.Context) (*discover.Report, error)
+	if os.Getenv("NJIWA_LOCAL_DISCOVERY") == "true" {
+		scanHost = func(ctx context.Context) (*discover.Report, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return discover.Scan(discover.HostEnv(true)), nil
+		}
+	}
 	app := (&api.Server{
-		MTA: agent,
+		MTA:          agent,
+		DiscoverHost: scanHost, DiscoveryNeeds: discoverNeeds(),
 		Svc: svc, MaxBodyBytes: cfg.MaxBodyBytes, EmailMaxBytes: 6 << 20,
 		ConsolePassword: cfg.ConsolePassword, SessionTTL: cfg.ConsoleSessionTTL,
 		SMTPConfigured: cfg.SMTP.Configured(),

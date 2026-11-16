@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,49 @@ import (
 	"github.com/njiwa-tz/mail/internal/installer/discover"
 	"github.com/njiwa-tz/mail/internal/service"
 )
+
+func TestDashboardDiscoveryScansAndRecordsForTheOperator(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	owner := e.user("owner@njiwa.co.tz", "owner")
+	const path = "/admin/v1/installation/discovery"
+	if r := e.adm(owner, "POST", path, nil); r.Code != 409 || errCode(r) != "host_discovery_unavailable" {
+		t.Fatalf("missing host scanner: %d %s", r.Code, r.Raw)
+	}
+	calls := 0
+	e.srv.DiscoverHost = func(context.Context) (*discover.Report, error) {
+		calls++
+		return &discover.Report{ScannedAt: time.Now().UTC(), Host: discover.Host{OS: "Fedora", OSID: "fedora", OSVersion: "43", Systemd: true}}, nil
+	}
+	if _, err := e.svc.CreateUserWith(ctx, "member@njiwa.co.tz", adminPass, "admin", false); err != nil {
+		t.Fatal(err)
+	}
+	member := e.login("member@njiwa.co.tz")
+	if r := e.adm(member, "POST", path, nil); r.Code != 403 || calls != 0 {
+		t.Fatalf("member triggered scan: %d calls=%d", r.Code, calls)
+	}
+	r := e.admOK(owner, "POST", path, nil)
+	if calls != 1 || r.JSON["recorded_at"] == nil || !strings.Contains(r.Raw, "Fedora") {
+		t.Fatalf("scan result: calls=%d %s", calls, r.Raw)
+	}
+	if e.count(`SELECT count(*) FROM audit_log WHERE action='installation.discovery'`) != 1 {
+		t.Fatal("dashboard scan was not audited")
+	}
+	j := e.admOK(owner, "GET", "/admin/v1/installation/setup", nil)
+	for _, step := range j.JSON["steps"].([]any) {
+		m := step.(map[string]any)
+		if m["id"] == "detect" && m["status"] != "ready" {
+			t.Fatalf("scan did not complete setup step 2: %v", m)
+		}
+	}
+	e.srv.DiscoverHost = func(context.Context) (*discover.Report, error) { return nil, errors.New("offline") }
+	if r := e.adm(owner, "POST", path, nil); r.Code != 502 {
+		t.Fatalf("failed scan: %d %s", r.Code, r.Raw)
+	}
+	if e.count(`SELECT count(*) FROM audit_log WHERE action='installation.discovery'`) != 1 {
+		t.Fatal("failed scan replaced the last successful report")
+	}
+}
 
 // Installation step 2: the host CLI records a read-only discovery report; the
 // setup wizard reads it back. Operator only; audited; nothing secret stored.

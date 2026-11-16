@@ -1,6 +1,14 @@
 // Kiswahili for the DNS setup wizard (Cloudflare). Keys are the exact English text passed to phrase().
 // Needs a native-speaker review, like the rest of the Kiswahili.
 export const swDns: Record<string, string> = {
+  "Edit domain": "Hariri kikoa",
+  "Save domain": "Hifadhi kikoa",
+  "Change how this project uses the domain. A purpose change requires another DNS check.":
+    "Badilisha jinsi mradi huu unavyotumia kikoa. Kubadili matumizi kunahitaji ukaguzi mwingine wa DNS.",
+  "To use a different domain name, add a new domain.":
+    "Ili kutumia jina tofauti la kikoa, ongeza kikoa kipya.",
+  "Deleting removes this domain from the project and stops Live sending from it. Existing DNS records are kept. Domains used by senders or mailboxes cannot be deleted.":
+    "Kufuta huondoa kikoa hiki kwenye mradi na kusimamisha utumaji wa Live kutoka kwake. Rekodi za DNS zilizopo zinahifadhiwa. Vikoa vinavyotumiwa na watumaji au visanduku vya barua haviwezi kufutwa.",
   "API token": "Tokeni ya API",
   Action: "Kitendo",
   "Add domain": "Ongeza kikoa",

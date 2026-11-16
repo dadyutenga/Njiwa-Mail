@@ -126,6 +126,17 @@ paths:
       summary: Installation readiness (operator)
       description: Readiness is computed by the backend; a step is never green without evidence (`cannot_confirm` otherwise).
       responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { readiness: { type: object, properties: { mode: { type: string }, status: { type: string }, steps: { type: array, items: { $ref: '#/components/schemas/ProblemStep' } } } }, environment_override: { type: boolean } } } } } } }
+  /admin/v1/installation/discovery:
+    get:
+      summary: Read the latest recorded host scan (operator)
+      responses: { '200': { description: Latest report and recorded_at, or null before the first scan } }
+    post:
+      summary: Run and record a read-only host scan (operator, CSRF required)
+      description: Uses the connected host agent, or the native host scanner enabled by go run . for development. Never changes host configuration. Records an audit event and completes setup step 2 only after storing the report. No request body or arbitrary host command is accepted. Scan limitations are included in report.limits.
+      responses:
+        '200': { description: Recorded report and recorded_at }
+        '409': { description: Host scanner unavailable; configure the host agent or use the host CLI }
+        '502': { description: Host agent scan failed; previous report preserved }
   /admin/v1/installation/wizard:
     put:
       summary: Persist the confirmed delivery mode (operator); never switches an active transport
@@ -217,6 +228,17 @@ paths:
   /admin/v1/w/{project}/{mode}/transport-test:
     parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string, enum: [live, sandbox] } }]
     post: { summary: Send a controlled test through the real queue and worker; the final outcome becomes the profile's test_send check, responses: { '200': { description: queued } } }
+  /admin/v1/w/{project}/{mode}/domains/{id}:
+    parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    patch:
+      summary: Edit a domain's purpose and bulk-only setting
+      description: The domain name and ownership verification stay fixed. Changing purpose withdraws DNS check results until the next check. Refused if existing senders or mailboxes require a purpose being removed. Audited and scoped to the current project.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [purpose, bulk], properties: { purpose: { type: string, enum: [sending, receiving, both] }, bulk: { type: boolean } } } } } }
+      responses: { '200': { description: Updated domain }, '404': { $ref: '#/components/responses/Err' }, '409': { $ref: '#/components/responses/Err' }, '422': { $ref: '#/components/responses/Err' } }
+    delete:
+      summary: Remove a domain from the project
+      description: Refused while senders or mailboxes use it. Existing provider DNS records are left in place. Audited and scoped to the current project.
+      responses: { '200': { description: Deleted }, '409': { $ref: '#/components/responses/Err' } }
   /admin/v1/w/{project}/{mode}/domains/{id}/return-path:
     parameters: [{ name: project, in: path, required: true, schema: { type: string } }, { name: mode, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: string, format: uuid } }]
     put:

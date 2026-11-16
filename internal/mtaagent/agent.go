@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 )
 
 // Runner runs a host command. The real one is ExecRunner; tests use a fake.
@@ -115,6 +117,8 @@ type Agent struct {
 	Signer string
 	// Postfix is the unit checked for Status (default postfix).
 	Postfix string
+	// DiscoveryEnv overrides the host environment in tests.
+	DiscoveryEnv *discover.Env
 
 	mu sync.Mutex // one command at a time: postsuper and postqueue must not interleave
 }
@@ -141,6 +145,13 @@ func (a *Agent) Handler() http.Handler {
 	mux.HandleFunc("POST /flush", a.guard(a.flush))
 	mux.HandleFunc("POST /domains/plan", a.guard(a.domains))
 	mux.HandleFunc("POST /domains/apply", a.guard(a.domains))
+	mux.HandleFunc("POST /discovery", a.guard(func(w http.ResponseWriter, r *http.Request) {
+		env := discover.HostEnv(true)
+		if a.DiscoveryEnv != nil {
+			env = *a.DiscoveryEnv
+		}
+		writeJSON(w, http.StatusOK, discover.Scan(env))
+	}))
 	return mux
 }
 

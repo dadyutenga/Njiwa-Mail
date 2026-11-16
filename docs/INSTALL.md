@@ -84,6 +84,13 @@ any point and continue later from any device, because every step is read from th
 
 2. **Detect what is already on the server** (read-only; changes nothing):
 
+   If the dashboard is already running, open **Delivery infrastructure** and press **Scan this server** at step 2.
+   This records the result and updates the setup journey. `go run .` enables scanning on the development host;
+   container deployments use the configured host agent. Checks that could not be completed appear in the report.
+   From a source checkout, the terminal equivalent is `go run . discover -record`; an installed binary is not required.
+
+   Before the application is running, or without the host agent, use:
+
    ```bash
    sh scripts/discover.sh
    ```

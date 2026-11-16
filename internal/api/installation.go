@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 	"github.com/njiwa-tz/mail/internal/installer/managed"
 	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/mtaagent"
@@ -118,6 +119,34 @@ func (s *Server) installationRoutes(app *fiber.App) {
 	})
 	// What the latest read-only host discovery found (njiwa-mail discover -record).
 	h("GET", "/discovery", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.Discovery(reqCtx(c))
+	})
+	h("POST", "/discovery", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		scan := s.DiscoverHost
+		if agent, ok := s.MTA.(interface {
+			Discover(context.Context) (*discover.Report, error)
+		}); ok {
+			scan = agent.Discover
+		}
+		if scan == nil {
+			return nil, &service.Error{Status: 409, Code: "host_discovery_unavailable", Message: "Connect the host agent to scan this server. For local development, restart with go run .; alternatively run go run . discover -record from the project folder on the host."}
+		}
+		report, err := scan(reqCtx(c))
+		if err != nil {
+			return nil, mtaErr(err)
+		}
+		if report == nil {
+			return nil, &service.Error{Status: 502, Code: "host_discovery_failed"}
+		}
+		needs := s.DiscoveryNeeds
+		if needs.APIPort == 0 {
+			needs = discover.DefaultNeeds()
+		}
+		recommendation := discover.Recommend(report, needs)
+		report.Recommendation = &recommendation
+		if err := svc.RecordDiscovery(reqCtx(c), u.Actor(), report); err != nil {
+			return nil, err
+		}
 		return svc.Discovery(reqCtx(c))
 	})
 	h("GET", "", func(c fiber.Ctx, u *service.AdminUser) (any, error) {

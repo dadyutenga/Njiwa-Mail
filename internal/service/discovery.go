@@ -8,10 +8,9 @@ import (
 	"github.com/njiwa-tz/mail/internal/installer/discover"
 )
 
-// Host discovery (installation step 2). The scan runs on the host as a CLI
-// command (the web process cannot and must not inspect the host); it records
-// its report here so the setup wizard can show what was found and recommend
-// a delivery mode.
+// Host discovery (installation step 2). The CLI, native development process,
+// or host agent scans the host; containers never scan their own filesystem
+// as though it were the host. Reports are recorded for the setup wizard.
 
 // RecordDiscovery stores the latest discovery report.
 func (s *Service) RecordDiscovery(ctx context.Context, a Actor, r *discover.Report) error {

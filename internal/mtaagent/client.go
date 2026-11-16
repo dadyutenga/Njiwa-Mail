@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 )
 
 // ErrUnreachable means the agent could not be contacted at all.
@@ -20,6 +22,15 @@ type Client struct {
 	Socket string
 	Token  string
 	http   *http.Client
+}
+
+// Discover runs a read-only scan on the host, outside the API container.
+func (c *Client) Discover(ctx context.Context) (*discover.Report, error) {
+	var report discover.Report
+	if err := c.do(ctx, "POST", "/discovery", &report); err != nil {
+		return nil, err
+	}
+	return &report, nil
 }
 
 // NewClient builds a client for the agent socket.

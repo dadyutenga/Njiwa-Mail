@@ -5,10 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/njiwa-tz/mail/internal/installer/discover"
 )
 
 type fakeRunner struct {
@@ -57,6 +61,7 @@ func TestQueueIDValidation(t *testing.T) {
 
 func newAgent(f *fakeRunner) (*Agent, *httptest.Server) {
 	a := &Agent{Runner: f, Token: "0123456789abcdef-token"}
+
 	return a, httptest.NewServer(a.Handler())
 }
 
@@ -140,6 +145,14 @@ func TestAgentRunsOnlyTheFixedCommands(t *testing.T) {
 func TestAgentStatusAndSocketClient(t *testing.T) {
 	f := &fakeRunner{out: map[string]string{"postqueue -j": sampleQueue}, fail: map[string]bool{"systemctl is-active --quiet opendkim": true}}
 	a := &Agent{Runner: f, Token: "0123456789abcdef-token"}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc", "os-release"), []byte("ID=fedora\nPRETTY_NAME=Fedora\nVERSION_ID=43\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a.DiscoveryEnv = &discover.Env{Root: root, Now: time.Now}
 	sock := t.TempDir() + "/a.sock"
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -158,6 +171,13 @@ func TestAgentStatusAndSocketClient(t *testing.T) {
 	}
 	if st.Total != 2 || st.Queue["deferred"] != 1 || st.Queue["active"] != 1 || !st.PostfixActive || st.SignerActive {
 		t.Fatalf("status: %+v", st)
+	}
+	report, err := c.Discover(ctx)
+	if err != nil || report.Host.OS != "Fedora" || report.ScannedAt.IsZero() {
+		t.Fatalf("host discovery: %+v %v", report, err)
+	}
+	if _, err := NewClient(sock, "wrong-token-wrong-token").Discover(ctx); err == nil {
+		t.Fatal("discovery accepted a wrong token")
 	}
 	q, err := c.Queue(ctx)
 	if err != nil || len(q) != 2 {

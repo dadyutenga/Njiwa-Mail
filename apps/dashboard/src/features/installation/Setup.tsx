@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Circle, CircleDashed, MinusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ export type DiscoveryReport = {
   mail_services: { name: string; running: boolean; ours: boolean; in_use: boolean }[] | null;
   mailcow?: { hostname: string; running: boolean } | null;
   reverse_proxies?: string[] | null;
+  limits?: string[] | null;
   recommendation: {
     mode: "managed_mta" | "existing_smtp";
     reasons: string[];
@@ -74,6 +75,36 @@ export function useDiscovery() {
         "/installation/discovery",
       ),
   });
+}
+
+function DiscoveryScanButton() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const scan = useMutation({
+    mutationKey: ["installation", "discovery", "scan"],
+    mutationFn: () => admin.send("/installation/discovery", "POST"),
+    onSuccess: async (data) => {
+      client.setQueryData(["installation", "discovery"], data);
+      await client.invalidateQueries({ queryKey: ["installation", "setup"] });
+    },
+  });
+  return (
+    <div className="mt-2 space-y-2">
+      <Button size="sm" disabled={scan.isPending} onClick={() => scan.mutate()}>
+        {scan.isPending ? phrase("Scanning server…") : phrase("Scan this server")}
+      </Button>
+      {scan.isError && (
+        <p className="text-sm text-destructive" role="alert">
+          {phrase(scan.error.message)}
+        </p>
+      )}
+      {scan.isSuccess && (
+        <p className="text-sm text-success" role="status">
+          {phrase("Scan recorded. The setup steps have been updated.")}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function StepMark({ status }: { status: SetupStep["status"] }) {
@@ -142,7 +173,8 @@ export function SetupJourneyPanel() {
                   </span>
                 </div>
                 <p className="mt-1 text-muted-foreground">{phrase(st.detail)}</p>
-                {st.status !== "ready" && st.command && (
+                {st.id === "detect" && <DiscoveryScanButton />}
+                {st.id !== "detect" && st.status !== "ready" && st.command && (
                   <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs">
                     <code>{st.command}</code>
                   </pre>
@@ -176,14 +208,26 @@ export function DiscoveryPanel({ onUseCandidate }: { onUseCandidate?: (c: Candid
           )}
         </p>
         <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs">
-          <code>njiwa-mail discover -record</code>
+          <code>go run . discover -record</code>
         </pre>
+        <DiscoveryScanButton />
       </Section>
     );
   const rec = rep.recommendation;
   const mailPorts = (rep.ports ?? []).filter((p) => [25, 465, 587, 993, 995].includes(p.port));
   return (
     <Section title={phrase("What is on this server")}>
+      <DiscoveryScanButton />
+      {!!rep.limits?.length && (
+        <div className="my-3 rounded border border-warning/40 bg-warning/10 p-3 text-sm">
+          <p className="font-semibold">{phrase("Some checks could not be completed")}</p>
+          <ul className="list-disc pl-5">
+            {rep.limits.map((limit) => (
+              <li key={limit}>{phrase(limit)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <p
         className="mb-3 rounded-lg border border-primary/40 bg-primary/10 p-3 text-sm"
         role="status"

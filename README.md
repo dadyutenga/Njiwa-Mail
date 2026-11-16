@@ -76,8 +76,25 @@ run `njiwa-mail migrate`, then `serve`, `worker` and `scheduler` (systemd units 
 The `inbound` role needs a relay from your mail server first. For managed mode see [docs/OPERATIONS.md](docs/OPERATIONS.md)
 (`njiwa-mail preflight`, `njiwa-mail installer`); for Mailcow see [docs/MAILCOW_SETUP.md](docs/MAILCOW_SETUP.md).
 
-To start the HTTP API directly from the project root, set the same environment variables and run `go run .`.
-You can also run CLI commands from the root, for example `go run . migrate`.
+To start the backend and dashboard together from the project root:
+
+```bash
+# One-time setup: configure the root .env, start PostgreSQL, and migrate the database.
+npm --prefix apps/dashboard ci
+go run . migrate
+go run .
+```
+
+Open `http://127.0.0.1:5173`. The dashboard supports hot reload and proxies API requests to the backend's
+`LISTEN_ADDR` (default `127.0.0.1:8080`). Press Ctrl+C to stop both processes. For local HTTP sign-in,
+set `ADMIN_INSECURE_COOKIES=true` in the root `.env`.
+Override the dashboard port with `NJIWA_DASHBOARD_PORT` when needed.
+
+In **Delivery infrastructure**, press **Scan this server** at step 2 to detect mail services and record the result.
+Local development scans this host with your current user's permissions. Container deployments use the configured host agent;
+checks that cannot be completed appear with the report. The terminal equivalent from this checkout is `go run . discover -record`.
+
+Run only the API with `go run . serve`. Other CLI commands still work, for example `go run . migrate`.
 
 ## Admin API
 
@@ -94,7 +111,7 @@ The contract is in [docs/openapi.yaml](docs/openapi.yaml).
 1. Create the first admin: `njiwa-mail user create -email you@example.com -role admin` (password on stdin).
 2. For local HTTP, set `ADMIN_INSECURE_COOKIES=true` in the API environment. Leave it false behind HTTPS.
 3. Start the API on `127.0.0.1:8080`. From `apps/dashboard`: `cp .env.example .env && npm install && npm run dev`.
-4. Open `http://localhost:3000` and sign in with that email and password.
+4. Open `http://127.0.0.1:5173` and sign in with that email and password (Docker Compose uses port `3000`).
 
 Vite proxies `/admin` to the API. The UI can create projects, keys, senders, templates and the rest of the admin surface. Message pages stay metadata-only. Inbound HTML is shown in a sandboxed frame. The older `/console` routes remain for the previous read-only session.
 

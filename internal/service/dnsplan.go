@@ -160,7 +160,7 @@ func spfCovers(existing, want string) bool {
 
 func detectInfra(existing []dnsprovider.Record, name, mailHost string) []string {
 	seen := map[string]bool{}
-	var out []string
+	out := []string{}
 	add := func(s string) {
 		if !seen[s] {
 			seen[s] = true

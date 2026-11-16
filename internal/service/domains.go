@@ -94,6 +94,45 @@ func (s *Service) WSCreateDomain(ctx context.Context, sc *Scope, name, purpose s
 	return id, "njiwa-mail-verify=" + token, nil
 }
 
+// WSUpdateDomain changes a domain's use while keeping its verified DNS identity.
+func (s *Service) WSUpdateDomain(ctx context.Context, sc *Scope, id, purpose string, bulk bool) error {
+	if !uuidRe.MatchString(id) {
+		return newErr(404, "not_found")
+	}
+	if purpose != "sending" && purpose != "receiving" && purpose != "both" {
+		return badRequest("purpose must be sending, receiving or both")
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return unavailable("domain_update", err)
+	}
+	defer tx.Rollback(ctx)
+	var name string
+	if err := tx.QueryRow(ctx, `SELECT name FROM domains WHERE id=$1 AND project_id=$2 FOR UPDATE`, id, sc.ProjectID).Scan(&name); err != nil {
+		return notFound(err)
+	}
+	var hasSenders, hasMailboxes bool
+	if err := tx.QueryRow(ctx, `SELECT
+EXISTS(SELECT 1 FROM sender_identities WHERE project_id=$1 AND split_part(email,'@',2)=$2),
+EXISTS(SELECT 1 FROM inbound_addresses WHERE project_id=$1 AND domain=$2)`, sc.ProjectID, name).Scan(&hasSenders, &hasMailboxes); err != nil {
+		return unavailable("domain_users", err)
+	}
+	if (!sendingPurpose(purpose) && hasSenders) || (!receivingPurpose(purpose) && hasMailboxes) {
+		return &Error{Status: 409, Code: "domain_in_use", Message: "remove the senders or mailboxes that require the current purpose first"}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE domains SET purpose=$3, bulk=$4,
+spf_ok=CASE WHEN purpose<>$3 THEN false ELSE spf_ok END,
+dkim_ok=CASE WHEN purpose<>$3 THEN false ELSE dkim_ok END,
+dmarc_ok=CASE WHEN purpose<>$3 THEN false ELSE dmarc_ok END,
+mx_ok=CASE WHEN purpose<>$3 THEN false ELSE mx_ok END,
+last_checked_at=CASE WHEN purpose<>$3 THEN NULL ELSE last_checked_at END,
+records=CASE WHEN purpose<>$3 THEN '[]'::jsonb ELSE records END
+WHERE id=$1 AND project_id=$2`, id, sc.ProjectID, purpose, bulk); err != nil {
+		return unavailable("domain_update", err)
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Service) WSDomains(ctx context.Context, sc *Scope, q string, attention bool, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT d.id::text AS id, d.name, d.purpose, d.bulk, d.verified_at, d.spf_ok, d.dkim_ok, d.dmarc_ok, d.mx_ok,
   d.last_checked_at, d.created_at, d.records,

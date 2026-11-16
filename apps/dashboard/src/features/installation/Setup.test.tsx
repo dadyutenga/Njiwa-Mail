@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { admin } from "@/lib/admin-api";
@@ -41,7 +41,7 @@ const steps = [
   { n: 3, id: "choose_mode", title: "Choose", status: "needs_action", detail: "Choose a mode." },
 ];
 
-it("shows the ten-step journey with the current step and its command", async () => {
+it("shows the ten-step journey with a scan action on the current step", async () => {
   const get = vi.spyOn(admin, "get").mockResolvedValue({
     project: "demo",
     mode: "",
@@ -56,7 +56,7 @@ it("shows the ten-step journey with the current step and its command", async () 
   expect(await screen.findByText(/Step 2 of 10/)).toBeInTheDocument();
   const current = screen.getByText(/2\. Detect what is already on the server/).closest("li")!;
   expect(current).toHaveAttribute("aria-current", "step");
-  expect(current).toHaveTextContent("njiwa-mail discover -record");
+  expect(screen.getByRole("button", { name: "Scan this server" })).toBeInTheDocument();
   expect(screen.getAllByText("Done")).toHaveLength(1);
 });
 
@@ -104,7 +104,7 @@ it("explains why managed mode is blocked and fills in the found server", async (
 it("asks for the scan when there is no report", async () => {
   vi.spyOn(admin, "get").mockResolvedValue({ report: null, recorded_at: null } as never);
   wrap(<DiscoveryPanel />);
-  expect(await screen.findByText("njiwa-mail discover -record")).toBeInTheDocument();
+  expect(await screen.findByText("go run . discover -record")).toBeInTheDocument();
 });
 
 it("marks the recommended mode and a blocked managed mode", () => {
@@ -116,4 +116,37 @@ it("marks the recommended mode and a blocked managed mode", () => {
   expect(screen.getByLabelText(/Send from my VPS/).closest("label")).toHaveTextContent(
     "The installer will refuse and change nothing.",
   );
+});
+
+it("runs and records discovery from the setup step without a host CLI", async () => {
+  vi.spyOn(admin, "get").mockResolvedValue({
+    project: "demo",
+    next: 2,
+    done: 1,
+    total: 10,
+    steps,
+  } as never);
+  const send = vi
+    .spyOn(admin, "send")
+    .mockResolvedValue({ report, recorded_at: report.scanned_at } as never);
+  wrap(<SetupJourneyPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: "Scan this server" }));
+  await waitFor(() => expect(send).toHaveBeenCalledWith("/installation/discovery", "POST"));
+  expect(
+    await screen.findByText("Scan recorded. The setup steps have been updated."),
+  ).toBeInTheDocument();
+});
+
+it("keeps scan errors visible and allows retry", async () => {
+  vi.spyOn(admin, "get").mockResolvedValue({ report: null, recorded_at: null } as never);
+  const send = vi
+    .spyOn(admin, "send")
+    .mockRejectedValueOnce(new Error("Host agent unavailable"))
+    .mockResolvedValueOnce({ report, recorded_at: report.scanned_at } as never);
+  wrap(<DiscoveryPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: "Scan this server" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Host agent unavailable");
+  fireEvent.click(screen.getByRole("button", { name: "Scan this server" }));
+  expect(await screen.findByText("MAILCOW_PRESENT")).toBeInTheDocument();
+  expect(send).toHaveBeenCalledTimes(2);
 });

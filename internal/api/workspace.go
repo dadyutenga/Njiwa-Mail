@@ -585,6 +585,23 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	h("GET", "/domains/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.WSDomain(ctx(c), sc, c.Params("id"))
 	})
+	h("PATCH", "/domains/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Purpose *string `json:"purpose"`
+			Bulk    *bool   `json:"bulk"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if in.Purpose == nil || in.Bulk == nil {
+			return nil, &service.Error{Status: 422, Code: "domain_settings_required", Message: "purpose and bulk are required"}
+		}
+		if err := svc.WSUpdateDomain(ctx(c), sc, c.Params("id"), *in.Purpose, *in.Bulk); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "domain.update", "domain", c.Params("id"), scoped(sc, map[string]any{"purpose": *in.Purpose, "bulk": *in.Bulk}))
+		return svc.WSDomain(ctx(c), sc, c.Params("id"))
+	})
 	// Signed-mail evidence (D06): check a received message's DKIM signature.
 	h("POST", "/domains/:id/verify-message", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {

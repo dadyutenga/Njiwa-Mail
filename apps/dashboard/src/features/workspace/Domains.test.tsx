@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { admin } from "@/lib/admin-api";
 import { WorkspaceProvider } from "./context";
-import { DomainDetail } from "./pages/Domains";
+import { Domains, DomainDetail } from "./pages/Domains";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -148,4 +148,67 @@ it("shows no change notice for a current check", async () => {
   renderDomain({ requirements_changed: false });
   await screen.findByTestId("dkim-proof");
   expect(screen.queryByText(/Delivery settings changed/)).not.toBeInTheDocument();
+});
+
+function renderDomainList() {
+  const get = vi.spyOn(admin, "get").mockResolvedValue({
+    items: [{ id: "d1", name: "notify.example.com", purpose: "sending", bulk: false }],
+    has_more: false,
+    limit: 50,
+    offset: 0,
+  } as never);
+  render(
+    <MemoryRouter>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <WorkspaceProvider project="demo">
+          <Domains />
+        </WorkspaceProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  return get;
+}
+
+it("edits domain settings from the list and refreshes after saving", async () => {
+  const get = renderDomainList();
+  const send = vi.spyOn(admin, "send").mockResolvedValue({ id: "d1" } as never);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByLabelText("Domain")).toHaveAttribute("readonly");
+  fireEvent.change(within(dialog).getByLabelText("Purpose"), { target: { value: "both" } });
+  fireEvent.click(within(dialog).getByRole("checkbox"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save domain" }));
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith("/w/demo/live/domains/d1", "PATCH", {
+      purpose: "both",
+      bulk: true,
+    }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(get.mock.calls.length).toBeGreaterThan(1);
+});
+
+it("requires confirmation before deleting a domain from the list", async () => {
+  renderDomainList();
+  const send = vi.spyOn(admin, "send").mockResolvedValue(undefined);
+  fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+  expect(send).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(send).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete domain" }));
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith("/w/demo/live/domains/d1", "DELETE", undefined),
+  );
+});
+
+it("keeps an unsuccessful edit open and shows the error", async () => {
+  renderDomainList();
+  vi.spyOn(admin, "send").mockRejectedValue(new Error("Domain is in use"));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save domain" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Domain is in use");
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
 });
