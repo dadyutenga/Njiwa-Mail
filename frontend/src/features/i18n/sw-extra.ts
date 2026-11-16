@@ -998,6 +998,8 @@ export const swExtra: Record<string, string> = {
     "Kiolezo lazima kitangaze kigezo cha maandishi unsubscribe_url na kukionyesha; vigezo vingine hutoka kwenye safu za CSV.",
   "The temporary password needs at least 12 characters.":
     "Nenosiri la muda linahitaji angalau herufi 12.",
+  "The whole service, across all projects, with live health, scheduled jobs and updates.":
+    "Huduma yote, katika miradi yote, pamoja na afya ya moja kwa moja, kazi zilizopangwa na masasisho.",
   "The whole service, across all projects.": "Huduma nzima, katika miradi yote.",
   Then: "Kisha",
   "There is no circuit breaker: a temporary failure is retried per message with backoff; a message whose outcome is unknown is never retried automatically.":
