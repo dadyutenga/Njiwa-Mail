@@ -6,3 +6,4 @@
 
 apps/dashboard/playwright-report/
 apps/dashboard/test-results/
+__pycache__/
