@@ -7,9 +7,11 @@ test("the delivery-mode wizard saves the choice only after Continue, and it surv
   await signedIn(page);
   await ensureProject(page, "e2e");
   await page.goto("/p/e2e/mail-server");
+  // The mode choice is a setup step inside the advanced section of this page.
+  await page.getByText("Advanced Settings and installation status").click();
   await expect(page.getByText("How will you send email?")).toBeVisible();
 
-  const cont = page.getByRole("button", { name: "Continue", exact: true });
+  const cont = page.getByRole("button", { name: "Continue to connect mail server" });
   await expect(cont).toBeDisabled(); // nothing chosen yet
   await page.getByLabel(/Connect an existing mail server/).check();
   // Choosing alone persists nothing.
