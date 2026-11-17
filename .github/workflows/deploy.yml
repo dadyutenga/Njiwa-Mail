@@ -1,0 +1,53 @@
+# Deploys main to rida-server after CI passes on it (or on demand).
+#
+# The runner only sends a commit SHA over SSH. The server key is restricted to
+# a forced command (deploy/rida-server/njiwa-deploy.sh), which fetches that
+# commit from GitHub itself, refuses anything not on main, rebuilds only what
+# changed and rolls back to the previous images if the health check fails.
+#
+# Secrets (environment "production"):
+#   DEPLOY_SSH_KEY      private key whose public half is the forced-command entry
+#   DEPLOY_HOST         server address
+#   DEPLOY_KNOWN_HOSTS  the server's ssh-keyscan line, pinned (no trust on first use)
+name: Deploy
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions: { contents: read }
+
+concurrency: { group: deploy-production, cancel-in-progress: false }
+
+jobs:
+  deploy:
+    # Only a green CI run of a push to main in this repository, never a pull request or a fork.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    environment: { name: production, url: https://njiwamail.qarmalab.dev }
+    timeout-minutes: 30
+    steps:
+      - name: Deploy over SSH
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 \
+            "root@$HOST" "$SHA"
+      - name: Check the public site
+        run: |
+          curl -fsS -o /dev/null https://njiwamail.qarmalab.dev/
+          curl -fsS -o /dev/null https://njiwamail.qarmalab.dev/docs
+      - if: always()
+        run: rm -f ~/.ssh/deploy

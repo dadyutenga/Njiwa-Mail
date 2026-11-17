@@ -560,7 +560,9 @@ function MessageList({ preset, extended }: { preset?: { state?: string }; extend
     apiKey && `API key ${apiKey}`,
     campaign && "one announcement",
   ].filter(Boolean);
-  const narrowed = Boolean(state || source || sender || from || until || recipient || active.length);
+  const narrowed = Boolean(
+    state || source || sender || from || until || recipient || active.length,
+  );
   const stateField = !preset?.state && (
     <Field label={phrase("State")}>
       <select className={selectClass} value={state} onChange={(e) => setState(e.target.value)}>
@@ -617,19 +619,20 @@ function MessageList({ preset, extended }: { preset?: { state?: string }; extend
       />
     </Field>
   );
-  const clearFilters = active.length > 0 || narrowed ? (
-    <p className="text-sm text-muted-foreground">
-      {active.length > 0 && (
-        <>
-          {phrase("Filtered by")} {active.join(", ")}
-          {" · "}
-        </>
-      )}
-      <Link className="text-primary" to="?">
-        {phrase("Clear filters")}
-      </Link>
-    </p>
-  ) : null;
+  const clearFilters =
+    active.length > 0 || narrowed ? (
+      <p className="text-sm text-muted-foreground">
+        {active.length > 0 && (
+          <>
+            {phrase("Filtered by")} {active.join(", ")}
+            {" · "}
+          </>
+        )}
+        <Link className="text-primary" to="?">
+          {phrase("Clear filters")}
+        </Link>
+      </p>
+    ) : null;
   return (
     <>
       {extended ? (

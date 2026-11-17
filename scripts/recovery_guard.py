@@ -122,6 +122,9 @@ def verify_archive(archive, root, allowed_names=None, queue=False):
     seen = set()
     with tarfile.open(archive, 'r:gz') as tf:
         for member in tf:
+            # `tar -C dir .` writes the top directory itself as "./"; it names nothing to restore.
+            if member.isdir() and PurePosixPath(member.name).parts in ((), ('.',)):
+                continue
             name = safe_name(member.name)
             if name in seen:
                 raise ValueError(f'duplicate archive entry: {name}')

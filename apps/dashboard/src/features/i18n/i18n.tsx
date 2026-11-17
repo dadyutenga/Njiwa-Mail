@@ -331,7 +331,8 @@ export const swPhrases: Record<string, string> = {
   "Policy bounces as a percent of submissions in the last hour.":
     "Policy bounce kama asilimia ya uwasilishaji katika saa iliyopita.",
   "Sends per minute": "Utumaji kwa dakika",
-  "Send rate applied when a project is created.": "Kiwango cha utumaji kinachowekwa mradi unapoundwa.",
+  "Send rate applied when a project is created.":
+    "Kiwango cha utumaji kinachowekwa mradi unapoundwa.",
   "Sends per day": "Utumaji kwa siku",
   "Daily send limit applied when a project is created.":
     "Kikomo cha utumaji kwa siku kinachowekwa mradi unapoundwa.",

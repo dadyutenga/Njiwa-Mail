@@ -38,7 +38,9 @@ export function Sessions() {
     <section className="mt-6 rounded-xl border bg-card p-5">
       <h2 className="text-lg font-semibold">{phrase("Sessions")}</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        {phrase("Browsers that are signed in to this account. Revoking one signs that browser out.")}
+        {phrase(
+          "Browsers that are signed in to this account. Revoking one signs that browser out.",
+        )}
       </p>
       {error && !pending && (
         <p role="alert" className="mt-3 text-sm text-destructive">
@@ -80,7 +82,9 @@ export function Sessions() {
             {pending?.user_agent || phrase("Browser")}
             {pending ? ` · ${pending.ip}` : ""}
             {". "}
-            {phrase("That browser is signed out. This one stays signed in unless you revoke it too.")}
+            {phrase(
+              "That browser is signed out. This one stays signed in unless you revoke it too.",
+            )}
           </DialogDescription>
           {error && pending && (
             <p role="alert" className="text-sm text-destructive">

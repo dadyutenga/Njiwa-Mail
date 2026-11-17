@@ -81,198 +81,212 @@ export function MailHost() {
             submitted_24h: 0,
           };
           return (
-          <>
-            {missing.length > 0 && (
-              <Section title={phrase("Run the installer again")}>
-                <p role="status" className="mb-2 text-sm">
-                  {phrase("These verified sending domains have no DKIM key on the mail host yet:")}{" "}
-                  <strong>{missing.join(", ")}</strong>.{" "}
-                  {phrase(
-                    "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. The commands below remain when the host agent is not connected.",
-                  )}
-                </p>
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50"
-                    disabled={busy}
-                    onClick={() => {
-                      setBusy(true);
-                      setNote("");
-                      admin
-                        .send<DomainPlan>("/installation/domains/plan", "POST", {
-                          domains: missing,
-                        })
-                        .then((p) => setPlan(p))
-                        .catch((e: unknown) =>
-                          setNote(e instanceof AdminError ? e.message : phrase("The host plan could not be prepared.")),
-                        )
-                        .finally(() => setBusy(false));
-                    }}
-                  >
-                    {phrase("Prepare host plan")}
-                  </button>
-                  {plan && (
+            <>
+              {missing.length > 0 && (
+                <Section title={phrase("Run the installer again")}>
+                  <p role="status" className="mb-2 text-sm">
+                    {phrase(
+                      "These verified sending domains have no DKIM key on the mail host yet:",
+                    )}{" "}
+                    <strong>{missing.join(", ")}</strong>.{" "}
+                    {phrase(
+                      "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. The commands below remain when the host agent is not connected.",
+                    )}
+                  </p>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      className="rounded border px-3 py-1.5 text-xs disabled:opacity-50"
+                      className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50"
                       disabled={busy}
                       onClick={() => {
                         setBusy(true);
                         setNote("");
                         admin
-                          .send("/installation/domains/apply", "POST", {
+                          .send<DomainPlan>("/installation/domains/plan", "POST", {
                             domains: missing,
-                            digest: plan.digest,
                           })
-                          .then(async () => {
-                            setPlan(null);
-                            setNote(phrase("Keys created. Publish the DKIM records on the domain page."));
-                            await qc.invalidateQueries({ queryKey: ["mail-host"] });
-                          })
+                          .then((p) => setPlan(p))
                           .catch((e: unknown) =>
                             setNote(
-                              e instanceof AdminError ? e.message : phrase("The host did not apply this plan."),
+                              e instanceof AdminError
+                                ? e.message
+                                : phrase("The host plan could not be prepared."),
                             ),
                           )
                           .finally(() => setBusy(false));
                       }}
                     >
-                      {phrase("Apply reviewed plan")} {plan.digest}
+                      {phrase("Prepare host plan")}
                     </button>
-                  )}
-                </div>
-                {note && (
-                  <p role="status" className="mb-2 text-xs">
-                    {note}
-                  </p>
-                )}
-                <ol className="space-y-2 text-xs">
-                  {commands.map((c) => (
-                    <li key={c} className="flex items-start gap-2">
-                      <code className="break-all rounded bg-muted p-2">{c}</code>
-                      <CopyButton text={c} label="command" />
-                    </li>
-                  ))}
-                </ol>
-              </Section>
-            )}
-            <Section title={phrase("Installer runs")}>
-              {receipts.length === 0 ? (
-                <Empty
-                  title={phrase("The installer has not run yet")}
-                  description={phrase("Run njiwa-mail installer apply -record on the mail host.")}
-                />
-              ) : (
-                <Table
-                  rows={receipts}
-                  rowKey={(r) => s(r.id)}
-                  columns={[
-                    {
-                      key: "created_at",
-                      label: phrase("When"),
-                      render: (r) => <Time value={r.created_at} relative />,
-                    },
-                    { key: "action", label: phrase("Action") },
-                    {
-                      key: "result_code",
-                      label: phrase("Result"),
-                      render: (r) => (
-                        <StateBadge
-                          state={r.result_code === "ok" && r.verified_at ? "pass" : "fail"}
-                          label={`${s(r.result_code)}${r.verified_at ? "" : ` · ${phrase("not verified")}`}`}
-                        />
-                      ),
-                    },
-                    { key: "applied_version", label: phrase("Postfix") },
-                    { key: "approved_by", label: phrase("Approved by") },
-                    {
-                      key: "plan_digest",
-                      label: phrase("Plan"),
-                      render: (r) => <code>{s(r.plan_digest)}</code>,
-                    },
-                    {
-                      key: "rollback_state",
-                      label: phrase("Rollback"),
-                      render: (r) => (r.rollback_state === "none" ? "—" : s(r.rollback_state)),
-                    },
-                  ]}
-                />
-              )}
-            </Section>
-            <Section title={phrase("Delivery evidence")}>
-              <p className="mb-2 text-xs text-muted-foreground">
-                {phrase(
-                  "Evidence comes from the mail server log (njiwa-mail mta-log) and from bounce reports. Silence only means nothing arrived: with no mail sent there are no events.",
-                )}
-              </p>
-              <dl className="grid gap-3 text-sm sm:grid-cols-4">
-                {(
-                  [
-                    ["smtp", "From SMTP replies", evidence.smtp],
-                    ["mta_log", "From the mail server log", evidence.mta_log],
-                    ["dsn", "From bounce reports", evidence.dsn],
-                  ] as const
-                ).map(([k, label, src]) => (
-                  <div key={k}>
-                    <dt className="text-muted-foreground">{phrase(label)}</dt>
-                    <dd>
-                      {src.last_at ? <Time value={src.last_at} relative /> : phrase("nothing yet")}
-                      <span className="block text-xs text-muted-foreground">
-                        {src.events_24h} {phrase("in 24 hours")}
-                      </span>
-                    </dd>
+                    {plan && (
+                      <button
+                        type="button"
+                        className="rounded border px-3 py-1.5 text-xs disabled:opacity-50"
+                        disabled={busy}
+                        onClick={() => {
+                          setBusy(true);
+                          setNote("");
+                          admin
+                            .send("/installation/domains/apply", "POST", {
+                              domains: missing,
+                              digest: plan.digest,
+                            })
+                            .then(async () => {
+                              setPlan(null);
+                              setNote(
+                                phrase(
+                                  "Keys created. Publish the DKIM records on the domain page.",
+                                ),
+                              );
+                              await qc.invalidateQueries({ queryKey: ["mail-host"] });
+                            })
+                            .catch((e: unknown) =>
+                              setNote(
+                                e instanceof AdminError
+                                  ? e.message
+                                  : phrase("The host did not apply this plan."),
+                              ),
+                            )
+                            .finally(() => setBusy(false));
+                        }}
+                      >
+                        {phrase("Apply reviewed plan")} {plan.digest}
+                      </button>
+                    )}
                   </div>
-                ))}
-                <div>
-                  <dt className="text-muted-foreground">{phrase("Handed over in 24 hours")}</dt>
-                  <dd>{evidence.submitted_24h}</dd>
-                </div>
-              </dl>
-              {evidence.submitted_24h > 0 && evidence.mta_log.events_24h === 0 && (
-                <p role="status" className="mt-2 text-xs">
-                  {phrase(
-                    "Mail was handed over but no log evidence arrived. If this persists, check that njiwa-mail-mta-log is running.",
+                  {note && (
+                    <p role="status" className="mb-2 text-xs">
+                      {note}
+                    </p>
                   )}
-                </p>
-              )}
-            </Section>
-            <Section title={phrase("DKIM key rotation")}>
-              <p className="text-sm">
-                {phrase(rotationText[rotation.state] ?? rotation.state)}
-              </p>
-              {rotation.state === "prepared" && (
-                <>
-                  <ul className="mt-2 space-y-1 text-xs">
-                    {(rotation.dns ?? []).map((c) => (
-                      <li key={c.domain}>
-                        <StateBadge
-                          state={c.published ? "pass" : "fail"}
-                          label={c.published ? phrase("published") : phrase("not published")}
-                        />{" "}
-                        <code>{c.host}</code>
-                        {!c.published && c.hint ? ` — ${c.hint}` : ""}
+                  <ol className="space-y-2 text-xs">
+                    {commands.map((c) => (
+                      <li key={c} className="flex items-start gap-2">
+                        <code className="break-all rounded bg-muted p-2">{c}</code>
+                        <CopyButton text={c} label="command" />
                       </li>
                     ))}
-                  </ul>
-                  <p role="status" className="mt-2 text-xs">
-                    {rotation.ready_to_activate
-                      ? phrase(
-                          "Every new key is published. You can activate on the host: njiwa-mail installer dkim-rotate activate.",
-                        )
-                      : phrase(
-                          "Publish the new records first; activating earlier would make mail fail DKIM.",
-                        )}
-                  </p>
-                </>
+                  </ol>
+                </Section>
               )}
-              <p className="mt-2 text-xs text-muted-foreground">
-                {phrase(
-                  "Use -record with the dkim-rotate commands so this page shows their state.",
+              <Section title={phrase("Installer runs")}>
+                {receipts.length === 0 ? (
+                  <Empty
+                    title={phrase("The installer has not run yet")}
+                    description={phrase("Run njiwa-mail installer apply -record on the mail host.")}
+                  />
+                ) : (
+                  <Table
+                    rows={receipts}
+                    rowKey={(r) => s(r.id)}
+                    columns={[
+                      {
+                        key: "created_at",
+                        label: phrase("When"),
+                        render: (r) => <Time value={r.created_at} relative />,
+                      },
+                      { key: "action", label: phrase("Action") },
+                      {
+                        key: "result_code",
+                        label: phrase("Result"),
+                        render: (r) => (
+                          <StateBadge
+                            state={r.result_code === "ok" && r.verified_at ? "pass" : "fail"}
+                            label={`${s(r.result_code)}${r.verified_at ? "" : ` · ${phrase("not verified")}`}`}
+                          />
+                        ),
+                      },
+                      { key: "applied_version", label: phrase("Postfix") },
+                      { key: "approved_by", label: phrase("Approved by") },
+                      {
+                        key: "plan_digest",
+                        label: phrase("Plan"),
+                        render: (r) => <code>{s(r.plan_digest)}</code>,
+                      },
+                      {
+                        key: "rollback_state",
+                        label: phrase("Rollback"),
+                        render: (r) => (r.rollback_state === "none" ? "—" : s(r.rollback_state)),
+                      },
+                    ]}
+                  />
                 )}
-              </p>
-            </Section>
-          </>
+              </Section>
+              <Section title={phrase("Delivery evidence")}>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {phrase(
+                    "Evidence comes from the mail server log (njiwa-mail mta-log) and from bounce reports. Silence only means nothing arrived: with no mail sent there are no events.",
+                  )}
+                </p>
+                <dl className="grid gap-3 text-sm sm:grid-cols-4">
+                  {(
+                    [
+                      ["smtp", "From SMTP replies", evidence.smtp],
+                      ["mta_log", "From the mail server log", evidence.mta_log],
+                      ["dsn", "From bounce reports", evidence.dsn],
+                    ] as const
+                  ).map(([k, label, src]) => (
+                    <div key={k}>
+                      <dt className="text-muted-foreground">{phrase(label)}</dt>
+                      <dd>
+                        {src.last_at ? (
+                          <Time value={src.last_at} relative />
+                        ) : (
+                          phrase("nothing yet")
+                        )}
+                        <span className="block text-xs text-muted-foreground">
+                          {src.events_24h} {phrase("in 24 hours")}
+                        </span>
+                      </dd>
+                    </div>
+                  ))}
+                  <div>
+                    <dt className="text-muted-foreground">{phrase("Handed over in 24 hours")}</dt>
+                    <dd>{evidence.submitted_24h}</dd>
+                  </div>
+                </dl>
+                {evidence.submitted_24h > 0 && evidence.mta_log.events_24h === 0 && (
+                  <p role="status" className="mt-2 text-xs">
+                    {phrase(
+                      "Mail was handed over but no log evidence arrived. If this persists, check that njiwa-mail-mta-log is running.",
+                    )}
+                  </p>
+                )}
+              </Section>
+              <Section title={phrase("DKIM key rotation")}>
+                <p className="text-sm">{phrase(rotationText[rotation.state] ?? rotation.state)}</p>
+                {rotation.state === "prepared" && (
+                  <>
+                    <ul className="mt-2 space-y-1 text-xs">
+                      {(rotation.dns ?? []).map((c) => (
+                        <li key={c.domain}>
+                          <StateBadge
+                            state={c.published ? "pass" : "fail"}
+                            label={c.published ? phrase("published") : phrase("not published")}
+                          />{" "}
+                          <code>{c.host}</code>
+                          {!c.published && c.hint ? ` — ${c.hint}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                    <p role="status" className="mt-2 text-xs">
+                      {rotation.ready_to_activate
+                        ? phrase(
+                            "Every new key is published. You can activate on the host: njiwa-mail installer dkim-rotate activate.",
+                          )
+                        : phrase(
+                            "Publish the new records first; activating earlier would make mail fail DKIM.",
+                          )}
+                    </p>
+                  </>
+                )}
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {phrase(
+                    "Use -record with the dkim-rotate commands so this page shows their state.",
+                  )}
+                </p>
+              </Section>
+            </>
           );
         }}
       </DataState>

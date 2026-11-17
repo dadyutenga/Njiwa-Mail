@@ -970,4 +970,3 @@ export function Lists() {
     </Section>
   );
 }
-
