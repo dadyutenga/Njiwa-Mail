@@ -63,9 +63,10 @@ type Options struct {
 	NjiwaSubnet           string
 
 	// DNS health checker expectations.
-	MailHost     string // Mailcow hostname (MX target, PTR value)
-	OutboundIP   string
-	DKIMSelector string
+	LocalMailcowFactsFile string // read-only operator-exported public Mailcow DNS facts
+	MailHost              string // Mailcow hostname (MX target, PTR value)
+	OutboundIP            string
+	DKIMSelector          string
 
 	SessionTTL time.Duration
 

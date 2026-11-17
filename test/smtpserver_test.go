@@ -48,12 +48,20 @@ func (f *fakeSMTP) saw(prefix string) bool {
 }
 
 func genCert(t *testing.T) (tls.Certificate, *x509.CertPool) {
+	return genCertWith(t, nil)
+}
+
+func genCertWith(t *testing.T, change func(*x509.Certificate)) (tls.Certificate, *x509.CertPool) {
+	t.Helper()
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tpl := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: "127.0.0.1"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
 		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, BasicConstraintsValid: true, IsCA: true,
+	}
+	if change != nil {
+		change(tpl)
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
 	if err != nil {

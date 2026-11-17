@@ -17,6 +17,7 @@ import {
   useInstallation,
 } from "@/features/installation/Installation";
 import { DiscoveryPanel, SetupJourneyPanel } from "@/features/installation/Setup";
+import { ExistingMailServerSetup } from "@/features/installation/ExistingMailServerSetup";
 import { TransportProfiles } from "@/features/installation/Profiles";
 import { useSendingEnvironment, useWorkspace, useWsKey, type ProjectRow } from "../context";
 import { SendingMode, useSendingModeParam } from "../SendingMode";
@@ -497,7 +498,9 @@ function PasswordDialog({
         <DialogDescription>
           {s(user?.email)}
           {". "}
-          {phrase("Set a new password. They are signed out and must use it the next time they sign in.")}
+          {phrase(
+            "Set a new password. They are signed out and must use it the next time they sign in.",
+          )}
         </DialogDescription>
         <div className="grid gap-3">
           <Field label={phrase("New password")}>
@@ -666,374 +669,399 @@ export function MailServer() {
           )
         }
       />
-      <div className="mb-4 space-y-4">
-        <SetupJourneyPanel />
-        <DiscoveryPanel
-          onUseCandidate={(c) => {
-            setF((x) => ({
-              ...x,
-              smtp_host: c.host.startsWith("<") ? "" : c.host,
-              smtp_port: String(c.port),
-              smtp_tls_mode: c.tls_mode,
-              provider_type: c.kind === "mailcow" ? "mailcow" : "generic",
-            }));
-            toast.success(phrase("Settings filled in. Enter the mailbox login, save, then test."));
-          }}
-        />
-        <DeliveryInfrastructure onRecheck={runTest} rechecking={testing} />
-        <TransportProfiles />
-      </div>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <div className="space-y-4">
-          {test && (
-            <Section
-              title={test.ok ? phrase("Connection test passed") : phrase("Connection test failed")}
-            >
-              <ol className="space-y-2 text-sm">
-                {test.steps.map((st) => (
-                  <li key={st.key} className="flex items-start gap-2">
-                    <StepIcon st={st} />
-                    <span>
-                      <span className="font-medium">{phrase(st.title)}</span>
-                      <span className="block text-xs text-muted-foreground">{st.detail}</span>
-                    </span>
-                  </li>
-                ))}
-                {test.mailcow_api && (
-                  <li className="flex items-start gap-2">
-                    <StepIcon st={test.mailcow_api} />
-                    <span>
-                      <span className="font-medium">{phrase("Mailcow API reachable")}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {test.mailcow_api.detail}
+      {!managed && <ExistingMailServerSetup />}
+      <details className="mt-4 rounded-lg border p-4" open={managed || undefined}>
+        <summary className="cursor-pointer font-medium">
+          {phrase("Advanced Settings and installation status")}
+        </summary>
+        <div className="mb-4 mt-4 space-y-4">
+          <SetupJourneyPanel />
+          <DiscoveryPanel
+            onUseCandidate={(c) => {
+              setF((x) => ({
+                ...x,
+                smtp_host: c.host.startsWith("<") ? "" : c.host,
+                smtp_port: String(c.port),
+                smtp_tls_mode: c.tls_mode,
+                provider_type: c.kind === "mailcow" ? "mailcow" : "generic",
+              }));
+              toast.success(
+                phrase("Settings filled in. Enter the mailbox login, save, then test."),
+              );
+            }}
+          />
+          <div id="delivery-infrastructure" className="scroll-mt-24">
+            <DeliveryInfrastructure
+              onRecheck={runTest}
+              rechecking={testing}
+              showModeChoice={false}
+            />
+          </div>
+          <TransportProfiles />
+        </div>
+        <div
+          id="advanced-delivery-connection"
+          className="scroll-mt-24 grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"
+        >
+          <div className="space-y-4">
+            {test && (
+              <Section
+                title={
+                  test.ok ? phrase("Connection test passed") : phrase("Connection test failed")
+                }
+              >
+                <ol className="space-y-2 text-sm">
+                  {test.steps.map((st) => (
+                    <li key={st.key} className="flex items-start gap-2">
+                      <StepIcon st={st} />
+                      <span>
+                        <span className="font-medium">{phrase(st.title)}</span>
+                        <span className="block text-xs text-muted-foreground">{st.detail}</span>
                       </span>
-                    </span>
-                  </li>
-                )}
-              </ol>
-            </Section>
-          )}
-          {env && (
-            <p className="rounded-lg border border-primary/40 bg-primary/10 p-3 text-sm">
-              {phrase("SMTP is set in the server environment")} ({s(env.username)}@{s(env.host)}:
-              {s(env.port)}, {s(env.tls_mode)}).{" "}
-              {phrase(
-                "The environment takes precedence: the test and the worker use it. The settings below apply when SMTP_HOST is not set.",
-              )}
-            </p>
-          )}
-          {!managed && (
-            <Section title={phrase("Outbound (SMTP submission)")}>
-              <fieldset className="grid gap-3 sm:grid-cols-2">
-                <Field
-                  label={phrase("Mail server type")}
-                  hint={phrase(
-                    "Generic works with any SMTP server. Mailcow only adds optional helpers; it is never required to send.",
+                    </li>
+                  ))}
+                  {test.mailcow_api && (
+                    <li className="flex items-start gap-2">
+                      <StepIcon st={test.mailcow_api} />
+                      <span>
+                        <span className="font-medium">{phrase("Mailcow API reachable")}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {test.mailcow_api.detail}
+                        </span>
+                      </span>
+                    </li>
                   )}
-                >
-                  <select
-                    className={selectClass}
-                    value={f.provider_type}
-                    onChange={(e) => set("provider_type", e.target.value)}
+                </ol>
+              </Section>
+            )}
+            {env && (
+              <p className="rounded-lg border border-primary/40 bg-primary/10 p-3 text-sm">
+                {phrase("SMTP is set in the server environment")} ({s(env.username)}@{s(env.host)}:
+                {s(env.port)}, {s(env.tls_mode)}).{" "}
+                {phrase(
+                  "The environment takes precedence: the test and the worker use it. The settings below apply when SMTP_HOST is not set.",
+                )}
+              </p>
+            )}
+            {!managed && (
+              <Section title={phrase("Outbound (SMTP submission)")}>
+                <fieldset className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label={phrase("Mail server type")}
+                    hint={phrase(
+                      "Generic works with any SMTP server. Mailcow only adds optional helpers; it is never required to send.",
+                    )}
                   >
-                    <option value="generic">{phrase("Generic SMTP")}</option>
-                    <option value="mailcow">Mailcow</option>
-                  </select>
-                </Field>
-                <Field
-                  label={phrase("SMTP host")}
-                  hint={phrase("Your mail server's host name, for example mail.example.com.")}
-                >
-                  <input
-                    className={inputClass}
-                    value={f.smtp_host}
-                    onChange={(e) => set("smtp_host", e.target.value.trim())}
-                  />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label={phrase("Port")} error={errors.smtp_port}>
-                    <input
-                      className={inputClass}
-                      inputMode="numeric"
-                      value={f.smtp_port}
-                      onChange={(e) => set("smtp_port", e.target.value)}
-                    />
-                  </Field>
-                  <Field label={phrase("Encryption")}>
                     <select
                       className={selectClass}
-                      value={f.smtp_tls_mode}
-                      onChange={(e) => set("smtp_tls_mode", e.target.value)}
+                      value={f.provider_type}
+                      onChange={(e) => set("provider_type", e.target.value)}
                     >
-                      <option value="starttls">STARTTLS (587)</option>
-                      <option value="implicit">TLS (465)</option>
+                      <option value="generic">{phrase("Generic SMTP")}</option>
+                      <option value="mailcow">Mailcow</option>
                     </select>
                   </Field>
-                </div>
+                  <Field
+                    label={phrase("SMTP host")}
+                    hint={phrase("Your mail server's host name, for example mail.example.com.")}
+                  >
+                    <input
+                      className={inputClass}
+                      value={f.smtp_host}
+                      onChange={(e) => set("smtp_host", e.target.value.trim())}
+                    />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={phrase("Port")} error={errors.smtp_port}>
+                      <input
+                        className={inputClass}
+                        inputMode="numeric"
+                        value={f.smtp_port}
+                        onChange={(e) => set("smtp_port", e.target.value)}
+                      />
+                    </Field>
+                    <Field label={phrase("Encryption")}>
+                      <select
+                        className={selectClass}
+                        value={f.smtp_tls_mode}
+                        onChange={(e) => set("smtp_tls_mode", e.target.value)}
+                      >
+                        <option value="starttls">STARTTLS (587)</option>
+                        <option value="implicit">TLS (465)</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <Field
+                    label={phrase("Username")}
+                    hint={phrase(
+                      "A dedicated mailbox, for example njiwa@example.com. Not a personal or admin account.",
+                    )}
+                  >
+                    <input
+                      className={inputClass}
+                      autoComplete="off"
+                      value={f.smtp_username}
+                      onChange={(e) => set("smtp_username", e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    label={phrase("Password")}
+                    hint={
+                      cfg.data?.smtp_password_set
+                        ? phrase("A password is stored. Leave empty to keep it.")
+                        : phrase("Stored encrypted; never shown again.")
+                    }
+                  >
+                    <input
+                      className={inputClass}
+                      type="password"
+                      autoComplete="new-password"
+                      value={f.smtp_password}
+                      onChange={(e) => set("smtp_password", e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    label={phrase("Test sender")}
+                    error={errors.test_sender}
+                    hint={phrase(
+                      "An address the login may send as; used by the sender check and test email.",
+                    )}
+                  >
+                    <input
+                      className={inputClass}
+                      type="email"
+                      value={f.test_sender}
+                      onChange={(e) => set("test_sender", e.target.value)}
+                    />
+                  </Field>
+                </fieldset>
+              </Section>
+            )}
+            <Section title={phrase("Inbound")}>
+              <fieldset>
                 <Field
-                  label={phrase("Username")}
+                  label={phrase("Inbound listener address")}
+                  error={errors.inbound_listener}
                   hint={phrase(
-                    "A dedicated mailbox, for example njiwa@example.com. Not a personal or admin account.",
+                    "Where your mail server relays received mail and bounces to Njiwa-Mail, as host:port on a private network. Used for the reachability check.",
                   )}
                 >
                   <input
                     className={inputClass}
-                    autoComplete="off"
-                    value={f.smtp_username}
-                    onChange={(e) => set("smtp_username", e.target.value)}
+                    value={f.inbound_listener}
+                    onChange={(e) => set("inbound_listener", e.target.value.trim())}
+                    placeholder="njiwa-inbound:2525"
                   />
                 </Field>
-                <Field
-                  label={phrase("Password")}
-                  hint={
-                    cfg.data?.smtp_password_set
-                      ? phrase("A password is stored. Leave empty to keep it.")
-                      : phrase("Stored encrypted; never shown again.")
-                  }
-                >
-                  <input
-                    className={inputClass}
-                    type="password"
-                    autoComplete="new-password"
-                    value={f.smtp_password}
-                    onChange={(e) => set("smtp_password", e.target.value)}
-                  />
-                </Field>
-                <Field
-                  label={phrase("Test sender")}
-                  error={errors.test_sender}
-                  hint={phrase(
-                    "An address the login may send as; used by the sender check and test email.",
+              </fieldset>
+            </Section>
+            {!managed && !mailcow && inst.data?.active_profile?.mode === "existing_smtp" && (
+              <SendingFactsForm
+                key={inst.data.active_profile.id}
+                profileId={inst.data.active_profile.id}
+                facts={inst.data.active_profile.sending_facts}
+              />
+            )}
+            {!managed && mailcow && (
+              <Section title={phrase("Mailcow API (optional)")}>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  {phrase(
+                    "With the API, the Domains page can add domains, create DKIM keys and add the inbound transport for you. Without it, the Domains page shows the manual steps. Njiwa-Mail never changes global Mailcow settings.",
                   )}
+                </p>
+                <fieldset className="grid gap-3 sm:grid-cols-2">
+                  <Field label={phrase("API URL")} error={errors.mailcow_api_url}>
+                    <input
+                      className={inputClass}
+                      value={f.mailcow_api_url}
+                      onChange={(e) => set("mailcow_api_url", e.target.value.trim())}
+                      placeholder="https://mail.example.com"
+                    />
+                  </Field>
+                  <Field
+                    label={phrase("API key")}
+                    hint={
+                      cfg.data?.mailcow_api_key_set
+                        ? phrase("A key is stored. Leave empty to keep it.")
+                        : phrase(
+                            "Read-write key from Mailcow → System → Configuration → Access → API.",
+                          )
+                    }
+                  >
+                    <input
+                      className={inputClass}
+                      type="password"
+                      autoComplete="new-password"
+                      value={f.mailcow_api_key}
+                      onChange={(e) => set("mailcow_api_key", e.target.value)}
+                    />
+                  </Field>
+                </fieldset>
+                <a
+                  className="mt-3 inline-block text-xs text-primary"
+                  href="https://github.com/njiwa-tz/mail/blob/main/docs/MAILCOW_SETUP.md"
+                  target="_blank"
+                  rel="noreferrer"
                 >
+                  {phrase("Mailcow operator steps (docs/MAILCOW_SETUP.md)")}
+                </a>
+              </Section>
+            )}
+            <Button onClick={save} disabled={Object.keys(errors).length > 0}>
+              {phrase("Save settings")}
+            </Button>
+          </div>
+          <div className="space-y-4">
+            <Section title={phrase("Status")}>
+              <DataState q={status}>
+                {(st) => (
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Outbound settings")}</dt>
+                      <dd>{s(st.outbound_source)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Outbound connection")}</dt>
+                      <dd>
+                        {lastTest ? (
+                          <StateBadge
+                            state={lastTest.ok ? "pass" : "fail"}
+                            label={
+                              lastTest.ok ? phrase("last test passed") : phrase("last test failed")
+                            }
+                          />
+                        ) : (
+                          phrase("not tested")
+                        )}{" "}
+                        <Time value={st.last_test_at} relative />
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Inbound listener reachable")}</dt>
+                      <dd>
+                        {st.inbound_reachable === null ? (
+                          phrase("address not set")
+                        ) : !st.inbound_reachable && !st.inbound_domain && !st.bounce_address ? (
+                          // Inbound mail and bounces are not turned on, so nothing is
+                          // expected to listen there: not a failure.
+                          <StateBadge state="cancelled" label={phrase("not in use")} />
+                        ) : st.inbound_reachable ? (
+                          <StateBadge state="pass" label={phrase("yes")} />
+                        ) : (
+                          <StateBadge state="fail" label={phrase("no")} />
+                        )}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Last inbound message")}</dt>
+                      <dd>
+                        <Time value={st.last_inbound_at} relative />
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Last bounce report")}</dt>
+                      <dd>
+                        <Time value={st.last_bounce_at} relative />
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Queue depth")}</dt>
+                      <dd>{s(st.queue_depth)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Waiting to retry")}</dt>
+                      <dd>{s(st.retry_wait)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Unknown outcome")}</dt>
+                      <dd>{s(st.unknown)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Inbound domain")}</dt>
+                      <dd>{s(st.inbound_domain) || phrase("not set")}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt>{phrase("Bounce address")}</dt>
+                      <dd>{s(st.bounce_address) || phrase("not set")}</dd>
+                    </div>
+                    <p className="pt-2 text-xs text-muted-foreground">
+                      {phrase(
+                        "There is no circuit breaker: a temporary failure is retried per message with backoff; a message whose outcome is unknown is never retried automatically.",
+                      )}
+                    </p>
+                  </dl>
+                )}
+              </DataState>
+            </Section>
+            {!managed && (
+              <Section title={phrase("Send test email")}>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {phrase(
+                    "Send through the queue to test the real path: the message is accepted, queued and sent by the worker, and the result is recorded for these settings. Send directly for a quick check of the connection only.",
+                  )}
+                </p>
+                <div className="flex gap-2">
                   <input
+                    aria-label={phrase("Send test to")}
                     className={inputClass}
                     type="email"
-                    value={f.test_sender}
-                    onChange={(e) => set("test_sender", e.target.value)}
+                    value={sendTo}
+                    onChange={(e) => setSendTo(e.target.value)}
+                    placeholder="you@gmail.com"
                   />
-                </Field>
-              </fieldset>
-            </Section>
-          )}
-          <Section title={phrase("Inbound")}>
-            <fieldset>
-              <Field
-                label={phrase("Inbound listener address")}
-                error={errors.inbound_listener}
-                hint={phrase(
-                  "Where your mail server relays received mail and bounces to Njiwa-Mail, as host:port on a private network. Used for the reachability check.",
-                )}
-              >
-                <input
-                  className={inputClass}
-                  value={f.inbound_listener}
-                  onChange={(e) => set("inbound_listener", e.target.value.trim())}
-                  placeholder="njiwa-inbound:2525"
-                />
-              </Field>
-            </fieldset>
-          </Section>
-          {!managed && !mailcow && inst.data?.active_profile?.mode === "existing_smtp" && (
-            <SendingFactsForm
-              key={inst.data.active_profile.id}
-              profileId={inst.data.active_profile.id}
-              facts={inst.data.active_profile.sending_facts}
-            />
-          )}
-          {!managed && mailcow && (
-            <Section title={phrase("Mailcow API (optional)")}>
-              <p className="mb-3 text-xs text-muted-foreground">
-                {phrase(
-                  "With the API, the Domains page can add domains, create DKIM keys and add the inbound transport for you. Without it, the Domains page shows the manual steps. Njiwa-Mail never changes global Mailcow settings.",
-                )}
-              </p>
-              <fieldset className="grid gap-3 sm:grid-cols-2">
-                <Field label={phrase("API URL")} error={errors.mailcow_api_url}>
-                  <input
-                    className={inputClass}
-                    value={f.mailcow_api_url}
-                    onChange={(e) => set("mailcow_api_url", e.target.value.trim())}
-                    placeholder="https://mail.example.com"
-                  />
-                </Field>
-                <Field
-                  label={phrase("API key")}
-                  hint={
-                    cfg.data?.mailcow_api_key_set
-                      ? phrase("A key is stored. Leave empty to keep it.")
-                      : phrase(
-                          "Read-write key from Mailcow → System → Configuration → Access → API.",
-                        )
-                  }
-                >
-                  <input
-                    className={inputClass}
-                    type="password"
-                    autoComplete="new-password"
-                    value={f.mailcow_api_key}
-                    onChange={(e) => set("mailcow_api_key", e.target.value)}
-                  />
-                </Field>
-              </fieldset>
-              <a
-                className="mt-3 inline-block text-xs text-primary"
-                href="https://github.com/njiwa-tz/mail/blob/main/docs/MAILCOW_SETUP.md"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {phrase("Mailcow operator steps (docs/MAILCOW_SETUP.md)")}
-              </a>
-            </Section>
-          )}
-          <Button onClick={save} disabled={Object.keys(errors).length > 0}>
-            {phrase("Save settings")}
-          </Button>
-        </div>
-        <div className="space-y-4">
-          <Section title={phrase("Status")}>
-            <DataState q={status}>
-              {(st) => (
-                <dl className="space-y-2 text-sm">
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Outbound settings")}</dt>
-                    <dd>{s(st.outbound_source)}</dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Outbound connection")}</dt>
-                    <dd>
-                      {lastTest ? (
-                        <StateBadge
-                          state={lastTest.ok ? "pass" : "fail"}
-                          label={
-                            lastTest.ok ? phrase("last test passed") : phrase("last test failed")
-                          }
-                        />
-                      ) : (
-                        phrase("not tested")
-                      )}{" "}
-                      <Time value={st.last_test_at} relative />
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Inbound listener reachable")}</dt>
-                    <dd>
-                      {st.inbound_reachable === null ? (
-                        phrase("address not set")
-                      ) : st.inbound_reachable ? (
-                        <StateBadge state="pass" label={phrase("yes")} />
-                      ) : (
-                        <StateBadge state="fail" label={phrase("no")} />
-                      )}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Last inbound message")}</dt>
-                    <dd>
-                      <Time value={st.last_inbound_at} relative />
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Last bounce report")}</dt>
-                    <dd>
-                      <Time value={st.last_bounce_at} relative />
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Queue depth")}</dt>
-                    <dd>{s(st.queue_depth)}</dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Waiting to retry")}</dt>
-                    <dd>{s(st.retry_wait)}</dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Unknown outcome")}</dt>
-                    <dd>{s(st.unknown)}</dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Inbound domain")}</dt>
-                    <dd>{s(st.inbound_domain) || phrase("not set")}</dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>{phrase("Bounce address")}</dt>
-                    <dd>{s(st.bounce_address) || phrase("not set")}</dd>
-                  </div>
-                  <p className="pt-2 text-xs text-muted-foreground">
-                    {phrase(
-                      "There is no circuit breaker: a temporary failure is retried per message with backoff; a message whose outcome is unknown is never retried automatically.",
-                    )}
+                  <Button
+                    disabled={!emailOk(sendTo)}
+                    onClick={async () => {
+                      const r = await run(
+                        () => admin.send<Row>("/mail-server/test-send", "POST", { to: sendTo }),
+                        "",
+                      );
+                      if (r) setSendResult(r);
+                      client.invalidateQueries({ queryKey: ["mail-server"] });
+                      client.invalidateQueries({ queryKey: installationKey });
+                    }}
+                  >
+                    {phrase("Send directly")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={!emailOk(sendTo) || !project}
+                    onClick={async () => {
+                      const r = await run(
+                        () =>
+                          admin.send<Row>(`/w/${project}/live/transport-test`, "POST", {
+                            to: sendTo,
+                          }),
+                        phrase(
+                          "Test queued. The result appears above once the worker has sent it.",
+                        ),
+                      );
+                      if (r) setQueued(s(r.id));
+                      client.invalidateQueries({ queryKey: installationKey });
+                    }}
+                  >
+                    {phrase("Send through the queue")}
+                  </Button>
+                </div>
+                {queued && (
+                  <p role="status" className="mt-2 text-sm">
+                    {phrase("Queued from project")} {project}:{" "}
+                    <Link className="text-primary underline" to={wsTo(`messages/${queued}`)}>
+                      {phrase("view the message")}
+                    </Link>
                   </p>
-                </dl>
-              )}
-            </DataState>
-          </Section>
-          {!managed && (
-            <Section title={phrase("Send test email")}>
-              <p className="mb-2 text-xs text-muted-foreground">
-                {phrase(
-                  "Send through the queue to test the real path: the message is accepted, queued and sent by the worker, and the result is recorded for these settings. Send directly for a quick check of the connection only.",
                 )}
-              </p>
-              <div className="flex gap-2">
-                <input
-                  aria-label={phrase("Send test to")}
-                  className={inputClass}
-                  type="email"
-                  value={sendTo}
-                  onChange={(e) => setSendTo(e.target.value)}
-                  placeholder="you@gmail.com"
-                />
-                <Button
-                  disabled={!emailOk(sendTo)}
-                  onClick={async () => {
-                    const r = await run(
-                      () => admin.send<Row>("/mail-server/test-send", "POST", { to: sendTo }),
-                      "",
-                    );
-                    if (r) setSendResult(r);
-                    client.invalidateQueries({ queryKey: ["mail-server"] });
-                    client.invalidateQueries({ queryKey: installationKey });
-                  }}
-                >
-                  {phrase("Send directly")}
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={!emailOk(sendTo) || !project}
-                  onClick={async () => {
-                    const r = await run(
-                      () =>
-                        admin.send<Row>(`/w/${project}/live/transport-test`, "POST", {
-                          to: sendTo,
-                        }),
-                      phrase("Test queued. The result appears above once the worker has sent it."),
-                    );
-                    if (r) setQueued(s(r.id));
-                    client.invalidateQueries({ queryKey: installationKey });
-                  }}
-                >
-                  {phrase("Send through the queue")}
-                </Button>
-              </div>
-              {queued && (
-                <p role="status" className="mt-2 text-sm">
-                  {phrase("Queued from project")} {project}:{" "}
-                  <Link className="text-primary underline" to={wsTo(`messages/${queued}`)}>
-                    {phrase("view the message")}
-                  </Link>
-                </p>
-              )}
-              {sendResult && (
-                <p role="status" className="mt-2 text-sm">
-                  <StateBadge state={s(sendResult.state)} /> {s(sendResult.reason)}{" "}
-                  {s(sendResult.reply)}
-                </p>
-              )}
-            </Section>
-          )}
+                {sendResult && (
+                  <p role="status" className="mt-2 text-sm">
+                    <StateBadge state={s(sendResult.state)} /> {s(sendResult.reason)}{" "}
+                    {s(sendResult.reply)}
+                  </p>
+                )}
+              </Section>
+            )}
+          </div>
         </div>
-      </div>
+      </details>
     </>
   );
 }
@@ -1090,49 +1118,63 @@ export function Analytics() {
           <div>
             <p className="text-xs font-medium text-muted-foreground">{phrase("Sending mode")}</p>
             <div className="relative mt-2 inline-flex">
-              <div aria-hidden className="absolute inset-0 rounded-xl bg-gradient-to-r from-sky-400/45 to-emerald-300/40" />
-              <div className="relative inline-flex rounded-xl border border-white/70 bg-white/35 p-1 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10" role="group" aria-label={phrase("Sending mode")}>
-              {(
-                [
-                  ["live", phrase("Live — send to real recipients")],
-                  ["sandbox", phrase("Sandbox — capture only")],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={env === mode}
-                  className={`rounded-lg px-3 py-1.5 text-sm backdrop-blur ${env === mode ? "bg-white/75 text-foreground shadow-sm dark:bg-white/20 dark:text-white" : "text-muted-foreground hover:bg-white/40 dark:hover:bg-white/10"}`}
-                  onClick={() => setEnv(mode)}
-                >
-                  {label}
-                </button>
-              ))}
+              <div
+                aria-hidden
+                className="absolute inset-0 rounded-xl bg-gradient-to-r from-sky-400/45 to-emerald-300/40"
+              />
+              <div
+                className="relative inline-flex rounded-xl border border-white/70 bg-white/35 p-1 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10"
+                role="group"
+                aria-label={phrase("Sending mode")}
+              >
+                {(
+                  [
+                    ["live", phrase("Live — send to real recipients")],
+                    ["sandbox", phrase("Sandbox — capture only")],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={env === mode}
+                    className={`rounded-lg px-3 py-1.5 text-sm backdrop-blur ${env === mode ? "bg-white/75 text-foreground shadow-sm dark:bg-white/20 dark:text-white" : "text-muted-foreground hover:bg-white/40 dark:hover:bg-white/10"}`}
+                    onClick={() => setEnv(mode)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
           <div>
             <p className="text-xs font-medium text-muted-foreground">{phrase("Period")}</p>
             <div className="relative mt-2 inline-flex">
-              <div aria-hidden className="absolute inset-0 rounded-xl bg-gradient-to-r from-emerald-300/40 to-sky-400/45" />
-              <div className="relative inline-flex rounded-xl border border-white/70 bg-white/35 p-1 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10" role="group" aria-label={phrase("Period")}>
-              {(
-                [
-                  ["7", phrase("Last 7 days")],
-                  ["30", phrase("Last 30 days")],
-                  ["90", phrase("Last 90 days")],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={days === value}
-                  className={`rounded-lg px-3 py-1.5 text-sm backdrop-blur ${days === value ? "bg-white/75 text-foreground shadow-sm dark:bg-white/20 dark:text-white" : "text-muted-foreground hover:bg-white/40 dark:hover:bg-white/10"}`}
-                  onClick={() => setDays(value)}
-                >
-                  {label}
-                </button>
-              ))}
+              <div
+                aria-hidden
+                className="absolute inset-0 rounded-xl bg-gradient-to-r from-emerald-300/40 to-sky-400/45"
+              />
+              <div
+                className="relative inline-flex rounded-xl border border-white/70 bg-white/35 p-1 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10"
+                role="group"
+                aria-label={phrase("Period")}
+              >
+                {(
+                  [
+                    ["7", phrase("Last 7 days")],
+                    ["30", phrase("Last 30 days")],
+                    ["90", phrase("Last 90 days")],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={days === value}
+                    className={`rounded-lg px-3 py-1.5 text-sm backdrop-blur ${days === value ? "bg-white/75 text-foreground shadow-sm dark:bg-white/20 dark:text-white" : "text-muted-foreground hover:bg-white/40 dark:hover:bg-white/10"}`}
+                    onClick={() => setDays(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -1222,7 +1264,9 @@ export function Analytics() {
                 }
               >
                 {providers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{phrase("No activity in this period")}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {phrase("No activity in this period")}
+                  </p>
                 ) : (
                   <Table
                     rows={providers}
@@ -1557,7 +1601,10 @@ export function Audit() {
           setQuery(draft.trim());
         }}
       >
-        <div aria-hidden className="absolute inset-0 rounded-2xl bg-gradient-to-r from-sky-400/35 to-emerald-300/30" />
+        <div
+          aria-hidden
+          className="absolute inset-0 rounded-2xl bg-gradient-to-r from-sky-400/35 to-emerald-300/30"
+        />
         <div className="relative flex flex-wrap items-end gap-2 rounded-2xl border border-white/70 bg-white/40 p-4 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10">
           <Field label={phrase("Search the log")} className="min-w-64 flex-1">
             <input
@@ -1616,10 +1663,10 @@ export function Audit() {
                   {r.details != null &&
                     typeof r.details === "object" &&
                     Object.keys(r.details as object).length > 0 && (
-                    <pre className="mt-2 overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                      {JSON.stringify(r.details)}
-                    </pre>
-                  )}
+                      <pre className="mt-2 overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                        {JSON.stringify(r.details)}
+                      </pre>
+                    )}
                 </li>
               ))}
             </ol>
@@ -2089,7 +2136,9 @@ export function SingleSignOn() {
                       <dt className="text-xs text-muted-foreground">
                         {phrase("Allowed email domains")}
                       </dt>
-                      <dd className="mt-1">{domains.join(", ") || phrase("Any existing account")}</dd>
+                      <dd className="mt-1">
+                        {domains.join(", ") || phrase("Any existing account")}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">{phrase("Linked users")}</dt>
@@ -2098,7 +2147,9 @@ export function SingleSignOn() {
                     <div>
                       <dt className="text-xs text-muted-foreground">{phrase("First sign-in")}</dt>
                       <dd className="mt-1">
-                        {r.auto_create ? phrase("Creates an account") : phrase("Existing accounts only")}
+                        {r.auto_create
+                          ? phrase("Creates an account")
+                          : phrase("Existing accounts only")}
                       </dd>
                     </div>
                   </dl>
@@ -2111,9 +2162,7 @@ export function SingleSignOn() {
       <Dialog open={!!edit} onOpenChange={(open) => !open && setEdit(null)}>
         <DialogContent>
           <DialogTitle>{edit?.id ? phrase("Edit provider") : phrase("Add provider")}</DialogTitle>
-          <DialogDescription>
-            {phrase("Shown on the sign-in button.")}
-          </DialogDescription>
+          <DialogDescription>{phrase("Shown on the sign-in button.")}</DialogDescription>
           {edit && (
             <div className="grid max-h-[70vh] gap-3 overflow-y-auto pr-1">
               <Field label={phrase("Name")}>
@@ -2134,7 +2183,9 @@ export function SingleSignOn() {
                 <input
                   className={inputClass}
                   value={edit.p.client_id}
-                  onChange={(e) => setEdit({ ...edit, p: { ...edit.p, client_id: e.target.value } })}
+                  onChange={(e) =>
+                    setEdit({ ...edit, p: { ...edit.p, client_id: e.target.value } })
+                  }
                 />
               </Field>
               <Field

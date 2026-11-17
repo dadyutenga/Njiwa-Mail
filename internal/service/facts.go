@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/njiwa-tz/mail/internal/dnsauth"
 )
 
 // SendingFacts describe where an existing SMTP server sends from (C07).
 type SendingFacts struct {
+	MailHost     string            `json:"mail_host,omitempty"`
 	EgressIPs    []string          `json:"egress_ips,omitempty"`    // IPs or CIDR ranges
 	SPFInclude   string            `json:"spf_include,omitempty"`   // e.g. spf.provider.example
 	DKIMSelector string            `json:"dkim_selector,omitempty"` // the server's selector
@@ -44,14 +47,47 @@ func (f *SendingFacts) ips() []net.IP {
 // sendingFacts returns the facts of the active existing-SMTP profile.
 func (s *Service) sendingFacts(ctx context.Context) *SendingFacts {
 	var raw []byte
-	if err := s.Pool.QueryRow(ctx, `SELECT sending_facts FROM transport_profiles WHERE is_active AND mode='existing_smtp'`).Scan(&raw); err != nil {
+	var host string
+	if err := s.Pool.QueryRow(ctx, `SELECT sending_facts, COALESCE(config_json->>'host','') FROM transport_profiles WHERE is_active AND mode='existing_smtp'`).Scan(&raw, &host); err != nil {
 		return nil
 	}
 	var f SendingFacts
 	if json.Unmarshal(raw, &f) != nil {
 		return nil
 	}
-	if len(f.EgressIPs) == 0 && f.SPFInclude == "" && f.DKIMSelector == "" && len(f.DKIMKeys) == 0 {
+	// Only a fresh operator-provisioned snapshot for this exact SMTP host is
+	// authoritative. Never infer the outbound IP from a remote SMTP hostname.
+	if path := s.Opts.LocalMailcowFactsFile; path != "" {
+		var snapshot struct {
+			SMTPHost  string    `json:"smtp_host"`
+			UpdatedAt time.Time `json:"updated_at"`
+			SendingFacts
+		}
+		if data, err := os.ReadFile(path); err == nil && len(data) < 1<<20 && json.Unmarshal(data, &snapshot) == nil &&
+			strings.EqualFold(snapshot.SMTPHost, host) && time.Since(snapshot.UpdatedAt) >= 0 && time.Since(snapshot.UpdatedAt) < 24*time.Hour {
+			if len(f.EgressIPs) == 0 && f.SPFInclude == "" {
+				f.EgressIPs = snapshot.EgressIPs
+			}
+			if f.DKIMSelector == "" {
+				f.DKIMSelector = snapshot.DKIMSelector
+			}
+			if f.MailHost == "" {
+				f.MailHost = snapshot.MailHost
+			}
+			if f.DKIMKeys == nil {
+				f.DKIMKeys = map[string]string{}
+			}
+			// Keys with a different selector must never be silently relabelled.
+			if f.DKIMSelector == snapshot.DKIMSelector {
+				for domain, key := range snapshot.DKIMKeys {
+					if f.DKIMKeys[domain] == "" {
+						f.DKIMKeys[domain] = key
+					}
+				}
+			}
+		}
+	}
+	if len(f.EgressIPs) == 0 && f.SPFInclude == "" && f.DKIMSelector == "" && len(f.DKIMKeys) == 0 && f.MailHost == "" {
 		return nil
 	}
 	return &f

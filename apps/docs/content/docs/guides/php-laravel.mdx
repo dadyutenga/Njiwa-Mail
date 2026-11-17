@@ -1,0 +1,203 @@
+---
+title: PHP and Laravel
+description: Send OTP and password-reset email, read status, retry safely and verify webhooks from Laravel or plain PHP over HTTP.
+---
+
+There is **no Njiwa-Mail Composer package**. Do not run `composer require` for one. PHP calls the HTTP API directly: Laravel's `Http` client below, or cURL in plain PHP. Every call runs on your server.
+
+## Configure
+
+Add the base URL of your own instance, a key and the webhook secret to `.env` (never to the repository):
+
+```bash
+NJIWA_MAIL_URL=https://mail-api.example.com
+NJIWA_MAIL_API_KEY=dmk_sbx_...
+NJIWA_WEBHOOK_SECRET=whsec_...
+```
+
+Expose them in `config/services.php`:
+
+```php check
+<?php
+
+return [
+    'njiwa' => [
+        'url' => env('NJIWA_MAIL_URL'),
+        'key' => env('NJIWA_MAIL_API_KEY'),
+        'webhook_secret' => env('NJIWA_WEBHOOK_SECRET'),
+    ],
+];
+```
+
+## A small service class
+
+`app/Services/NjiwaMail.php` sends one email. It retries only timeouts, connection errors, `429` and `5xx`, with the **same** idempotency key, and honours `Retry-After`.
+
+```php check
+<?php
+
+namespace App\Services;
+
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use RuntimeException;
+
+class NjiwaMail
+{
+    /** One key per logical event (one OTP, one reset). Reuse it for retries. */
+    public static function newIdempotencyKey(string $purpose): string
+    {
+        return $purpose . ':' . Str::uuid();
+    }
+
+    public function send(array $payload, string $idempotencyKey, int $attempts = 4): array
+    {
+        $delay = 1;
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                $response = Http::withToken(config('services.njiwa.key'))
+                    ->withHeaders(['Idempotency-Key' => $idempotencyKey])
+                    ->timeout(10)
+                    ->post(rtrim(config('services.njiwa.url'), '/') . '/v1/emails', $payload);
+            } catch (ConnectionException $e) {
+                if ($attempt === $attempts) {
+                    throw $e;
+                }
+                sleep($delay);
+                $delay *= 2;
+                continue;
+            }
+            if ($response->status() === 202) {
+                return $response->json(); // ['id' => '...', 'status' => 'queued']
+            }
+            $retryable = $response->status() === 429 || $response->serverError();
+            if ($retryable && $attempt < $attempts) {
+                sleep((int) ($response->header('Retry-After') ?: $delay));
+                $delay *= 2;
+                continue;
+            }
+            $code = $response->json('error.code', 'unknown');
+            throw new RuntimeException("Njiwa-Mail {$response->status()} {$code}");
+        }
+        throw new RuntimeException('Njiwa-Mail retries exhausted');
+    }
+
+    public function status(string $messageId): array
+    {
+        return Http::withToken(config('services.njiwa.key'))
+            ->timeout(10)
+            ->get(rtrim(config('services.njiwa.url'), '/') . '/v1/emails/' . rawurlencode($messageId))
+            ->throw()
+            ->json();
+    }
+}
+```
+
+## Send a one-time code
+
+```php check
+<?php
+
+use App\Services\NjiwaMail;
+
+$code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+// Store only a hash of $code with its expiry, then send it:
+$accepted = app(NjiwaMail::class)->send([
+    'from' => 'noreply@notify.example.com',
+    'to' => 'user@example.org',
+    'template' => 'otp',
+    'locale' => 'en',
+    'variables' => ['name' => 'Ada', 'code' => $code, 'expires_in_minutes' => 5],
+], NjiwaMail::newIdempotencyKey('otp'));
+```
+
+## Send a password reset
+
+`reset_url` must be an `https` URL whose origin your operator approved for the environment.
+
+```php check
+<?php
+
+use App\Services\NjiwaMail;
+
+$token = bin2hex(random_bytes(32)); // store only hash('sha256', $token)
+app(NjiwaMail::class)->send([
+    'from' => 'noreply@notify.example.com',
+    'to' => 'user@example.org',
+    'template' => 'password-reset',
+    'variables' => [
+        'reset_url' => 'https://app.example.com/reset?token=' . $token,
+        'expires_in_minutes' => 30,
+    ],
+], NjiwaMail::newIdempotencyKey('reset'));
+```
+
+Send from a queued job so a slow mail API never blocks the request. Keep the idempotency key in the job's payload so a retried job reuses it.
+
+## Verify webhooks
+
+Register the route outside the `web` middleware group (or exclude it from CSRF), and verify the signature over the **raw** body:
+
+```php check
+<?php
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+
+Route::post('/hooks/njiwa', function (Request $request) {
+    $raw = $request->getContent();
+    parse_str(str_replace(',', '&', (string) $request->header('X-DM-Signature')), $parts);
+    $t = $parts['t'] ?? '';
+    $v1 = $parts['v1'] ?? '';
+    if (!ctype_digit($t) || abs(time() - (int) $t) > 300) {
+        abort(401);
+    }
+    $expected = hash_hmac('sha256', $t . '.' . $raw, config('services.njiwa.webhook_secret'));
+    if (!hash_equals($expected, $v1)) {
+        abort(401);
+    }
+    $event = json_decode($raw, true);
+    // Deliveries can repeat: de-duplicate on $event['id'] before acting.
+    logger()->info('njiwa event', ['type' => $event['type'], 'id' => $event['id']]);
+
+    return response()->noContent();
+});
+```
+
+## Plain PHP (no framework)
+
+```php check
+<?php
+
+$ch = curl_init(rtrim(getenv('NJIWA_MAIL_URL'), '/') . '/v1/emails');
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 10,
+    CURLOPT_HTTPHEADER => [
+        'Authorization: Bearer ' . getenv('NJIWA_MAIL_API_KEY'),
+        'Idempotency-Key: otp:' . bin2hex(random_bytes(16)),
+        'Content-Type: application/json',
+    ],
+    CURLOPT_POSTFIELDS => json_encode([
+        'from' => 'noreply@notify.example.com',
+        'to' => 'user@example.org',
+        'template' => 'otp',
+        'variables' => ['code' => '482913', 'expires_in_minutes' => 5],
+    ]),
+]);
+$body = curl_exec($ch);
+$status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+if ($status !== 202) {
+    throw new RuntimeException("Njiwa-Mail answered {$status}: {$body}");
+}
+```
+
+## Checklist
+
+- One new idempotency key per event; the same key on every retry of it.
+- Retry only timeouts, connection errors, `429` and `5xx`; fix every other `4xx` ([error codes](/docs/api/rate-limits-and-errors)).
+- Keys and the webhook secret live in `.env`, never in the repository or logs.
+- `submitted` means your mail server accepted the message; there is no `delivered` state.

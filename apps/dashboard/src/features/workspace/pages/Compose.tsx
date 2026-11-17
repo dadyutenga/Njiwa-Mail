@@ -138,7 +138,14 @@ type TemplateDetail = {
   versions: {
     version: number;
     published_at: string | null;
-    variable_schema: { name: string; required?: boolean }[];
+    variable_schema: {
+      name: string;
+      type: string;
+      required?: boolean;
+      min?: number;
+      max?: number;
+      max_len?: number;
+    }[];
   }[];
 };
 
@@ -207,8 +214,10 @@ export function ComposePanel({
     enabled: !!chosen,
   });
   const schema = useMemo(
-    () => tplDetail.data?.versions.find((v) => v.published_at)?.variable_schema ?? [],
-    [tplDetail.data],
+    () =>
+      tplDetail.data?.versions.find((v) => v.version === chosen?.published_version)
+        ?.variable_schema ?? [],
+    [tplDetail.data, chosen?.published_version],
   );
 
   const drafts = useQuery({
@@ -288,8 +297,18 @@ export function ComposePanel({
       if (!emailOk(v)) e.cc = `${phrase("Not an email address:")} ${v}`;
     if (!template && !subject.trim()) e.subject = phrase("Enter a subject.");
     if (!template && !html.replace(/<[^>]*>/g, "").trim()) e.body = phrase("Write a message.");
-    for (const v of schema)
-      if (v.required && !vars[v.name]) e["var_" + v.name] = phrase("Required");
+    if (template && !tplDetail.isSuccess) e.template = phrase("Wait for the template to load.");
+    for (const v of schema) {
+      const value = vars[v.name] ?? "";
+      if (v.required && value === "") e["var_" + v.name] = phrase("Required");
+      else if (v.type === "int" && value !== "") {
+        const number = Number(value);
+        if (!/^-?\d+$/.test(value.trim()) || !Number.isSafeInteger(number))
+          e["var_" + v.name] = phrase("Enter a whole number.");
+        else if (number < (v.min ?? 0) || number > (v.max ?? 0))
+          e["var_" + v.name] = `Enter a value between ${v.min ?? 0} and ${v.max ?? 0}.`;
+      }
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -360,7 +379,11 @@ export function ComposePanel({
       };
       if (template) {
         body.template = template;
-        body.variables = vars;
+        body.variables = Object.fromEntries(
+          schema
+            .filter((v) => vars[v.name] !== undefined && vars[v.name] !== "")
+            .map((v) => [v.name, v.type === "int" ? Number(vars[v.name]) : vars[v.name]]),
+        );
       } else {
         body.subject = subject.trim();
         body.html = html;
@@ -614,6 +637,11 @@ export function ComposePanel({
                   >
                     <input
                       className={inputClass}
+                      type={v.type === "int" ? "number" : "text"}
+                      step={v.type === "int" ? 1 : undefined}
+                      min={v.type === "int" ? (v.min ?? 0) : undefined}
+                      max={v.type === "int" ? (v.max ?? 0) : undefined}
+                      maxLength={v.type !== "int" ? v.max_len : undefined}
                       value={vars[v.name] ?? ""}
                       onChange={(e) => setVars({ ...vars, [v.name]: e.target.value })}
                     />

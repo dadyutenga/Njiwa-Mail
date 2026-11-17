@@ -6,7 +6,7 @@ import { CONTENT, fences, githubSlug, headings, parsePage, proseOnly, slugOf } f
 
 export const COMPONENTS = new Set(["Tabs", "Tab", "Steps", "Step", "Callout", "Cards", "Card"]);
 const STATIC_PATHS = [/^\/$/, /^\/llms(-full)?\.txt$/, /^\/openapi\.(yaml|json)$/, /^\/skills\/njiwa-mail-integration\/.+\.md$/];
-const FENCE_LANGS = new Set(["bash", "sh", "http", "json", "ts", "go", "python", "yaml", "text", "ini", "dotenv", "diff", "sql", "html"]);
+const FENCE_LANGS = new Set(["bash", "sh", "http", "json", "ts", "go", "python", "yaml", "text", "ini", "dotenv", "diff", "sql", "html", "php"]);
 
 const SECRET_PATTERNS = [
   [/dmk_(sbx|liv)_[A-Za-z0-9]{6,}_[A-Za-z0-9]{12,}/, "an API key"],
@@ -95,7 +95,7 @@ export function lintPage(file, slugs = allSlugs()) {
     else if (!FENCE_LANGS.has(f.lang)) bad(`code fence at line ${f.line}: unknown language "${f.lang}"`);
     const checkTag = f.meta.includes("check") || f.meta.includes("curl-check");
     if (f.meta.includes("curl-check") && !(f.lang === "bash" && /^curl\b/.test(f.code.trim()))) bad(`curl-check fence at line ${f.line} must be a bash curl command`);
-    if (f.meta.includes("check") && !["ts", "go", "python", "json"].includes(f.lang)) bad(`check fence at line ${f.line}: only ts, go, python and json can be checked`);
+    if (f.meta.includes("check") && !["ts", "go", "python", "php", "json"].includes(f.lang)) bad(`check fence at line ${f.line}: only ts, go, python, php and json can be checked`);
     if (checkTag && f.code.length > 6000) bad(`checked fence at line ${f.line} is too long`);
   }
   return problems;

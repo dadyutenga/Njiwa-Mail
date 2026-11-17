@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/subtle"
 	"context"
 	"encoding/json"
 	"errors"
@@ -99,18 +100,50 @@ func validateSMTPInput(in *MailServerInput) error {
 	return nil
 }
 
+// storedSMTPSecrets opens the SMTP password and Mailcow API key of the
+// existing_smtp profile a save would update. Missing or unreadable secrets are
+// returned as nil, which makes any submitted value count as a change.
+func (s *Service) storedSMTPSecrets(ctx context.Context) (pw, key []byte) {
+	var encPw, encKey []byte
+	if err := s.Pool.QueryRow(ctx, `SELECT encrypted_secret, encrypted_provider_secret FROM transport_profiles
+WHERE mode='existing_smtp' AND status <> 'retired' ORDER BY is_active DESC, created_at LIMIT 1`).Scan(&encPw, &encKey); err != nil {
+		return nil, nil
+	}
+	if encPw != nil {
+		pw, _ = s.Box.Open(encPw, []byte(smtpPasswordAAD))
+	}
+	if encKey != nil {
+		key, _ = s.Box.Open(encKey, []byte(mailcowAPIKeyAAD))
+	}
+	return pw, key
+}
+
+// mailServerChanged is true in the mail_server upsert when the save changes
+// anything a connection test depends on; otherwise the last result still holds.
+const mailServerChanged = `(mail_server.smtp_host, mail_server.smtp_port, mail_server.smtp_tls_mode, mail_server.smtp_username, mail_server.test_sender)
+  IS DISTINCT FROM (EXCLUDED.smtp_host, EXCLUDED.smtp_port, EXCLUDED.smtp_tls_mode, EXCLUDED.smtp_username, EXCLUDED.test_sender)
+  OR EXCLUDED.smtp_password_enc IS NOT NULL`
+
+func sameSecret(stored []byte, submitted string) bool {
+	return stored != nil && subtle.ConstantTimeCompare(stored, []byte(submitted)) == 1
+}
+
 func (s *Service) SaveMailServer(ctx context.Context, in MailServerInput) error {
 	if err := validateSMTPInput(&in); err != nil {
 		return err
 	}
 	var pw, key []byte
 	var err error
-	if in.Password != nil && *in.Password != "" {
+	// Re-entering the password that is already stored is not a change: sealing
+	// it again would bump the profile revision and throw away checks that still
+	// hold (the connection and the test email), so setup would ask for them again.
+	storedPw, storedKey := s.storedSMTPSecrets(ctx)
+	if in.Password != nil && *in.Password != "" && !sameSecret(storedPw, *in.Password) {
 		if pw, err = s.Box.Seal([]byte(*in.Password), []byte(smtpPasswordAAD)); err != nil {
 			return unavailable("seal", err)
 		}
 	}
-	if in.MailcowAPIKey != nil && *in.MailcowAPIKey != "" {
+	if in.MailcowAPIKey != nil && *in.MailcowAPIKey != "" && !sameSecret(storedKey, *in.MailcowAPIKey) {
 		if key, err = s.Box.Seal([]byte(*in.MailcowAPIKey), []byte(mailcowAPIKeyAAD)); err != nil {
 			return unavailable("seal", err)
 		}
@@ -127,7 +160,9 @@ ON CONFLICT (id) DO UPDATE SET smtp_host=EXCLUDED.smtp_host, smtp_port=EXCLUDED.
   smtp_username=EXCLUDED.smtp_username, smtp_password_enc=COALESCE(EXCLUDED.smtp_password_enc, mail_server.smtp_password_enc),
   test_sender=EXCLUDED.test_sender, inbound_listener=EXCLUDED.inbound_listener, mailcow_api_url=EXCLUDED.mailcow_api_url,
   mailcow_api_key_enc=CASE WHEN $10 THEN NULL ELSE COALESCE(EXCLUDED.mailcow_api_key_enc, mail_server.mailcow_api_key_enc) END,
-  last_test=NULL, last_test_at=NULL, updated_at=now()`,
+  last_test=CASE WHEN `+mailServerChanged+` THEN NULL ELSE mail_server.last_test END,
+  last_test_at=CASE WHEN `+mailServerChanged+` THEN NULL ELSE mail_server.last_test_at END,
+  updated_at=now()`,
 		in.SMTPHost, in.SMTPPort, in.TLSMode, strings.TrimSpace(in.Username), pw, in.TestSender, in.InboundListener, in.MailcowAPIURL, key, clearKey)
 	if err != nil {
 		return unavailable("mail_server_save", err)
@@ -474,4 +509,47 @@ func ignoreExists(err error) error {
 		return nil
 	}
 	return err
+}
+
+// PrepareSendingDomain provisions only the signing domain and its public key.
+// It never installs inbound transports or rotates an existing DKIM key.
+func (s *Service) PrepareSendingDomain(ctx context.Context, sc *Scope, actor Actor, id string) (map[string]any, error) {
+	var name, purpose string
+	var owned bool
+	if err := s.Pool.QueryRow(ctx, `SELECT name,purpose,verified_at IS NOT NULL FROM domains WHERE id=$1 AND project_id=$2`, id, sc.ProjectID).Scan(&name, &purpose, &owned); err != nil {
+		return nil, notFound(err)
+	}
+	if !owned {
+		return nil, &Error{Status: 409, Code: "domain_ownership_required", Message: "Verify ownership of this domain before preparing it on the sending server."}
+	}
+	if !sendingPurpose(purpose) {
+		return nil, badRequest("This domain is not configured for sending.")
+	}
+	c, err := s.audited(ctx, actor, name)
+	if err != nil {
+		return nil, &Error{Status: 409, Code: "mailcow_api_not_configured", Message: "Connect your Mailcow management API in Advanced Settings. Njiwa can then create the signing domain and read its DKIM key automatically."}
+	}
+	state, err := c.DomainState(ctx, name)
+	if err != nil {
+		return nil, &Error{Status: 502, Code: "mailcow_unavailable", Message: "Cannot read the sending domain from Mailcow. Check the management API connection."}
+	}
+	if state["exists"] != true {
+		if err := ignoreExists(c.AddDomain(ctx, name, false)); err != nil {
+			return nil, &Error{Status: 502, Code: "mailcow_domain_failed", Message: "Mailcow could not create the sending domain. Check its API permissions and domain limits."}
+		}
+	}
+	key, err := c.DKIMRecord(ctx, name)
+	if err != nil {
+		return nil, &Error{Status: 502, Code: "mailcow_dkim_failed", Message: "Cannot read the domain's DKIM key from Mailcow."}
+	}
+	if key == "" {
+		if err := ignoreExists(c.AddDKIM(ctx, name, s.Opts.DKIMSelector)); err != nil {
+			return nil, &Error{Status: 502, Code: "mailcow_dkim_failed", Message: "Mailcow could not generate the DKIM key. Check its API permissions."}
+		}
+		key, err = c.DKIMRecord(ctx, name)
+	}
+	if err != nil || key == "" {
+		return nil, &Error{Status: 502, Code: "mailcow_dkim_missing", Message: "Mailcow has not returned a DKIM public key. Retry preparation; existing keys will be preserved."}
+	}
+	return map[string]any{"ok": true, "domain": name, "dkim_record": key}, nil
 }

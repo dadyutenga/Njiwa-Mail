@@ -2,6 +2,7 @@
 // text passed to phrase(), including the server's step details and reasons.
 // Needs a native-speaker review, like the rest of the Kiswahili.
 export const swSetup: Record<string, string> = {
+  "Continue to connect mail server": "Endelea kuunganisha seva ya barua",
   "Scan this server": "Chunguza seva hii",
   "Scanning server…": "Inachunguza seva…",
   "Scan recorded. The setup steps have been updated.":

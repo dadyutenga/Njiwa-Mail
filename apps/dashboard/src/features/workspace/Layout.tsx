@@ -18,9 +18,11 @@ import {
   useParams,
 } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { docsHome, welcomeLinks } from "@/features/welcome/config";
 import {
   Check,
   ChevronsUpDown,
+  ExternalLink,
   FileText,
   Globe,
   KeyRound,
@@ -268,7 +270,8 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
             .filter((i) => !(i.path === "setup" && checklist.data?.complete))
             .filter((i) => !i.operator || user?.installation_operator !== false)
             .filter((i) => i.feature !== "forms" || info?.forms_enabled)
-            .filter((i) => i.feature !== "chat" || info?.chat_enabled);
+            .filter((i) => i.feature !== "chat" || info?.chat_enabled)
+            .filter((i) => i.external !== "docs" || !!welcomeLinks.docs);
           if (items.length === 0) return null;
           return (
             <div key={g.label}>
@@ -278,33 +281,51 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
                 </p>
               )}
               <ul className="space-y-0.5">
-                {items.map(({ path, label, icon: Icon, badge }) => (
+                {items.map(({ path, label, icon: Icon, badge, external }) => (
                   <li key={path}>
-                    <NavLink
-                      to={to(path)}
-                      onClick={onNavigate}
-                      title={compact ? phrase(label) : undefined}
-                      className={({ isActive }) =>
-                        cn(
-                          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                          isActive
-                            ? "bg-primary/15 text-primary"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    {external === "docs" ? (
+                      <a
+                        href={docsHome()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={onNavigate}
+                        title={compact ? phrase(label) : undefined}
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground",
                           compact && "justify-center px-0",
-                        )
-                      }
-                    >
-                      <Icon size={18} />
-                      {!compact && <span className="flex-1">{phrase(label)}</span>}
-                      {!compact && badge === "unread" && !!unread.data?.total && (
-                        <span
-                          className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground"
-                          aria-label={`${unread.data.total} unread`}
-                        >
-                          {unread.data.total}
-                        </span>
-                      )}
-                    </NavLink>
+                        )}
+                      >
+                        <Icon size={18} />
+                        {!compact && <span className="flex-1">{phrase(label)}</span>}
+                        {!compact && <ExternalLink size={14} aria-hidden />}
+                      </a>
+                    ) : (
+                      <NavLink
+                        to={to(path)}
+                        onClick={onNavigate}
+                        title={compact ? phrase(label) : undefined}
+                        className={({ isActive }) =>
+                          cn(
+                            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                            isActive
+                              ? "bg-primary/15 text-primary"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                            compact && "justify-center px-0",
+                          )
+                        }
+                      >
+                        <Icon size={18} />
+                        {!compact && <span className="flex-1">{phrase(label)}</span>}
+                        {!compact && badge === "unread" && !!unread.data?.total && (
+                          <span
+                            className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground"
+                            aria-label={`${unread.data.total} unread`}
+                          >
+                            {unread.data.total}
+                          </span>
+                        )}
+                      </NavLink>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -329,7 +350,15 @@ const hitMeta: Record<string, { label: string; icon: LucideIcon }> = {
   mailbox: { label: "Mailboxes", icon: Mailbox },
 };
 
-const searchScopes = ["Pages", "Messages", "Domains", "Senders", "Templates", "API keys", "Mailboxes"];
+const searchScopes = [
+  "Pages",
+  "Messages",
+  "Domains",
+  "Senders",
+  "Templates",
+  "API keys",
+  "Mailboxes",
+];
 
 function GlobalSearch() {
   const phrase = usePhrase();
@@ -503,7 +532,9 @@ function GlobalSearch() {
             })}
             {q.trim().length > 0 && q.trim().length < 2 && pages.length === 0 && (
               <li className="px-3 py-6 text-center text-sm text-muted-foreground">
-                {phrase("Type at least two characters to search records. A page name can be shorter.")}
+                {phrase(
+                  "Type at least two characters to search records. A page name can be shorter.",
+                )}
               </li>
             )}
             {debounced.length >= 2 && hits.isFetching && (
@@ -516,7 +547,9 @@ function GlobalSearch() {
             )}
             {!q.trim() && (
               <li className="px-3 py-6 text-center text-sm text-muted-foreground">
-                {phrase("Search a page by name, or a message, domain, sender, template, key, or mailbox.")}
+                {phrase(
+                  "Search a page by name, or a message, domain, sender, template, key, or mailbox.",
+                )}
               </li>
             )}
           </ul>

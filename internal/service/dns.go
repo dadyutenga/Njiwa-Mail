@@ -120,6 +120,9 @@ func isNotFoundErr(err error) bool {
 // (signed with d=domain) or SPF on the envelope domain (the bounce address).
 func evalDMARC(ctx context.Context, r Resolver, domain, envDomain string, dkimOK, envSPFOK bool) (bool, string, string) {
 	d, err := dnsauth.LookupDMARC(ctx, r, domain)
+	if observed(nil, err) == dnsLookupTimedOut {
+		return false, dnsLookupTimedOut, "Public DNS lookup timed out. Check this server's DNS resolver and try again."
+	}
 	if errors.Is(err, dnsauth.ErrNoDMARC) {
 		return false, "(no record)", "No DMARC record was found at _dmarc." + domain + " or its organisational domain."
 	}
@@ -166,9 +169,15 @@ type DNSResult struct {
 
 func fqdn(h string) string { return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(h), ".")) }
 
+const dnsLookupTimedOut = "(lookup timed out)"
+
 func observed(vals []string, err error) string {
 	if len(vals) == 0 {
 		if err != nil {
+			var timeout net.Error
+			if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &timeout) && timeout.Timeout()) {
+				return dnsLookupTimedOut
+			}
 			if de, ok := err.(*net.DNSError); ok && de.IsNotFound {
 				return "(no record)"
 			}
@@ -238,11 +247,12 @@ func (s *Service) RunDNSChecks(ctx context.Context, r Resolver) ([]DNSResult, er
 	var facts *SendingFacts
 	var sips []net.IP
 	include := ""
-	if kind == senderGeneric {
+	if kind != senderManaged {
 		if facts = s.sendingFacts(ctx); facts != nil {
 			sips, include = facts.ips(), facts.SPFInclude
 		}
-	} else if sip != nil {
+	}
+	if len(sips) == 0 && sip != nil {
 		sips = []net.IP{sip}
 	}
 	var out []DNSResult

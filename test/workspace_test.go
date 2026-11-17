@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"net"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -501,5 +502,45 @@ func TestMailServerSettingsSecrets(t *testing.T) {
 	}
 	if r := e.adm(owner, "PUT", "/admin/v1/mail-server", map[string]any{"smtp_host": "mail.example.com", "smtp_tls_mode": "none"}); r.Code != 400 {
 		t.Fatalf("plaintext SMTP accepted: %d", r.Code)
+	}
+}
+
+// A slow DNS resolver must produce check results rather than exhausting the
+// context used to persist them and returning service_unavailable.
+type deadlineDNS struct{ fakeDNS }
+
+func (d deadlineDNS) LookupTXT(ctx context.Context, name string) ([]string, error) {
+	<-ctx.Done()
+	return nil, &net.DNSError{Err: "DNS lookup timed out", Name: name, IsTimeout: true}
+}
+func (d deadlineDNS) LookupMX(ctx context.Context, name string) ([]*net.MX, error) {
+	<-ctx.Done()
+	return nil, &net.DNSError{Err: "DNS lookup timed out", Name: name, IsTimeout: true}
+}
+func TestDomainDNSDeadlineStillRecordsResults(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.must(e.svc.CreateProject(ctx, "sacas"))
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	created := e.admOK(admin, "POST", wsBase+"/domains", map[string]any{"name": "notify.example.com", "purpose": "sending"})
+	id := str(created.JSON, "id")
+	started := time.Now()
+	records, err := e.svc.CheckDomain(ctx, id, deadlineDNS{newDNS()})
+	if err != nil {
+		t.Fatalf("DNS timeout must not become service unavailable: %v", err)
+	}
+	if time.Since(started) > 25*time.Second {
+		t.Fatal("DNS checks exceeded their bounded budget")
+	}
+	if len(records) == 0 {
+		t.Fatal("missing per-record results")
+	}
+	for _, record := range records {
+		if record.Pass {
+			t.Fatalf("timed-out DNS was marked passing: %+v", record)
+		}
+	}
+	if e.count(`SELECT count(*) FROM domains WHERE last_checked_at IS NOT NULL`) != 1 {
+		t.Fatal("timed-out check results were not stored")
 	}
 }

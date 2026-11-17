@@ -18,6 +18,7 @@ import {
   Inbox,
   KeyRound,
   LayoutDashboard,
+  LibraryBig,
   ListChecks,
   LogIn,
   Mailbox,
@@ -51,6 +52,8 @@ export type NavItem = {
   operator?: boolean;
   /** Hidden unless the server turned this feature on. */
   feature?: "forms" | "chat";
+  /** Opens the public documentation site in a new tab instead of a page here. */
+  external?: "docs";
 };
 export type NavGroup = { label: string; items: NavItem[] };
 
@@ -75,9 +78,7 @@ export const navGroups: NavGroup[] = [
   },
   {
     label: "Audience",
-    items: [
-      { path: "contacts", label: "Audience", icon: Contact },
-    ],
+    items: [{ path: "contacts", label: "Audience", icon: Contact }],
   },
   {
     label: "Forms",
@@ -120,6 +121,7 @@ export const navGroups: NavGroup[] = [
       { path: "messages", label: "Message log", icon: ScrollText },
       { path: "unknown", label: "Unknown queue", icon: ClipboardCheck },
       { path: "api-docs", label: "API docs", icon: BookOpen },
+      { path: "docs", label: "Documentation", icon: LibraryBig, external: "docs" },
     ],
   },
   {

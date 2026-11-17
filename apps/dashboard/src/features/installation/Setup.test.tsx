@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { admin } from "@/lib/admin-api";
@@ -149,4 +149,81 @@ it("keeps scan errors visible and allows retry", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Scan this server" }));
   expect(await screen.findByText("MAILCOW_PRESENT")).toBeInTheDocument();
   expect(send).toHaveBeenCalledTimes(2);
+});
+
+it.each(["existing_smtp", "managed_mta"])(
+  "chooses %s directly in step 3 and advances to connecting",
+  async (selectedMode) => {
+    let mode = "";
+    vi.spyOn(admin, "get").mockImplementation(async (path: string) => {
+      if (path.includes("/installation/setup"))
+        return {
+          project: "demo",
+          mode,
+          next: mode ? 4 : 3,
+          done: mode ? 3 : 2,
+          total: 10,
+          steps: [
+            ...steps.map((step) =>
+              step.id === "choose_mode"
+                ? { ...step, status: mode ? "ready" : "needs_action" }
+                : step,
+            ),
+            {
+              n: 4,
+              id: "connect",
+              title: "Connect",
+              status: mode ? "needs_action" : "not_started",
+              detail: mode ? "Connect the mail server." : "Choose a delivery mode first.",
+              route: "mail-server",
+            },
+          ],
+        } as never;
+      return { report: null, active_profile: null } as never;
+    });
+    const send = vi.spyOn(admin, "send").mockImplementation(async (_path, _method, data) => {
+      mode = (data as { selected_mode: string }).selected_mode;
+      return { wizard: { selected_mode: mode }, active_profile: null } as never;
+    });
+    wrap(<SetupJourneyPanel />);
+    fireEvent.click(
+      await screen.findByRole("radio", {
+        name:
+          selectedMode === "managed_mta" ? /Send from my VPS/ : /Connect an existing mail server/,
+      }),
+    );
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continue to connect mail server" }));
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith("/installation/wizard", "PUT", {
+        selected_mode: selectedMode,
+      }),
+    );
+    expect(await screen.findByText(/Step 4 of 10/)).toBeInTheDocument();
+    const connect = screen.getByText(/4\. Connect the mail server/).closest("li")!;
+    expect(within(connect).getByRole("link")).toHaveAttribute(
+      "href",
+      selectedMode === "managed_mta"
+        ? "/p/demo/mail-server#delivery-infrastructure"
+        : "/p/demo/mail-server#delivery-connection",
+    );
+  },
+);
+
+it("keeps step 3 open when saving the delivery mode fails", async () => {
+  vi.spyOn(admin, "get").mockResolvedValue({
+    project: "demo",
+    mode: "",
+    next: 3,
+    done: 2,
+    total: 10,
+    steps,
+  } as never);
+  vi.spyOn(admin, "send").mockRejectedValue(new Error("Could not save delivery mode"));
+  wrap(<SetupJourneyPanel />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Send from my VPS/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue to connect mail server" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not save delivery mode");
+  expect(screen.getByText(/Step 3 of 10/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Continue to connect mail server" })).toBeEnabled();
 });

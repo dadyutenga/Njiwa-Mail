@@ -156,3 +156,30 @@ func TestProviderWritesAreAuditedWithBeforeAndAfter(t *testing.T) {
 	}
 	_ = row{}
 }
+
+func TestPrepareSigningDomainDoesNotConfigureInboundOrRotateKeys(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	fp := &fakeProvider{domains: map[string]bool{}, dkim: map[string]string{}, transports: map[string]string{}}
+	e.svc.Opts.NewProvider = func(_, _ string) provider.Provider { return fp }
+	e.admOK(admin, "PUT", "/admin/v1/mail-server", map[string]any{"smtp_host": "mail.example.com", "smtp_port": 587, "smtp_username": "box@example.com", "smtp_password": "password", "provider_type": "mailcow", "mailcow_api_url": "https://mail.example.com", "mailcow_api_key": "secret"})
+	e.must(e.svc.CreateProject(ctx, "signing"))
+	d := e.admOK(admin, "POST", wsPath("signing", "/domains"), map[string]any{"name": "notify.example.com", "purpose": "both"})
+	id := str(d.JSON, "id")
+	path := wsPath("signing", "/domains/"+id+"/prepare-sending")
+	if r := e.adm(admin, "POST", path, nil); r.Code != 409 {
+		t.Fatalf("unverified domain accepted: %s", r.Raw)
+	}
+	_, err := e.pool.Exec(ctx, `UPDATE domains SET verified_at=now() WHERE id=$1`, id)
+	e.must(err)
+	r := e.admOK(admin, "POST", path, nil)
+	if r.JSON["ok"] != true || strings.Join(fp.calls, ",") != "add_domain notify.example.com,add_dkim notify.example.com" {
+		t.Fatalf("%s calls=%v", r.Raw, fp.calls)
+	}
+	original := fp.dkim["notify.example.com"]
+	e.admOK(admin, "POST", path, nil)
+	if len(fp.calls) != 2 || fp.dkim["notify.example.com"] != original || len(fp.transports) != 0 {
+		t.Fatal("retry rotated a key or configured inbound")
+	}
+}

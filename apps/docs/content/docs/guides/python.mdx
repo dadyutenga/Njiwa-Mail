@@ -1,0 +1,179 @@
+---
+title: Python
+description: Send OTP and password-reset email, read status, retry safely and verify webhooks from Python with plain HTTP.
+---
+
+There is **no Njiwa-Mail package on PyPI**. Do not run `pip install njiwa-mail`. Python calls the HTTP API directly; the only dependency below is [`requests`](https://pypi.org/project/requests/). Every call runs on your server, never in a browser.
+
+## Configure
+
+Read the base URL of your own instance and a key from the environment. Use a sandbox key (`dmk_sbx_…`) while you build: sandbox mail is captured, never sent.
+
+```bash
+export NJIWA_MAIL_URL="https://mail-api.example.com"
+export NJIWA_MAIL_API_KEY="dmk_sbx_..."   # from your operator; never commit it
+```
+
+## A small client
+
+Copy this module into your project as `njiwa_mail.py`. It sends one email, retries only what is safe to retry (timeouts, network errors, `429` and `5xx`) with the **same** idempotency key, and honours `Retry-After`.
+
+```python check
+import os
+import time
+import uuid
+
+import requests
+
+BASE_URL = os.environ["NJIWA_MAIL_URL"].rstrip("/")
+API_KEY = os.environ["NJIWA_MAIL_API_KEY"]
+RETRYABLE = {429, 500, 502, 503, 504}
+
+
+class NjiwaMailError(Exception):
+    def __init__(self, status, code, message=""):
+        super().__init__(f"{status} {code} {message}".strip())
+        self.status, self.code = status, code
+
+
+def new_idempotency_key(purpose):
+    """One key per logical event (one OTP, one reset). Reuse it for retries."""
+    return f"{purpose}:{uuid.uuid4()}"
+
+
+def send_email(payload, idempotency_key, attempts=4):
+    headers = {"Authorization": "Bearer " + API_KEY, "Idempotency-Key": idempotency_key}
+    delay = 1.0
+    for attempt in range(attempts):
+        try:
+            r = requests.post(BASE_URL + "/v1/emails", json=payload, headers=headers, timeout=10)
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2
+            continue
+        if r.status_code == 202:
+            return r.json()  # {"id": "...", "status": "queued"}
+        if r.status_code in RETRYABLE and attempt < attempts - 1:
+            time.sleep(float(r.headers.get("Retry-After", delay)))
+            delay *= 2
+            continue
+        err = (r.json() if r.content else {}).get("error", {})
+        raise NjiwaMailError(r.status_code, err.get("code", "unknown"), err.get("message", ""))
+    raise NjiwaMailError(0, "retries_exhausted")
+
+
+def get_status(message_id):
+    r = requests.get(
+        f"{BASE_URL}/v1/emails/{message_id}",
+        headers={"Authorization": "Bearer " + API_KEY},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()
+```
+
+## Send a one-time code
+
+The built-in `otp` template takes `code` and `expires_in_minutes`, and optionally `name`. Generate the code yourself with a secure random source, store only its hash, and send it.
+
+```python check
+import secrets
+
+from njiwa_mail import new_idempotency_key, send_email
+
+code = f"{secrets.randbelow(10**6):06d}"
+accepted = send_email(
+    {
+        "from": "noreply@notify.example.com",
+        "to": "user@example.org",
+        "template": "otp",
+        "locale": "en",
+        "variables": {"name": "Ada", "code": code, "expires_in_minutes": 5},
+    },
+    idempotency_key=new_idempotency_key("otp"),
+)
+print(accepted["id"], accepted["status"])
+```
+
+## Send a password reset
+
+The `password-reset` template needs `reset_url` (an `https` URL whose origin your operator approved for the environment) and `expires_in_minutes`.
+
+```python check
+from njiwa_mail import new_idempotency_key, send_email
+
+reset_token = "..."  # your own single-use token; store only its hash
+send_email(
+    {
+        "from": "noreply@notify.example.com",
+        "to": "user@example.org",
+        "template": "password-reset",
+        "variables": {
+            "reset_url": "https://app.example.com/reset?token=" + reset_token,
+            "expires_in_minutes": 30,
+        },
+    },
+    idempotency_key=new_idempotency_key("reset"),
+)
+```
+
+## Read the status
+
+```python check
+from njiwa_mail import get_status
+
+message = get_status("6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11")
+print(message["status"])  # queued, submitted, captured, failed, ...
+```
+
+`submitted` means your mail server accepted the message. There is no `delivered` state. See [Status and cancel](/docs/api/status-and-cancel).
+
+## Verify webhooks (Flask)
+
+Verify the signature over the **raw** body before you parse it. The secret (`whsec_…`) is shown once when you create the endpoint.
+
+```python check
+import hashlib
+import hmac
+import os
+import time
+
+from flask import Flask, abort, request
+
+app = Flask(__name__)
+SECRET = os.environ["NJIWA_WEBHOOK_SECRET"].encode()
+
+
+def verify(signature_header, raw_body):
+    try:
+        parts = dict(p.strip().split("=", 1) for p in signature_header.split(","))
+    except ValueError:
+        return False
+    timestamp, signature = parts.get("t", ""), parts.get("v1", "")
+    if not timestamp.isdigit() or abs(time.time() - int(timestamp)) > 300:
+        return False
+    expected = hmac.new(SECRET, timestamp.encode() + b"." + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+@app.post("/hooks/njiwa")
+def njiwa_hook():
+    raw = request.get_data()
+    if not verify(request.headers.get("X-DM-Signature", ""), raw):
+        abort(401)
+    event = request.get_json()
+    # Deliveries can repeat: de-duplicate on event["id"] before acting.
+    print(event["type"], event["data"].get("message_id"))
+    return "", 204
+```
+
+See [Webhooks](/docs/webhooks) for every event type and the retry schedule.
+
+## Checklist
+
+- One new idempotency key per event; the same key on every retry of it.
+- Retry only timeouts, network errors, `429` and `5xx`; fix every other `4xx` ([error codes](/docs/api/rate-limits-and-errors)).
+- Keys stay on the server, in environment configuration, never in logs.
+- Switch to a live key (`dmk_liv_…`) only after the domain and sender are verified ([Sandbox and live](/docs/concepts/sandbox-and-live)).

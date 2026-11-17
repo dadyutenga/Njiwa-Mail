@@ -96,11 +96,15 @@ func (s *Service) VerifyDNSSetup(ctx context.Context, sc *Scope, a Actor, id str
 	recent := time.Since(since) < propagationWindow
 
 	items := []VerifyItem{}
+	lookupTimedOut := false
 	for _, rec := range recs {
 		it := VerifyItem{Key: rec.Key, Type: rec.Type, Name: rec.Host, Found: rec.Found}
 		switch {
 		case rec.Pass:
 			it.State, it.Detail = VerifyVerified, "Seen in public DNS and valid."
+		case rec.Found == dnsLookupTimedOut:
+			lookupTimedOut = true
+			it.State, it.Detail = VerifyPending, "Public DNS lookup timed out. Check this server's DNS resolver and try again."
 		case rec.Placeholder:
 			it.State, it.Detail = VerifyNeedsAction, "Njiwa-Mail does not know this value yet. "+rec.Hint
 		case notVisible(rec.Found) && ours[rec.Key] && recent:
@@ -182,6 +186,9 @@ func (s *Service) VerifyDNSSetup(ctx context.Context, sc *Scope, a Actor, id str
 		overall, msg = VerifyFailed, "A record is published but wrong. See the details below."
 	case pending:
 		overall, msg = VerifyPending, "Waiting for DNS to propagate. Njiwa-Mail keeps checking."
+		if lookupTimedOut {
+			msg = "Public DNS lookup timed out. Check this server's DNS resolver and try again."
+		}
 	}
 	_ = s.Audit(ctx, a, "dns.verify", "dns_setup", id, map[string]any{"project": sc.Project, "domain": row.Domain, "state": overall})
 	return map[string]any{"setup_id": id, "domain": row.Domain, "state": overall, "ready": ready, "message": msg, "items": items,

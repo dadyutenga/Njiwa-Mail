@@ -5,7 +5,7 @@ import { source } from "@/lib/source";
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <DocsLayout tree={source.getPageTree()} nav={{ title: "Njiwa-Mail", url: "/", children: <VersionSelect /> }}>
+    <DocsLayout tree={source.getPageTree()} nav={{ title: "Njiwa-Mail", url: "/docs", children: <VersionSelect /> }}>
       {children}
     </DocsLayout>
   );

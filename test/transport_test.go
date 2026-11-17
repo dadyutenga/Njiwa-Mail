@@ -130,6 +130,19 @@ func TestStatusIsTiedToProfileRevision(t *testing.T) {
 	if r := e.readiness(); r.Status != installation.Ready {
 		t.Fatalf("identical save must not invalidate: %+v", r)
 	}
+	// Re-entering the SAME password (the connect form asks for it) is not a
+	// change either: the revision and the passing checks, including the test
+	// email, must survive, or setup asks the operator to finish it again.
+	e.saveSMTP("mail.example.com", "pw-one")
+	if rev := e.activeProfile()["config_revision"].(int64); rev != 1 {
+		t.Fatalf("re-entered identical password bumped revision to %d", rev)
+	}
+	if r := e.readiness(); r.Status != installation.Ready {
+		t.Fatalf("re-entered identical password must not invalidate: %+v", r)
+	}
+	if ms, err := e.svc.GetMailServer(ctx); err != nil || ms["last_test"] == nil {
+		t.Fatalf("identical save cleared the last test: %v %v", ms["last_test"], err)
+	}
 	// Password rotation changes the revision and invalidates the old checks.
 	e.saveSMTP("mail.example.com", "pw-two")
 	if rev := e.activeProfile()["config_revision"].(int64); rev != 2 {
@@ -758,5 +771,35 @@ func TestManagedPreflightRecordingDrivesReadiness(t *testing.T) {
 	}
 	if r := e.readiness(); r.Status == installation.Ready || step("install").ProblemCode != installation.CodeInstallerMissing {
 		t.Fatalf("managed mode ready without an installer: %+v", r)
+	}
+}
+
+func TestOneSubmittedLiveMessageCompletesProjectTestStep(t *testing.T) {
+	e := setup(t)
+	admin := e.user("admin@njiwa.co.tz", "admin")
+	k := e.provision("onetest")
+	e.provision("untested")
+	get := func(project string) map[string]any {
+		return e.admOK(admin, "GET", wsPath(project, "/checklist"), nil).JSON
+	}
+	if stepByKey(get("onetest"), "test_email")["done"] != false {
+		t.Fatal("untested project is complete")
+	}
+	r := e.post(k.live, idem("one-live-test"), otpBody(testRcpt))
+	if r.Code != 202 {
+		t.Fatalf("%s", r.Raw)
+	}
+	if stepByKey(get("onetest"), "test_email")["done"] != false {
+		t.Fatal("queued mail must not count as submitted")
+	}
+	e.runWorker()
+	if e.state(str(r.JSON, "id")) != "submitted" {
+		t.Fatal("live test was not submitted")
+	}
+	if stepByKey(get("onetest"), "test_email")["done"] != true {
+		t.Fatal("one successful Live message must be enough without a Sandbox test")
+	}
+	if stepByKey(get("untested"), "test_email")["done"] != false {
+		t.Fatal("test step leaked to another project")
 	}
 }

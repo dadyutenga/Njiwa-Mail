@@ -44,7 +44,8 @@ export function orderedFiles(dir = CONTENT) {
 
 export function slugOf(file) {
   const rel = path.relative(CONTENT, file).replace(/\\/g, "/").replace(/\.mdx$/, "");
-  return rel === "index" ? "" : rel;
+  // A folder's index.mdx is served at the folder's URL, as Fumadocs does.
+  return rel === "index" ? "" : rel.replace(/\/index$/, "");
 }
 export const urlOf = (file) => "/docs" + (slugOf(file) ? "/" + slugOf(file) : "");
 export const mdPathOf = (file) => "/docs/" + (slugOf(file) || "index") + ".md";

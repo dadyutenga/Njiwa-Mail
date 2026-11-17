@@ -1,7 +1,23 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Circle, FolderKanban, Plus } from "lucide-react";
+import {
+  ArrowUpRight,
+  Ban,
+  CalendarClock,
+  CheckCircle2,
+  Circle,
+  FolderKanban,
+  HelpCircle,
+  Inbox,
+  Layers,
+  MessageSquareWarning,
+  Plus,
+  Send,
+  Webhook,
+  type LucideIcon,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { usePhrase } from "@/features/i18n/i18n";
 import { statusLabels, type StepStatus } from "@/features/installation/Installation";
 import { DeliveryHealthCard } from "@/features/installation/Profiles";
@@ -169,56 +185,285 @@ export function Dashboard() {
         <DeliveryHealthCard />
       </div>
       <DataState q={q} rows={4}>
-        {(d) => {
-          const cards: [string, number, string][] = [
-            ["Submitted, last 24 hours", d.submitted_24h, "sent?state=submitted"],
-            ["In the queue", d.queue_depth, "messages?state=queued"],
-            ["Scheduled", d.scheduled, "scheduled"],
-            ["Unread in Inbox", d.unread, "inbox?unread=1"],
-            ["Unknown outcome", d.unknown, "unknown"],
-            ["Hard bounces, 7 days", d.hard_bounces_7d, "suppressions?source=hard_bounce"],
-            ["Complaints, 7 days", d.complaints_7d, "complaints"],
-            ["Failed webhook deliveries", d.webhook_failed, "webhooks"],
-          ];
-          return (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                {cards.map(([label, value, link]) => (
-                  <Link
-                    key={label}
-                    to={to(link)}
-                    className="rounded-xl border bg-card p-4 transition hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <p className="text-xs text-muted-foreground sm:text-sm">{phrase(label)}</p>
-                    <p className="mt-2 text-2xl font-bold sm:text-3xl">{value}</p>
-                  </Link>
-                ))}
-              </div>
-              <Section title={phrase("Messages by state")}>
-                <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {Object.entries(d.counts).map(([state, count]) => (
-                    <li key={state}>
-                      <Link
-                        to={to(`messages?state=${state}`)}
-                        className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm hover:bg-muted"
-                      >
-                        <StateBadge state={state} />
-                        <span className="font-semibold">{count}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {phrase(
-                    "“submitted” means the mail server accepted the message. Njiwa-Mail does not claim delivery to the inbox.",
-                  )}
-                </p>
-              </Section>
-            </div>
-          );
-        }}
+        {(d) => (
+          <div className="space-y-6">
+            <KpiGroup
+              title={phrase("Sending")}
+              cards={[
+                {
+                  label: "Submitted, last 24 hours",
+                  value: d.submitted_24h,
+                  link: "sent?state=submitted",
+                  icon: Send,
+                  tone: "success",
+                },
+                {
+                  label: "In the queue",
+                  value: d.queue_depth,
+                  link: "messages?state=queued",
+                  icon: Layers,
+                  tone: "neutral",
+                },
+                {
+                  label: "Scheduled",
+                  value: d.scheduled,
+                  link: "scheduled",
+                  icon: CalendarClock,
+                  tone: "neutral",
+                },
+                {
+                  label: "Unread in Inbox",
+                  value: d.unread,
+                  link: "inbox?unread=1",
+                  icon: Inbox,
+                  tone: "primary",
+                },
+              ]}
+            />
+            <KpiGroup
+              title={phrase("Needs attention")}
+              cards={[
+                {
+                  label: "Unknown outcome",
+                  value: d.unknown,
+                  link: "unknown",
+                  icon: HelpCircle,
+                  tone: "warning",
+                },
+                {
+                  label: "Hard bounces, 7 days",
+                  value: d.hard_bounces_7d,
+                  link: "suppressions?source=hard_bounce",
+                  icon: Ban,
+                  tone: "danger",
+                },
+                {
+                  label: "Complaints, 7 days",
+                  value: d.complaints_7d,
+                  link: "complaints",
+                  icon: MessageSquareWarning,
+                  tone: "danger",
+                },
+                {
+                  label: "Failed webhook deliveries",
+                  value: d.webhook_failed,
+                  link: "webhooks",
+                  icon: Webhook,
+                  tone: "danger",
+                },
+              ]}
+            />
+            <MessagesByState counts={d.counts} />
+          </div>
+        )}
       </DataState>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- dashboard widgets
+
+type Tone = "success" | "primary" | "warning" | "danger" | "neutral";
+
+const toneStyles: Record<Tone, { icon: string; active: string }> = {
+  success: { icon: "bg-success/15 text-success", active: "" },
+  primary: { icon: "bg-primary/15 text-primary", active: "" },
+  neutral: { icon: "bg-muted text-muted-foreground", active: "" },
+  warning: { icon: "bg-warning/15 text-warning", active: "border-warning/50 bg-warning/5" },
+  danger: {
+    icon: "bg-destructive/15 text-destructive",
+    active: "border-destructive/50 bg-destructive/5",
+  },
+};
+
+type Kpi = { label: string; value: number; link: string; icon: LucideIcon; tone: Tone };
+
+function KpiGroup({ title, cards }: { title: string; cards: Kpi[] }) {
+  const phrase = usePhrase();
+  const { to } = useWorkspace();
+  return (
+    <section aria-label={title}>
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h2>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {cards.map(({ label, value, link, icon: Icon, tone }) => {
+          const st = toneStyles[tone];
+          // Problem cards stay quiet at zero and only draw the eye when they count something.
+          const muted = value === 0 && (tone === "warning" || tone === "danger");
+          return (
+            <Link
+              key={label}
+              to={to(link)}
+              className={cn(
+                "group flex flex-col justify-between gap-3 rounded-xl border bg-card p-4 transition hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                !muted && st.active,
+              )}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
+                  {phrase(label)}
+                </p>
+                <span
+                  className={cn(
+                    "grid h-8 w-8 shrink-0 place-items-center rounded-lg",
+                    muted ? "bg-muted text-muted-foreground" : st.icon,
+                  )}
+                >
+                  <Icon size={16} aria-hidden />
+                </span>
+              </div>
+              <div className="flex items-end justify-between">
+                <p className="text-2xl font-bold tabular-nums sm:text-3xl">
+                  {value.toLocaleString()}
+                </p>
+                <ArrowUpRight
+                  size={16}
+                  aria-hidden
+                  className="text-muted-foreground opacity-0 transition group-hover:opacity-100"
+                />
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// Message states grouped by what they mean for the sender. Colours match StateBadge.
+const stateGroups: { title: string; states: { key: string; bar: string }[] }[] = [
+  {
+    title: "Accepted",
+    states: [
+      { key: "submitted", bar: "bg-success" },
+      { key: "captured", bar: "bg-primary" },
+    ],
+  },
+  {
+    title: "In progress",
+    states: [
+      { key: "queued", bar: "bg-muted-foreground/60" },
+      { key: "submitting", bar: "bg-muted-foreground/40" },
+      { key: "scheduled", bar: "bg-accent" },
+      { key: "retry_wait", bar: "bg-warning/70" },
+    ],
+  },
+  {
+    title: "Problems",
+    states: [
+      { key: "failed", bar: "bg-destructive" },
+      { key: "expired", bar: "bg-destructive/60" },
+      { key: "unknown", bar: "bg-warning" },
+    ],
+  },
+  {
+    title: "Stopped",
+    states: [{ key: "cancelled", bar: "bg-muted-foreground/30" }],
+  },
+];
+
+function MessagesByState({ counts }: { counts: Record<string, number> }) {
+  const phrase = usePhrase();
+  const { to } = useWorkspace();
+  const known = new Set(stateGroups.flatMap((g) => g.states.map((s) => s.key)));
+  // Any state the backend adds later still shows up instead of disappearing.
+  const groups = [
+    ...stateGroups,
+    ...(Object.keys(counts).some((k) => !known.has(k))
+      ? [
+          {
+            title: "Other",
+            states: Object.keys(counts)
+              .filter((k) => !known.has(k))
+              .map((key) => ({ key, bar: "bg-muted-foreground/40" })),
+          },
+        ]
+      : []),
+  ];
+  const all = groups.flatMap((g) => g.states);
+  const total = all.reduce((n, s) => n + (counts[s.key] ?? 0), 0);
+  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+  return (
+    <Section
+      title={phrase("Messages by state")}
+      action={
+        <Link to={to("messages")} className="text-sm font-medium text-primary hover:underline">
+          {phrase("All messages")} →
+        </Link>
+      }
+    >
+      <div className="mb-4 flex items-baseline gap-2">
+        <span className="text-3xl font-bold tabular-nums">{total.toLocaleString()}</span>
+        <span className="text-sm text-muted-foreground">{phrase("messages in total")}</span>
+      </div>
+      <div
+        className="mb-5 flex h-3 w-full overflow-hidden rounded-full bg-muted"
+        role="img"
+        aria-label={phrase("Share of messages in each state")}
+      >
+        {all.map(({ key, bar }) =>
+          counts[key] ? (
+            <div
+              key={key}
+              className={cn("h-full", bar)}
+              style={{ width: `${(counts[key] / total) * 100}%` }}
+              title={`${key.replace(/_/g, " ")}: ${counts[key]}`}
+            />
+          ) : null,
+        )}
+      </div>
+      <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-4">
+        {groups.map((g) => {
+          const sum = g.states.reduce((n, s) => n + (counts[s.key] ?? 0), 0);
+          return (
+            <div key={g.title}>
+              <div className="mb-1.5 flex items-center justify-between border-b pb-1.5">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {phrase(g.title)}
+                </h3>
+                <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+                  {sum.toLocaleString()}
+                </span>
+              </div>
+              <ul>
+                {g.states.map(({ key, bar }) => {
+                  const n = counts[key] ?? 0;
+                  return (
+                    <li key={key}>
+                      <Link
+                        to={to(`messages?state=${key}`)}
+                        className={cn(
+                          "-mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition hover:bg-muted",
+                          n === 0 && "text-muted-foreground",
+                        )}
+                      >
+                        <span
+                          className={cn("h-2.5 w-2.5 shrink-0 rounded-full", bar)}
+                          aria-hidden
+                        />
+                        <span className="flex-1 capitalize">{key.replace(/_/g, " ")}</span>
+                        {n > 0 && (
+                          <span className="text-xs tabular-nums text-muted-foreground">
+                            {pct(n)}%
+                          </span>
+                        )}
+                        <span className="w-8 text-right font-semibold tabular-nums">{n}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-4 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+        {phrase(
+          "“submitted” means the mail server accepted the message. Njiwa-Mail does not claim delivery to the inbox.",
+        )}
+      </p>
+    </Section>
   );
 }
 
@@ -305,7 +550,7 @@ const stepLinks: Record<string, { path: string; action: string; help: string }> 
   test_email: {
     path: "sandbox",
     action: "Send a test",
-    help: "Send one message in Sandbox (it is captured), then one in Live.",
+    help: "Send one message in Live. Once the mail server accepts it, this step is complete. Sandbox testing is optional.",
   },
   mailbox: {
     path: "mailboxes",

@@ -236,7 +236,7 @@ it("shows exactly what changes, and approval needs the confirmation and sends th
   expect(await screen.findByText(/Will be created \(1\)/)).toBeInTheDocument();
   expect(screen.getByText(/Will be changed \(1\)/)).toBeInTheDocument();
   expect(screen.getByText(/Needs you: conflicts \(1\)/)).toBeInTheDocument();
-  expect(screen.getByText(/Cannot be automated \(1\)/)).toBeInTheDocument();
+  expect(screen.getByText(/Sending server setup needed \(1\)/)).toBeInTheDocument();
   expect(screen.getByText("v=spf1 include:_spf.google.com ~all")).toBeInTheDocument(); // before
   expect(
     screen.getByText("v=spf1 include:_spf.google.com mx ip4:93.184.216.34 ~all"),
@@ -413,3 +413,147 @@ it.each(["analyzed", "blocked"])(
     ).toBeInTheDocument();
   },
 );
+
+it("keeps unpublished manual records visible after applying the known records", async () => {
+  const send = renderWizard({ conns: [conn], setup: setupRow("applied") });
+  expect(
+    await screen.findByText("Some required records still need attention."),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      "Records with placeholders cannot be published. Complete the sending-server settings, then analyze again.",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Configure sending server" })).toHaveAttribute(
+    "href",
+    "/p/demo/mail-server",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith("/w/demo/live/dns-setups/s1/analyze", "POST", undefined),
+  );
+});
+
+it("publishes all concrete records through the frontend and advances from action responses", async () => {
+  const concrete = plan({
+    items: ["ownership", "spf", "dkim", "dmarc"].map((key) => ({
+      key,
+      type: "TXT",
+      name: key + ".notify.example.com",
+      content: "concrete-" + key,
+      action: "create",
+      risk: "low",
+      reason: "Required DNS record",
+    })),
+    required_acks: [],
+    existing_mail: [],
+    warnings: [],
+  });
+  renderWizard({ conns: [conn], setup: setupRow("analyzed", { plan: concrete }) });
+  const send = vi.spyOn(admin, "send").mockImplementation(async (path: string) => {
+    if (path.endsWith("/approve")) return setupRow("approved", { plan: concrete }) as never;
+    if (path.endsWith("/apply"))
+      return setupRow("applied", {
+        plan: concrete,
+        changes: concrete.items.map((item) => ({
+          id: item.key,
+          key: item.key,
+          type: item.type,
+          name: item.name,
+          action: "create",
+          status: "applied",
+          note: "",
+          adopted: false,
+        })),
+      }) as never;
+    return {
+      state: "pending",
+      ready: false,
+      message: "Waiting for DNS",
+      signing_proven: false,
+      items: [],
+    } as never;
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Approve these exact changes" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Apply to Cloudflare" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Apply changes" }));
+  expect(await screen.findByRole("table", { name: "Changes made to DNS" })).toBeInTheDocument();
+  for (const key of ["ownership", "spf", "dkim", "dmarc"])
+    expect(screen.getByRole("table", { name: "Changes made to DNS" })).toHaveTextContent(
+      key + ".notify.example.com",
+    );
+  expect(send).toHaveBeenCalledWith("/w/demo/live/dns-setups/s1/apply", "POST", undefined);
+});
+
+it("keeps publishing errors visible and lets the user retry", async () => {
+  renderWizard({ conns: [conn], setup: setupRow("approved") });
+  vi.spyOn(admin, "send").mockRejectedValue(new Error("Cloudflare permission denied"));
+  fireEvent.click(await screen.findByRole("button", { name: "Apply to Cloudflare" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Apply changes" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Cloudflare permission denied");
+  expect(screen.getByRole("button", { name: "Apply to Cloudflare" })).toBeEnabled();
+});
+
+it("clears outstanding records once DNS verification confirms they are published", async () => {
+  renderWizard({
+    conns: [conn],
+    setup: setupRow("applied"),
+    verify: {
+      state: "verified",
+      ready: true,
+      message: "All DNS records verified",
+      signing_proven: true,
+      items: [],
+    },
+  });
+  expect(await screen.findByText("All DNS records verified")).toBeInTheDocument();
+  expect(screen.queryByText("Some required records still need attention.")).not.toBeInTheDocument();
+});
+
+it("lets the user jump between setup pages without writing DNS", async () => {
+  const send = renderWizard({ conns: [conn], setup: setupRow("approved") });
+  const progress = await screen.findByRole("list", { name: "DNS setup progress" });
+  fireEvent.click(within(progress).getByRole("button", { name: "Select zone" }));
+  expect(await screen.findByLabelText("DNS zone")).toBeInTheDocument();
+  expect(current()).toContain("Select zone");
+  fireEvent.click(within(progress).getByRole("button", { name: "Review" }));
+  expect(await screen.findByText(/Will be created/)).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Approve these exact changes" }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Continue to approval" }));
+  expect(await screen.findByRole("button", { name: "Approve these exact changes" })).toBeDisabled();
+  fireEvent.click(within(progress).getByRole("button", { name: "Apply" }));
+  expect(await screen.findByRole("button", { name: "Apply to Cloudflare" })).toBeEnabled();
+  fireEvent.click(within(progress).getByRole("button", { name: "Add domain" }));
+  expect(await screen.findByRole("link", { name: "Manage domains" })).toHaveAttribute(
+    "href",
+    "/p/demo/domains",
+  );
+  expect(send).not.toHaveBeenCalled();
+});
+
+it("allows viewing future steps without bypassing approval or verification", async () => {
+  const send = renderWizard({ conns: [conn], setup: setupRow("analyzed") });
+  const progress = await screen.findByRole("list", { name: "DNS setup progress" });
+  fireEvent.click(within(progress).getByRole("button", { name: "Apply" }));
+  expect(
+    await screen.findByText("Approve the reviewed plan before applying DNS changes."),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Apply to Cloudflare" })).not.toBeInTheDocument();
+  fireEvent.click(within(progress).getByRole("button", { name: "Ready" }));
+  expect(
+    await screen.findByText("Verify all required records before completing setup."),
+  ).toBeInTheDocument();
+  fireEvent.click(within(progress).getByRole("button", { name: "Approve" }));
+  expect(await screen.findByRole("button", { name: "Approve these exact changes" })).toBeDisabled();
+  expect(send).not.toHaveBeenCalled();
+});
+
+it("offers a Njiwa setup action for a missing signing key rather than manual publishing", async () => {
+  renderWizard({ conns: [conn], setup: setupRow("analyzed", { domain_id: "d1" }) });
+  expect(
+    await screen.findByText("Connect Mailcow management API in Advanced Settings"),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/Publish them yourself/)).not.toBeInTheDocument();
+});

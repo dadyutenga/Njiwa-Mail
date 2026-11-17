@@ -3,6 +3,7 @@ package dnsauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -141,7 +142,7 @@ func LookupDMARC(ctx context.Context, r TXTResolver, fromDomain string) (DMARC, 
 	for _, n := range names {
 		txts, err := r.LookupTXT(ctx, "_dmarc."+n)
 		if err != nil && !isNotFound(err) {
-			return DMARC{FoundAt: n}, errors.New("DNS lookup for _dmarc." + n + " failed")
+			return DMARC{FoundAt: n}, fmt.Errorf("DNS lookup for _dmarc.%s failed: %w", n, err)
 		}
 		var recs []string
 		for _, t := range txts {

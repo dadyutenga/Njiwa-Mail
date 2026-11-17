@@ -194,7 +194,7 @@ test.describe("desktop", () => {
     await request.dispose();
   });
 
-  for (const path of ["/", "/docs", "/docs/quickstart", "/docs/api/send-email", "/docs/webhooks", "/docs/setup/managed-postfix"]) {
+  for (const path of ["/", "/docs", "/docs/quickstart", "/docs/api/send-email", "/docs/webhooks", "/docs/setup/managed-postfix", "/docs/setup/existing-smtp", "/docs/guides/python", "/docs/guides/php-laravel", "/docs/api-reference", "/docs/api-reference/emails/send-email", "/docs/api-reference/inbound/list-inbound"]) {
     test(`accessibility smoke ${path}`, async ({ page }) => {
       await page.goto(path);
       const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();

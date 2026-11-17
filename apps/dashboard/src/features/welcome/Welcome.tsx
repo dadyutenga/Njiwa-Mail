@@ -5,7 +5,7 @@ import { useAuth } from "@/features/auth/auth";
 import { BrandIcon } from "@/components/shared/BrandIcon";
 import { LanguageSwitcher } from "@/features/i18n/LanguageSwitcher";
 import { useWelcomeContent } from "./use-welcome";
-import { welcomeLinks } from "./config";
+import { docsHome, welcomeLinks } from "./config";
 import "./welcome.css";
 
 function Dove({ size = 38 }: { size?: number }) {
@@ -56,7 +56,7 @@ function Navigation() {
   const links = [
     { href: "#features", label: c.nav.features },
     { href: "#how", label: c.nav.how },
-    ...(welcomeLinks.docs ? [{ href: welcomeLinks.docs, label: c.nav.docs }] : []),
+    ...(welcomeLinks.docs ? [{ href: docsHome(), label: c.nav.docs }] : []),
     ...(welcomeLinks.github ? [{ href: welcomeLinks.github, label: c.nav.github }] : []),
   ];
   return (
@@ -330,7 +330,7 @@ function Developer() {
           <h2>{c.developer.title}</h2>
           <p>{c.developer.description}</p>
           {welcomeLinks.docs && (
-            <a className="text-link" href={welcomeLinks.docs}>
+            <a className="text-link" href={docsHome()}>
               {c.developer.guide}
               <ArrowRight size={17} />
             </a>
@@ -404,7 +404,7 @@ function Footer() {
           <p>{c.footer.description}</p>
         </div>
         <nav aria-label="Footer">
-          {welcomeLinks.docs && <a href={welcomeLinks.docs}>{c.nav.docs}</a>}
+          {welcomeLinks.docs && <a href={docsHome()}>{c.nav.docs}</a>}
           {welcomeLinks.github && <a href={welcomeLinks.github}>{c.nav.github}</a>}
           <Link to="/login">{c.nav.signIn}</Link>
         </nav>

@@ -1,6 +1,27 @@
 // Kiswahili for the DNS setup wizard (Cloudflare). Keys are the exact English text passed to phrase().
 // Needs a native-speaker review, like the rest of the Kiswahili.
 export const swDns: Record<string, string> = {
+  "Continue to approval": "Endelea kuidhinisha",
+  "Manage domains": "Dhibiti vikoa",
+  "Connect Cloudflare before continuing.": "Unganisha Cloudflare kabla ya kuendelea.",
+  "Select a zone and analyze it before continuing.":
+    "Chagua eneo na ulichambue kabla ya kuendelea.",
+  "Approve the reviewed plan before applying DNS changes.":
+    "Idhinisha mpango uliokaguliwa kabla ya kuweka mabadiliko ya DNS.",
+  "Apply the approved changes before verifying the published records.":
+    "Weka mabadiliko yaliyoidhinishwa kabla ya kuthibitisha rekodi zilizochapishwa.",
+  "Verify all required records before completing setup.":
+    "Thibitisha rekodi zote zinazohitajika kabla ya kukamilisha usanidi.",
+  "Some required records still need attention.":
+    "Baadhi ya rekodi zinazohitajika bado zinahitaji kushughulikiwa.",
+  "Only the records with known values were applied. The domain is not ready until every required check passes.":
+    "Ni rekodi zenye thamani zinazojulikana tu zilizowekwa. Kikoa hakijawa tayari hadi ukaguzi wote unaohitajika upite.",
+  "Records with placeholders cannot be published. Complete the sending-server settings, then analyze again.":
+    "Rekodi zenye nafasi za kujaza haziwezi kuchapishwa. Kamilisha mipangilio ya seva ya kutuma, kisha chambua tena.",
+  "Remaining records": "Rekodi zilizobaki",
+  "Configure sending server": "Sanidi seva ya kutuma",
+  "Public DNS lookup timed out. Check this server's DNS resolver and try again.":
+    "Muda wa kutafuta DNS ya umma umeisha. Kagua resolver ya DNS ya seva hii kisha ujaribu tena.",
   "Edit domain": "Hariri kikoa",
   "Save domain": "Hifadhi kikoa",
   "Change how this project uses the domain. A purpose change requires another DNS check.":

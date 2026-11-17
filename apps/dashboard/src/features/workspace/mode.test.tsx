@@ -252,3 +252,64 @@ it.each(["live", "sandbox"] as const)(
     );
   },
 );
+
+it("sends OTP duration as a JSON number while preserving leading-zero codes", async () => {
+  setupApi();
+  const original = vi.mocked(admin.get).getMockImplementation()!;
+  vi.mocked(admin.get).mockImplementation(async (path) => {
+    if (path.includes("/templates?"))
+      return { items: [{ id: "otp-id", slug: "otp", published_version: 2, archived: false }] };
+    if (path.endsWith("/templates/otp-id"))
+      return {
+        versions: [
+          {
+            version: 1,
+            published_at: "2026-01-01",
+            variable_schema: [{ name: "old", type: "string", required: true }],
+          },
+          {
+            version: 2,
+            published_at: "2026-01-02",
+            variable_schema: [
+              { name: "code", type: "string", required: true },
+              { name: "expires_in_minutes", type: "int", required: true, min: 1, max: 60 },
+            ],
+          },
+        ],
+      };
+    return original(path);
+  });
+  vi.spyOn(admin, "send").mockResolvedValue({ blocked: [] });
+  const send = vi
+    .fn()
+    .mockResolvedValue(
+      new Response(JSON.stringify({ id: "message", status: "queued" }), { status: 200 }),
+    );
+  vi.stubGlobal("fetch", send);
+  render(
+    <MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <WorkspaceProvider project="demo">
+          <ComposePanel
+            open
+            onOpenChange={vi.fn()}
+            prefill={{ to: "recipient@example.com", template: "otp" }}
+          />
+        </WorkspaceProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.change(await screen.findByLabelText("code *"), { target: { value: "001234" } });
+  fireEvent.change(screen.getByLabelText("expires_in_minutes *"), { target: { value: "100" } });
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "From" })).toHaveValue("sender@example.com"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(screen.getByLabelText("expires_in_minutes *")).toBeInvalid();
+  expect(send).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("expires_in_minutes *"), { target: { value: "15" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(send).toHaveBeenCalled());
+  const body = JSON.parse(send.mock.calls[0][1].body);
+  expect(body.variables).toEqual({ code: "001234", expires_in_minutes: 15 });
+});

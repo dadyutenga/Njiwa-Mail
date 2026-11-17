@@ -331,6 +331,31 @@ func TestDNSConnectionRateLimit(t *testing.T) {
 
 // ---------------------------------------------------------------- the journey
 
+type timeoutDNS struct{ fakeDNS }
+
+func (r timeoutDNS) LookupTXT(_ context.Context, name string) ([]string, error) {
+	return nil, &net.DNSError{Name: name, Err: "timeout", IsTimeout: true}
+}
+func (r timeoutDNS) LookupMX(_ context.Context, name string) ([]*net.MX, error) {
+	return nil, &net.DNSError{Name: name, Err: "timeout", IsTimeout: true}
+}
+
+func TestDNSVerificationReportsResolverTimeoutAsPending(t *testing.T) {
+	d := newDNSEnvMode(t, false)
+	v := d.startOK()
+	d.srv.Resolver = timeoutDNS{d.dns.fakeDNS}
+	r := d.admOK(d.admin, "POST", "/admin/v1/w/"+d.project+"/live/dns-setups/"+str(v, "id")+"/verify", nil)
+	if r.JSON["state"] != "pending" || r.JSON["ready"] != false || !strings.Contains(str(r.JSON, "message"), "DNS lookup timed out") {
+		t.Fatalf("timeout must not report service failure or bad DNS records: %s", r.Raw)
+	}
+	for _, raw := range r.JSON["items"].([]any) {
+		item := raw.(map[string]any)
+		if item["state"] == "verified" || item["state"] == "failed" {
+			t.Fatalf("cannot confirm a record during DNS timeout: %v", item)
+		}
+	}
+}
+
 func TestDNSOneClickManagedJourney(t *testing.T) {
 	d := newDNSEnv(t)
 	// Existing website records in the zone must come through untouched.

@@ -1194,6 +1194,96 @@ export const swExtra: Record<string, string> = {
   you: "wewe",
   "“submitted” means the mail server accepted the message. Njiwa-Mail does not claim delivery to the inbox.":
     "“submitted” inamaanisha seva ya barua ilikubali ujumbe. Njiwa-Mail haidai kuwa umefika kwenye sanduku la barua.",
+  // Dashboard: messages by state
+  "In progress": "Inaendelea",
+  Problems: "Matatizo",
+  Stopped: "Imesimamishwa",
+  "All messages": "Ujumbe wote",
+  "messages in total": "ujumbe kwa jumla",
+  "Share of messages in each state": "Mgawanyo wa ujumbe kwa kila hali",
+  // Existing mail server setup and follow-ups
+  "Adds the sending domain and generates a DKIM key only if missing. No service restart or inbound transport change. You will review DNS changes before Cloudflare publishing.":
+    "Huongeza kikoa cha kutuma na kutengeneza ufunguo wa DKIM ikiwa tu haupo. Hakuna huduma itakayowashwa upya wala mabadiliko ya usafirishaji wa barua zinazoingia. Utakagua mabadiliko ya DNS kabla ya kuchapisha kwenye Cloudflare.",
+  "Advanced Settings and installation status": "Mipangilio ya hali ya juu na hali ya usakinishaji",
+  "Advanced connection settings": "Mipangilio ya hali ya juu ya muunganisho",
+  "Apply reviewed plan": "Tekeleza mpango uliokaguliwa",
+  "Authorized sender override": "Mtumaji mbadala aliyeidhinishwa",
+  "Change settings": "Badilisha mipangilio",
+  "Checking connection…": "Inakagua muunganisho…",
+  "Connect Mailcow management API in Advanced Settings":
+    "Unganisha API ya usimamizi ya Mailcow kwenye Mipangilio ya hali ya juu",
+  "Connect and test": "Unganisha na jaribu",
+  "Connected. Send a test email below.": "Imeunganishwa. Tuma barua pepe ya majaribio hapa chini.",
+  "Connection failed. Your saved settings have not changed.":
+    "Muunganisho umeshindikana. Mipangilio yako iliyohifadhiwa haijabadilika.",
+  "DKIM must come from your sending server. For Mailcow, Njiwa can add this sending domain and obtain its signing key, then refresh the Cloudflare plan. Existing keys are preserved; inbound routing is unchanged.":
+    "DKIM lazima itoke kwenye seva yako ya kutuma. Kwa Mailcow, Njiwa inaweza kuongeza kikoa hiki cha kutuma na kupata ufunguo wake wa kusaini, kisha kusasisha mpango wa Cloudflare. Funguo zilizopo hubaki; njia ya barua zinazoingia haibadiliki.",
+  "Default sender": "Mtumaji chaguo-msingi",
+  "Enter a whole number.": "Weka namba kamili.",
+  "For example mail.example.com. Use the hostname on your mail server's certificate.":
+    "Kwa mfano mail.example.com. Tumia jina la seva lililo kwenye cheti cha seva yako ya barua.",
+  "Keys created. Publish the DKIM records on the domain page.":
+    "Funguo zimetengenezwa. Chapisha rekodi za DKIM kwenye ukurasa wa kikoa.",
+  "Leave blank to reuse the saved password for the same host and username.":
+    "Acha wazi ili kutumia tena nenosiri lililohifadhiwa kwa seva na jina la mtumiaji hilohilo.",
+  "Mail server connected": "Seva ya barua imeunganishwa",
+  "Mailbox password": "Nenosiri la sanduku la barua",
+  "Mailbox username": "Jina la mtumiaji la sanduku la barua",
+  "Njiwa-Mail sends through this server. You do not need to connect it again.":
+    "Njiwa-Mail hutuma kupitia seva hii. Huhitaji kuiunganisha tena.",
+  "No events match this search.": "Hakuna matukio yanayolingana na utafutaji huu.",
+  "Only needed if the sender differs from your mailbox username.":
+    "Inahitajika tu ikiwa mtumaji ni tofauti na jina la mtumiaji la sanduku lako la barua.",
+  "Optional next step: inbound mail and bounces":
+    "Hatua inayofuata (si lazima): barua zinazoingia na barua zilizorudishwa",
+  "Outbound sending works without an inbound listener or bounce address. For an existing Mailcow mailbox, the supported IMAP poller can ingest messages over verified TLS on port 993 without changing Postfix. An operator can configure IMAP_HOST, IMAP_USERNAME, IMAP_PASSWORD and IMAP_MAILBOX on the Njiwa inbound service. Use a dedicated mailbox: successfully ingested messages are marked as read. Bounce processing requires reports to reach that mailbox.":
+    "Kutuma barua kunafanya kazi bila kipokezi cha barua zinazoingia wala anwani ya barua zilizorudishwa. Kwa sanduku la barua la Mailcow lililopo, kisomaji cha IMAP kinachotumika kinaweza kupokea ujumbe kupitia TLS iliyothibitishwa kwenye port 993 bila kubadilisha Postfix. Msimamizi anaweza kuweka IMAP_HOST, IMAP_USERNAME, IMAP_PASSWORD na IMAP_MAILBOX kwenye huduma ya Njiwa ya barua zinazoingia. Tumia sanduku la barua maalum: ujumbe uliopokelewa kwa mafanikio huwekwa alama kuwa umesomwa. Uchakataji wa barua zilizorudishwa unahitaji ripoti zifike kwenye sanduku hilo.",
+  "Port 587 with STARTTLS is selected by default. TLS certificate verification is always enabled.":
+    "Port 587 na STARTTLS imechaguliwa kwa chaguo-msingi. Uthibitishaji wa cheti cha TLS huwa umewashwa kila wakati.",
+  "Prepare host plan": "Andaa mpango wa seva",
+  "Prepare signing domain": "Andaa kikoa cha kusaini",
+  "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. The commands below remain when the host agent is not connected.":
+    "Andaa mpango wa seva, kagua muhtasari wake, kisha uutekeleze. Seva ya barua hutengeneza funguo. Amri zilizo hapa chini hubaki pale wakala wa seva hajaunganishwa.",
+  "Prepare these values on the server that sends your mail. Njiwa-Mail can then include the real records in your Cloudflare plan.":
+    "Andaa thamani hizi kwenye seva inayotuma barua zako. Njiwa-Mail kisha inaweza kujumuisha rekodi halisi kwenye mpango wako wa Cloudflare.",
+  "Prepare this domain on Mailcow?": "Uandae kikoa hiki kwenye Mailcow?",
+  "SMTP hostname": "Jina la seva ya SMTP",
+  "SMTP is controlled by the server environment. Update that configuration before connecting another server.":
+    "SMTP inadhibitiwa na mazingira ya seva. Sasisha usanidi huo kabla ya kuunganisha seva nyingine.",
+  "SMTP port": "Port ya SMTP",
+  "SMTP server": "Seva ya SMTP",
+  "Sending server setup needed": "Usanidi wa seva ya kutuma unahitajika",
+  "Server type": "Aina ya seva",
+  "Showing events that match": "Inaonyesha matukio yanayolingana na",
+  "Stored encrypted. Never displayed again.": "Huhifadhiwa kwa usimbaji fiche. Haionyeshwi tena.",
+  "TLS mode": "Hali ya TLS",
+  "Test recipient": "Mpokeaji wa majaribio",
+  "The connection check failed. Review the settings below.":
+    "Ukaguzi wa muunganisho umeshindikana. Kagua mipangilio hapa chini.",
+  "The host did not apply this plan.": "Seva haikutekeleza mpango huu.",
+  "The host plan could not be prepared.": "Mpango wa seva haukuweza kuandaliwa.",
+  "Use a mailbox you already have. Njiwa-Mail connects securely to your server; no new VPS or Mailcow installation is needed.":
+    "Tumia sanduku la barua ulilonalo tayari. Njiwa-Mail huunganisha kwa usalama kwenye seva yako; hakuna haja ya VPS mpya au usakinishaji wa Mailcow.",
+  "Usually your full mailbox email address. This is also the default sender.":
+    "Kwa kawaida ni anwani kamili ya sanduku lako la barua. Pia ndiye mtumaji chaguo-msingi.",
+  "Wait for the template to load.": "Subiri kiolezo kipakie.",
+  "Your mail server accepted the test email. Check the recipient's inbox and spam folder; acceptance does not guarantee delivery.":
+    "Seva yako ya barua imekubali barua pepe ya majaribio. Angalia sanduku la barua la mpokeaji na folda ya spam; kukubaliwa hakuhakikishi kufika.",
+  "Not needed for sending. Set it up later if you want this feature.":
+    "Haihitajiki kwa kutuma. Iweke baadaye ukihitaji kipengele hiki.",
+  "not in use": "haitumiki",
+  // API docs page and Documentation link
+  "Full API reference": "Marejeo kamili ya API",
+  "API reference": "Marejeo ya API",
+  Quickstart: "Anza haraka",
+  Python: "Python",
+  "PHP and Laravel": "PHP na Laravel",
+  "SDKs and agent skill": "SDK na ujuzi wa wakala",
+  "For coding agents": "Kwa mawakala wa uandishi wa msimbo",
+  Reference: "Marejeo",
+  Documentation: "Nyaraka",
+  "Every endpoint with its parameters, request fields, responses and error codes, and examples in curl, TypeScript, Python, PHP and Go. Generated from the same contract the server is tested against.":
+    "Kila endpoint na vigezo vyake, sehemu za ombi, majibu na misimbo ya makosa, pamoja na mifano kwa curl, TypeScript, Python, PHP na Go. Imetengenezwa kutoka mkataba uleule ambao seva hujaribiwa dhidi yake.",
 };
 
 Object.assign(swExtra, swDns);

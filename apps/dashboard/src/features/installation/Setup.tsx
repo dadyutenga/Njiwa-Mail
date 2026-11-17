@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Circle, CircleDashed, MinusCircle } from "lucide-react";
@@ -6,6 +7,8 @@ import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
 import { useWorkspace } from "@/features/workspace/context";
 import { Section } from "@/features/workspace/ui";
+import { DeliveryModeCard } from "./DeliveryModeCard";
+import type { DeliveryMode, InstallationState } from "./Installation";
 
 export type SetupStep = {
   n: number;
@@ -107,6 +110,43 @@ function DiscoveryScanButton() {
   );
 }
 
+function ChooseDeliveryStep() {
+  const phrase = usePhrase();
+  const client = useQueryClient();
+  const discovery = useDiscovery();
+  const [mode, setMode] = useState<DeliveryMode | "">("");
+  const choose = useMutation({
+    mutationFn: (selected_mode: DeliveryMode) =>
+      admin.send<InstallationState>("/installation/wizard", "PUT", { selected_mode }),
+    onSuccess: async (state) => {
+      client.setQueryData(["installation"], state);
+      await client.invalidateQueries({ queryKey: ["installation", "setup"] });
+      void client.invalidateQueries({ queryKey: ["ws"] });
+      void client.invalidateQueries({ queryKey: ["transport-profiles"] });
+    },
+  });
+  const recommendation = discovery.data?.report?.recommendation;
+  return (
+    <div className="mt-3 space-y-3">
+      <DeliveryModeCard
+        value={mode}
+        onChange={setMode}
+        disabled={choose.isPending}
+        recommended={recommendation?.mode}
+        managedBlocked={(recommendation?.managed_blockers.length ?? 0) > 0}
+      />
+      <Button disabled={!mode || choose.isPending} onClick={() => mode && choose.mutate(mode)}>
+        {choose.isPending ? phrase("Saving…") : phrase("Continue to connect mail server")}
+      </Button>
+      {choose.isError && (
+        <p role="alert" className="text-sm text-destructive">
+          {choose.error.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function StepMark({ status }: { status: SetupStep["status"] }) {
   if (status === "ready")
     return <CheckCircle2 size={18} className="text-success" aria-hidden="true" />;
@@ -138,6 +178,8 @@ export function SetupJourneyPanel() {
   });
   const j = q.data;
   if (!j?.steps) return null;
+  const connectionTarget =
+    j.mode === "managed_mta" ? "delivery-infrastructure" : "delivery-connection";
   return (
     <Section title={phrase("Set up Njiwa-Mail")}>
       <p className="mb-3 text-sm text-muted-foreground" role="status">
@@ -174,16 +216,29 @@ export function SetupJourneyPanel() {
                 </div>
                 <p className="mt-1 text-muted-foreground">{phrase(st.detail)}</p>
                 {st.id === "detect" && <DiscoveryScanButton />}
+                {st.id === "choose_mode" && st.status !== "ready" && <ChooseDeliveryStep />}
                 {st.id !== "detect" && st.status !== "ready" && st.command && (
                   <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs">
                     <code>{st.command}</code>
                   </pre>
                 )}
-                {st.status !== "ready" && st.route && st.status !== "not_started" && (
-                  <Link className="mt-1 inline-block text-xs text-primary" to={to(st.route)}>
-                    {phrase("Go to this step")}
-                  </Link>
-                )}
+                {st.id !== "choose_mode" &&
+                  st.status !== "ready" &&
+                  st.route &&
+                  st.status !== "not_started" && (
+                    <Link
+                      className="mt-1 inline-block text-xs text-primary"
+                      to={to(st.route) + (st.id === "connect" ? `#${connectionTarget}` : "")}
+                      onClick={() => {
+                        if (st.id === "connect")
+                          document
+                            .getElementById(connectionTarget)
+                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                    >
+                      {phrase("Go to this step")}
+                    </Link>
+                  )}
               </div>
             </li>
           );

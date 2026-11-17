@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
-import { welcomeLinks } from "@/features/welcome/config";
+import { docsHome, referencePages, welcomeLinks } from "@/features/welcome/config";
 import { useWorkspace, useWsKey, useSendingEnvironment, type Env } from "../context";
 import {
   ConfirmButton,
@@ -646,6 +646,20 @@ export function ApiDocs() {
     queryFn: () =>
       admin.get<{ operations: { method: string; path: string; purpose: string }[] }>("/docs"),
   });
+  const home = docsHome(welcomeLinks.docs);
+  // The published contract names each operation's reference page. If the docs site
+  // is elsewhere and does not allow this origin to read it, rows simply have no link.
+  const reference = useQuery({
+    queryKey: ["api-reference-pages", home],
+    enabled: !!home,
+    retry: false,
+    staleTime: 3_600_000,
+    queryFn: async () => {
+      const r = await fetch(welcomeLinks.docs.replace(/\/+$/, "") + "/openapi.json");
+      if (!r.ok) throw new Error(String(r.status));
+      return referencePages(await r.json(), home);
+    },
+  });
   const host = info?.api_host || window.location.origin;
   const sender = info?.default_sender || "hello@your-verified-domain";
   const curl = `curl -X POST ${host}/v1/emails \\
@@ -669,29 +683,60 @@ export function ApiDocs() {
       <div className="mb-4">
         <SendingMode value={env} onChange={setEnv} />
       </div>
-      <Section className="mb-4" title={phrase("Full documentation")}>
-        <p className="text-sm text-muted-foreground">
-          {phrase(
-            "Every endpoint, the webhook signature steps, delivery setup and troubleshooting are in the public developer documentation, including pages written for coding agents (llms.txt).",
-          )}
-        </p>
-        {welcomeLinks.docs ? (
-          <a
-            className="mt-2 inline-block text-sm text-primary underline"
-            href={welcomeLinks.docs.replace(/\/$/, "") + "/docs"}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {phrase("Open the documentation")}
-          </a>
-        ) : (
-          <p className="mt-2 text-xs text-muted-foreground">
+      {home ? (
+        <section className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 sm:p-5">
+          <h2 className="font-semibold">{phrase("Full API reference")}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {phrase(
+              "Every endpoint with its parameters, request fields, responses and error codes, and examples in curl, TypeScript, Python, PHP and Go. Generated from the same contract the server is tested against.",
+            )}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[
+              ["/api-reference", "API reference"],
+              ["/quickstart", "Quickstart"],
+              ["/webhooks", "Webhooks"],
+              ["/guides/python", "Python"],
+              ["/guides/php-laravel", "PHP and Laravel"],
+              ["/sdks", "SDKs and agent skill"],
+            ].map(([p, label], i) => (
+              <Button key={p} asChild size="sm" variant={i === 0 ? "default" : "outline"}>
+                <a href={home + p} target="_blank" rel="noopener noreferrer">
+                  {phrase(label)}
+                </a>
+              </Button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {phrase("For coding agents")}:{" "}
+            <a
+              className="underline"
+              href={welcomeLinks.docs.replace(/\/+$/, "") + "/llms.txt"}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              llms.txt
+            </a>{" "}
+            ·{" "}
+            <a
+              className="underline"
+              href={welcomeLinks.docs.replace(/\/+$/, "") + "/openapi.yaml"}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              openapi.yaml
+            </a>
+          </p>
+        </section>
+      ) : (
+        <Section className="mb-4" title={phrase("Full documentation")}>
+          <p className="text-xs text-muted-foreground">
             {phrase(
               "No documentation site is configured for this installation. Publish the one in apps/docs/ and set VITE_DOCS_URL.",
             )}
           </p>
-        )}
-      </Section>
+        </Section>
+      )}
       <Section title={phrase("Quick start")}>
         <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm">
           <li>
@@ -739,6 +784,23 @@ export function ApiDocs() {
                 },
                 { key: "path", label: phrase("Path"), render: (r) => <code>{s(r.path)}</code> },
                 { key: "purpose", label: phrase("Purpose") },
+                {
+                  key: "reference",
+                  label: phrase("Reference"),
+                  render: (r) => {
+                    const href = reference.data?.get(`${s(r.method)} ${s(r.path)}`);
+                    return href ? (
+                      <a
+                        className="text-primary underline"
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {phrase("Open")}
+                      </a>
+                    ) : null;
+                  },
+                },
               ]}
             />
           )}

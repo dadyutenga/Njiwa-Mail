@@ -1,6 +1,7 @@
 #!/bin/sh
 # Deployment smoke test for the documentation container.
 #   scripts/smoke.sh http://127.0.0.1:8088 [expected-commit]
+#   SHARED_ORIGIN=1 scripts/smoke.sh https://mail.example.com [commit]   (docs routed under /docs on the app domain)
 # Exits non-zero on the first failed check. Needs only curl.
 set -u
 BASE="${1:?usage: smoke.sh BASE_URL [commit]}"
@@ -27,11 +28,17 @@ case "$(ctype /api/search)" in application/json*) ok "search index is applicatio
 [ "$(status /docs/does-not-exist)" = 404 ] && ok "404 for an unknown page" || bad "unknown page is not 404"
 curl -s "$BASE/docs/does-not-exist" | grep -q "This page does not exist" && ok "custom 404 page" || bad "404 page missing"
 
-# The docs host is never an API: these must not reach anything.
-for p in /admin/v1/auth/me /admin/v1/mta/status /v1/emails /v1/emails/batch /console/me /metrics /health/live /.env /.git/config; do
-  [ "$(status $p)" = 404 ] && ok "404 $p" || bad "$p answered $(status $p), want 404"
-done
-[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer x' "$BASE/v1/emails")" = 404 ] && ok "POST /v1/emails is 404" || bad "POST /v1/emails is reachable"
+# The docs host is never an API: these must not reach anything. With SHARED_ORIGIN=1 the docs
+# share a domain with the application (only the docs paths are routed to this container), so
+# the API and dashboard legitimately answer there; check the container directly for these.
+if [ "${SHARED_ORIGIN:-0}" != 1 ]; then
+  for p in /admin/v1/auth/me /admin/v1/mta/status /v1/emails /v1/emails/batch /console/me /metrics /health/live /.env /.git/config; do
+    [ "$(status $p)" = 404 ] && ok "404 $p" || bad "$p answered $(status $p), want 404"
+  done
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer x' "$BASE/v1/emails")" = 404 ] && ok "POST /v1/emails is 404" || bad "POST /v1/emails is reachable"
+else
+  ok "shared origin: API isolation is checked on the container itself"
+fi
 
 # Security headers on pages and on the agent files.
 for p in /docs/quickstart /docs/quickstart.md /llms.txt /api/search; do

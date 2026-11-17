@@ -3,6 +3,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+# Public origin of the documentation site (apps/docs), baked into the bundle. Empty hides the link.
+ARG VITE_DOCS_URL=
+ENV VITE_DOCS_URL=$VITE_DOCS_URL
 RUN npm run build
 FROM nginx:alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf

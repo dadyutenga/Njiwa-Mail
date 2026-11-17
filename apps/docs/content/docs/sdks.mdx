@@ -9,9 +9,11 @@ description: The Go and TypeScript clients, how to call the API from any languag
 |---|---|
 | **Go** client | In the repository: `github.com/njiwa-tz/mail/njiwamail` (and the same code as `.../client`). It sends and reads status with retries on the same idempotency key, and verifies webhooks. It has **no** batch, cancel, inbound or suppression methods |
 | **TypeScript** client | One file, `clients/typescript/index.ts`: copy it into your project. It sends, cancels, reads status and verifies webhooks. **It is not published to npm** |
-| Any other language | Call the HTTP API using the [OpenAPI file](/openapi.yaml); the [quickstart](/docs/quickstart) shows curl and Python |
+| **Python** | No package. Plain HTTP with `requests`: the [Python guide](/docs/guides/python) has a copy-in client, OTP, password reset and webhook verification |
+| **PHP / Laravel** | No package. Laravel's `Http` client or cURL: the [PHP and Laravel guide](/docs/guides/php-laravel) |
+| Any other language | Call the HTTP API using the [OpenAPI file](/openapi.yaml); the [quickstart](/docs/quickstart) shows curl |
 
-Packages published to npm, PyPI or a Go proxy are [planned](/docs/roadmap), not available. Do not run `npm install` or `pip install` for a Njiwa-Mail package.
+Packages published to npm, PyPI, Packagist or a Go proxy are [planned](/docs/roadmap), not available. Do not run `npm install`, `pip install` or `composer require` for a Njiwa-Mail package.
 
 ## Go
 

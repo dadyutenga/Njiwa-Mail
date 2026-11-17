@@ -641,6 +641,9 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "domain.check", "domain", c.Params("id"), scoped(sc, nil))
 		return map[string]any{"records": recs}, nil
 	})
+	h("POST", "/domains/:id/prepare-sending", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return svc.PrepareSendingDomain(ctx(c), sc, u.Actor(), c.Params("id"))
+	})
 	h("POST", "/domains/:id/mailcow", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		steps, err := svc.ProvisionDomain(ctx(c), sc, u.Actor(), c.Params("id"))
 		if err != nil {
@@ -1443,6 +1446,44 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 		}
 		return m, nil
 	})
+	h("POST", "/mail-server/connect", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		if s.EnvSMTP != nil {
+			return nil, &service.Error{Status: 409, Code: "smtp_environment_override", Message: "SMTP is controlled by the server environment. Edit those settings or remove that override before connecting another server."}
+		}
+		var in service.SMTPConnectInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		saved, cfg, err := svc.PrepareSMTPConnection(reqCtx(c), in)
+		if err != nil {
+			return nil, err
+		}
+		cfg.RootCAs = s.SMTPRootCAs
+		steps := mailer.Diagnose(reqCtx(c), cfg, saved.TestSender)
+		ok := true
+		for _, step := range steps {
+			ok = ok && step.OK
+		}
+		if !ok {
+			s.audit(c, u, "mail_server.connect_test", "mail_server", "1", map[string]any{"ok": false, "host": cfg.Host})
+			return map[string]any{"ok": false, "saved": false, "steps": steps}, nil
+		}
+		if err := svc.SaveMailServer(reqCtx(c), saved); err != nil {
+			return nil, err
+		}
+		if _, err := svc.ChooseDeliveryMode(reqCtx(c), u.Actor(), "existing_smtp"); err != nil {
+			return nil, err
+		}
+		active, err := svc.LoadActiveSMTP(reqCtx(c))
+		if err != nil {
+			return nil, err
+		}
+		if err := svc.RecordMailTest(reqCtx(c), active.Pin(), "connection", true, steps); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "mail_server.connect", "mail_server", "1", map[string]any{"host": cfg.Host, "provider": *saved.ProviderType})
+		return map[string]any{"ok": true, "saved": true, "steps": steps}, nil
+	})
 	h("PUT", "/mail-server", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in service.MailServerInput
 		if err := decode(c, &in); err != nil {
@@ -1476,6 +1517,9 @@ func (s *Server) mailServerRoutes(app *fiber.App) {
 		}
 		if !ok {
 			return cfg, "", pin, &service.Error{Status: 409, Code: "mail_server_not_configured", Message: "save the SMTP host, port, username and password first"}
+		}
+		if cfg.RootCAs == nil {
+			cfg.RootCAs = s.SMTPRootCAs
 		}
 		return cfg, a.Sender, pin, nil
 	}

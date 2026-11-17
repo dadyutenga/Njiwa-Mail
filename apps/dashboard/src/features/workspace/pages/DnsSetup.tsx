@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
@@ -55,6 +55,7 @@ type Change = {
 };
 type Setup = {
   id: string;
+  domain_id?: string;
   status: string;
   zone_name: string;
   connection_id: string;
@@ -65,6 +66,23 @@ type Setup = {
   approved_by?: string;
   changes: Change[];
 };
+
+function isSetupResult(value: unknown): value is Setup {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    "status" in value &&
+    typeof value.status === "string" &&
+    "plan" in value &&
+    !!value.plan &&
+    "digest" in value &&
+    typeof value.digest === "string" &&
+    "changes" in value &&
+    Array.isArray(value.changes)
+  );
+}
 type Verification = {
   state: "verified" | "pending" | "failed" | "needs_action";
   ready: boolean;
@@ -126,7 +144,17 @@ function stepFor(conn: Connection | undefined, setup: Setup | null, ready: boole
   }
 }
 
-function Progress({ current }: { current: number }) {
+function Progress({
+  current,
+  selected,
+  busy,
+  onSelect,
+}: {
+  current: number;
+  selected: number;
+  busy: boolean;
+  onSelect: (step: number) => void;
+}) {
   const phrase = usePhrase();
   return (
     <ol
@@ -135,27 +163,31 @@ function Progress({ current }: { current: number }) {
     >
       {STEPS.map((label, i) => {
         const done = i < current;
-        const now = i === current;
+        const now = i === selected;
         return (
-          <li
-            key={label}
-            aria-current={now ? "step" : undefined}
-            className={
-              "flex items-center gap-1 rounded-full border px-2 py-1 " +
-              (now
-                ? "border-primary bg-primary/10 font-semibold text-primary"
-                : done
-                  ? "border-success/40 text-success"
-                  : "text-muted-foreground")
-            }
-          >
-            {done ? (
-              <CheckCircle2 size={12} aria-hidden="true" />
-            ) : (
-              <span aria-hidden="true">{i + 1}</span>
-            )}
-            <span>{phrase(label)}</span>
-            {done && <span className="sr-only">{phrase("done")}</span>}
+          <li key={label} aria-current={now ? "step" : undefined}>
+            <button
+              type="button"
+              aria-label={phrase(label)}
+              disabled={busy}
+              onClick={() => onSelect(i)}
+              className={
+                "flex items-center gap-1 rounded-full border px-2 py-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50 " +
+                (now
+                  ? "border-primary bg-primary/10 font-semibold text-primary"
+                  : done
+                    ? "border-success/40 text-success"
+                    : "text-muted-foreground")
+              }
+            >
+              {done ? (
+                <CheckCircle2 size={12} aria-hidden="true" />
+              ) : (
+                <span aria-hidden="true">{i + 1}</span>
+              )}
+              <span>{phrase(label)}</span>
+              {done && <span className="sr-only">{phrase("done")}</span>}
+            </button>
           </li>
         );
       })}
@@ -535,11 +567,15 @@ function ReviewPanel({
   busy,
   onApprove,
   onAnalyze,
+  reviewOnly = false,
+  onContinue,
 }: {
   setup: Setup;
   busy: boolean;
   onApprove: (acks: string[]) => void;
   onAnalyze: () => void;
+  reviewOnly?: boolean;
+  onContinue?: () => void;
 }) {
   const phrase = usePhrase();
   const plan = setup.plan;
@@ -616,15 +652,20 @@ function ReviewPanel({
         )}
       />
       <Group
-        title={phrase("Cannot be automated")}
+        title={phrase("Sending server setup needed")}
         items={by("manual")}
-        hint={phrase("Njiwa-Mail does not have a safe value for these. Publish them yourself.")}
+        hint={phrase(
+          "Prepare these values on the server that sends your mail. Njiwa-Mail can then include the real records in your Cloudflare plan.",
+        )}
       />
+      {setup.domain_id && by("manual").some((item) => item.key === "dkim") && (
+        <PrepareSigningDomain domainId={setup.domain_id} onPrepared={onAnalyze} />
+      )}
       <div className="rounded-lg border bg-muted/30 p-3 text-xs">
         <strong>{phrase("If something goes wrong")}: </strong>
         {plan.rollback}
       </div>
-      {approvable && plan.required_acks.length > 0 && (
+      {!reviewOnly && approvable && plan.required_acks.length > 0 && (
         <fieldset className="space-y-2 rounded-lg border p-3">
           <legend className="px-1 text-sm font-semibold">{phrase("Confirm these changes")}</legend>
           {plan.required_acks.map((a) => (
@@ -641,12 +682,18 @@ function ReviewPanel({
         </fieldset>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button
-          disabled={!approvable || !allAcked || busy}
-          onClick={() => onApprove(plan.required_acks)}
-        >
-          {phrase("Approve these exact changes")}
-        </Button>
+        {reviewOnly ? (
+          <Button disabled={busy} onClick={onContinue}>
+            {phrase("Continue to approval")}
+          </Button>
+        ) : (
+          <Button
+            disabled={!approvable || !allAcked || busy}
+            onClick={() => onApprove(plan.required_acks)}
+          >
+            {phrase("Approve these exact changes")}
+          </Button>
+        )}
         <Button variant="outline" disabled={busy} onClick={onAnalyze}>
           {phrase("Analyze again")}
         </Button>
@@ -715,6 +762,59 @@ function Changes({ changes }: { changes: Change[] }) {
 }
 
 // ---------------------------------------------------------------- verify
+
+function RemainingRecords({
+  setup,
+  busy,
+  onAnalyze,
+  verification,
+}: {
+  setup: Setup;
+  busy: boolean;
+  onAnalyze: () => void;
+  verification: Verification | null;
+}) {
+  const phrase = usePhrase();
+  const { to } = useWorkspace();
+  const verified = new Set(
+    verification?.items.filter((item) => item.state === "verified").map((item) => item.key),
+  );
+  const remaining = setup.plan.items.filter(
+    (item) => (item.action === "manual" || item.action === "conflict") && !verified.has(item.key),
+  );
+  if (verification?.ready) return null;
+  if (remaining.length === 0) return null;
+  return (
+    <div className="space-y-3 rounded-lg border border-warning/40 bg-warning/10 p-3">
+      <p className="font-semibold" role="status">
+        {phrase("Some required records still need attention.")}
+      </p>
+      <p className="text-sm">
+        {phrase(
+          "Only the records with known values were applied. The domain is not ready until every required check passes.",
+        )}
+      </p>
+      {remaining.some((item) => item.placeholder) && (
+        <p className="text-sm">
+          {phrase(
+            "Records with placeholders cannot be published. Complete the sending-server settings, then analyze again.",
+          )}
+        </p>
+      )}
+      <Group title={phrase("Remaining records")} items={remaining} />
+      <div className="flex flex-wrap items-center gap-3">
+        {remaining.some((item) => item.placeholder) && (
+          <Link className="text-sm text-primary underline" to={to("mail-server")}>
+            {phrase("Configure sending server")}
+          </Link>
+        )}
+        <Button variant="outline" disabled={busy} onClick={onAnalyze}>
+          {phrase("Analyze again")}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function VerifyPanel({
   setup,
@@ -796,7 +896,7 @@ export function DnsSetup({
   onChanged: () => void;
 }) {
   const phrase = usePhrase();
-  const { api } = useWorkspace();
+  const { api, to } = useWorkspace();
   const key = useWsKey();
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -805,6 +905,8 @@ export function DnsSetup({
   const [checking, setChecking] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [manual, setManual] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [viewing, setViewing] = useState<number | null>(null);
 
   const caps = useQuery({
     queryKey: key("dns-capabilities"),
@@ -817,12 +919,18 @@ export function DnsSetup({
   const latest = useQuery({
     queryKey: key("dns-setup", domainId),
     queryFn: () => api.get<{ setup: Setup | null }>(`/domains/${domainId}/dns-setup`),
+    refetchInterval: (query) => (query.state.data?.setup?.status === "applying" ? 1500 : false),
   });
   const setup = latest.data?.setup ?? null;
   const active = (conns.data?.items ?? []).filter((c) => c.status === "active");
   const conn = active.find((c) => c.id === setup?.connection_id) ?? active[0];
   const done = setup && ["rolled_back", "rollback_partial"].includes(setup.status) ? null : setup;
   const current = stepFor(conn, done, !!ver?.ready);
+  const selected = viewing ?? current;
+  const jump = (step: number) => {
+    setViewing(step);
+    setManual(false);
+  };
 
   const refresh = useCallback(async () => {
     await Promise.all([
@@ -856,10 +964,33 @@ export function DnsSetup({
 
   const act = async <T,>(fn: () => Promise<T>, ok: string) => {
     setBusy(true);
-    const r = await run(fn, ok);
-    setBusy(false);
-    await refresh();
-    return r;
+    setActionError("");
+    try {
+      const result = await run(async () => {
+        try {
+          return await fn();
+        } catch (error) {
+          setActionError(errorMessage(error));
+          throw error;
+        }
+      }, ok);
+      if (isSetupResult(result)) {
+        // The write response is authoritative. A pending read must not replace
+        // it with the plan from before approval or publication.
+        await client.cancelQueries({ queryKey: key("dns-setup", domainId) });
+        client.setQueryData(key("dns-setup", domainId), { setup: result });
+        setViewing(null);
+        setVer(null);
+        setAttempt(0);
+        void client.invalidateQueries({ queryKey: key("dns-connections") });
+        onChanged();
+      } else {
+        await refresh();
+      }
+      return result;
+    } finally {
+      setBusy(false);
+    }
   };
 
   const verify = useCallback(async () => {
@@ -868,9 +999,11 @@ export function DnsSetup({
     try {
       const r = await api.send<Verification>(`/dns-setups/${setup.id}/verify`, "POST");
       setVer(r);
+      setActionError("");
       onChanged();
       return r;
     } catch (e) {
+      setActionError(errorMessage(e));
       run(() => Promise.reject(e), "");
     } finally {
       setChecking(false);
@@ -1013,6 +1146,17 @@ export function DnsSetup({
       case "applied":
         return (
           <div className="space-y-3">
+            <RemainingRecords
+              setup={done}
+              busy={busy}
+              verification={ver}
+              onAnalyze={() =>
+                act(
+                  () => api.send(`/dns-setups/${done.id}/analyze`, "POST"),
+                  phrase("Analysis finished."),
+                )
+              }
+            />
             <VerifyPanel
               setup={done}
               result={ver}
@@ -1028,6 +1172,126 @@ export function DnsSetup({
     }
   })();
 
+  const navigatePrompt = (message: string, step: number) => (
+    <div className="space-y-3">
+      <p role="status" className="text-sm text-muted-foreground">
+        {message}
+      </p>
+      <Button variant="outline" onClick={() => jump(step)}>
+        {phrase(STEPS[step])}
+      </Button>
+    </div>
+  );
+  const selectedBody = (() => {
+    if (viewing === null || selected === current) return body;
+    if (conns.isLoading || latest.isLoading) return body;
+    if (selected === 0)
+      return (
+        <div className="space-y-3">
+          <p className="text-sm">
+            {phrase("Domain")}: <strong>{domain}</strong>
+          </p>
+          <Link className="text-sm text-primary underline" to={to("domains")}>
+            {phrase("Manage domains")}
+          </Link>
+        </div>
+      );
+    if (selected === 1)
+      return (
+        <ConnectPanel
+          domainId={domainId}
+          caps={caps.data}
+          conns={conns.data?.items ?? []}
+          onChanged={async () => {
+            setViewing(null);
+            await refresh();
+          }}
+        />
+      );
+    if (!conn) return navigatePrompt(phrase("Connect Cloudflare before continuing."), 1);
+    if (selected === 2)
+      return <ZonePanel domain={domain} conn={conn} busy={busy} onStart={start} />;
+    if (!done) return navigatePrompt(phrase("Select a zone and analyze it before continuing."), 2);
+    if (selected === 3)
+      return (
+        <div className="space-y-3">
+          <p className="text-sm">
+            {phrase("Zone")}: <strong>{done.zone_name}</strong>
+          </p>
+          <Button
+            disabled={busy}
+            onClick={() =>
+              act(
+                () => api.send(`/dns-setups/${done.id}/analyze`, "POST"),
+                phrase("Analysis finished."),
+              )
+            }
+          >
+            {phrase("Analyze again")}
+          </Button>
+          <Button variant="outline" onClick={() => jump(4)}>
+            {phrase("Review")}
+          </Button>
+        </div>
+      );
+    if (selected === 4 || selected === 5)
+      return (
+        <ReviewPanel
+          key={`${done.id}:${done.digest}:${selected}`}
+          setup={done}
+          busy={busy}
+          reviewOnly={selected === 4}
+          onContinue={() => jump(5)}
+          onApprove={(acks) =>
+            act(
+              () =>
+                api.send(`/dns-setups/${done.id}/approve`, "POST", {
+                  digest: done.digest,
+                  acknowledge: acks,
+                }),
+              phrase("Approved."),
+            )
+          }
+          onAnalyze={() =>
+            act(
+              () => api.send(`/dns-setups/${done.id}/analyze`, "POST"),
+              phrase("Analysis finished."),
+            )
+          }
+        />
+      );
+    if (selected === 6) {
+      if (["approved", "applying", "partial", "failed"].includes(done.status)) return body;
+      if (done.status === "applied")
+        return (
+          <div className="space-y-3">
+            <Changes changes={done.changes} />
+            <Button onClick={() => jump(7)}>{phrase("Verify")}</Button>
+          </div>
+        );
+      return navigatePrompt(phrase("Approve the reviewed plan before applying DNS changes."), 5);
+    }
+    if (selected === 7) {
+      if (!["applied", "partial"].includes(done.status))
+        return navigatePrompt(
+          phrase("Apply the approved changes before verifying the published records."),
+          6,
+        );
+      return (
+        <VerifyPanel
+          setup={done}
+          result={ver}
+          checking={checking}
+          attempt={attempt}
+          onCheck={() => void verify()}
+        />
+      );
+    }
+    if (selected === 8)
+      return navigatePrompt(phrase("Verify all required records before completing setup."), 7);
+    return body;
+  })();
+
   return (
     <Section
       className="mt-4"
@@ -1038,7 +1302,15 @@ export function DnsSetup({
         </Button>
       }
     >
-      <Progress current={current} />
+      <Progress current={current} selected={selected} busy={busy} onSelect={jump} />
+      {actionError && (
+        <p
+          role="alert"
+          className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
+        >
+          {actionError}
+        </p>
+      )}
       {conn && !manual && (
         <div className="mb-4">
           <Connections
@@ -1047,7 +1319,7 @@ export function DnsSetup({
           />
         </div>
       )}
-      {manual ? <ManualSetup domainId={domainId} /> : body}
+      {manual ? <ManualSetup domainId={domainId} /> : selectedBody}
     </Section>
   );
 }
@@ -1146,6 +1418,60 @@ function ManualSetup({ domainId }: { domainId: string }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function PrepareSigningDomain({
+  domainId,
+  onPrepared,
+}: {
+  domainId: string;
+  onPrepared: () => void;
+}) {
+  const phrase = usePhrase();
+  const { api, to } = useWorkspace();
+  const [error, setError] = useState("");
+  const config = useQuery({
+    queryKey: useWsKey()("domain", domainId),
+    queryFn: () => api.get<{ mailcow_api?: boolean }>(`/domains/${domainId}`),
+  });
+  return (
+    <div className="rounded-lg border p-4 space-y-3">
+      <p className="text-sm">
+        {phrase(
+          "DKIM must come from your sending server. For Mailcow, Njiwa can add this sending domain and obtain its signing key, then refresh the Cloudflare plan. Existing keys are preserved; inbound routing is unchanged.",
+        )}
+      </p>
+      {config.data?.mailcow_api ? (
+        <ConfirmButton
+          title={phrase("Prepare this domain on Mailcow?")}
+          description={phrase(
+            "Adds the sending domain and generates a DKIM key only if missing. No service restart or inbound transport change. You will review DNS changes before Cloudflare publishing.",
+          )}
+          confirm="Prepare signing domain"
+          onConfirm={async () => {
+            setError("");
+            try {
+              await api.send(`/domains/${domainId}/prepare-sending`, "POST");
+              onPrepared();
+            } catch (e) {
+              setError(errorMessage(e));
+            }
+          }}
+        >
+          {phrase("Prepare signing domain")}
+        </ConfirmButton>
+      ) : (
+        <Link className="text-primary underline" to={to("mail-server")}>
+          {phrase("Connect Mailcow management API in Advanced Settings")}
+        </Link>
+      )}
+      {error && (
+        <p role="alert" className="text-destructive text-sm">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

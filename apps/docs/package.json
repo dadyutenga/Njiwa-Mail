@@ -8,11 +8,12 @@
     "generate": "node scripts/generate-assets.mjs",
     "build": "npm run generate && next build",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . && node scripts/lint-content.mjs",
+    "lint": "eslint . && node scripts/lint-content.mjs && node scripts/generate-reference.mjs --check",
     "test": "vitest run",
     "check:snippets": "node scripts/check-snippets.mjs",
     "check:export": "node scripts/check-export.mjs",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "generate:reference": "node scripts/generate-reference.mjs"
   },
   "dependencies": {
     "fumadocs-core": "16.19.0",

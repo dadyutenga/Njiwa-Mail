@@ -4,6 +4,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"github.com/njiwa-tz/mail/internal/inbound"
@@ -31,6 +32,7 @@ type Server struct {
 	SessionTTL      time.Duration
 	SMTPConfigured  bool
 	EnvSMTP         *mailer.SMTPConfig // SMTP from the environment (nil when unset); used by the Mail server test
+	SMTPRootCAs     *x509.CertPool     // optional private CA trust; nil uses system roots; verification is always enabled
 
 	// Admin API (/admin/v1).
 	TrustProxy      bool   // take the client IP from X-Forwarded-For (set by our own reverse proxy)

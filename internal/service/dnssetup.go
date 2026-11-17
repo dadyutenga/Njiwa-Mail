@@ -77,7 +77,7 @@ func (s *Service) domainRequirements(ctx context.Context, projectID, domainID st
 	}
 	kind := s.senderKind(ctx)
 	var facts *SendingFacts
-	if kind == senderGeneric {
+	if kind != senderManaged {
 		facts = s.sendingFacts(ctx)
 	}
 	dkim := ""
@@ -140,8 +140,12 @@ func (s *Service) analyze(ctx context.Context, p dnsprovider.Provider, c *dnsCon
 	var dnssec string
 	_ = s.readRetry(ctx, func() (e error) { dnssec, e = p.DNSSEC(ctx, zoneID); return })
 	obs, failed := s.nsLookup(ctx, r, zone.Name)
+	mailHost := s.Opts.MailHost
+	if facts := s.sendingFacts(ctx); facts != nil && facts.MailHost != "" {
+		mailHost = facts.MailHost
+	}
 	plan := BuildDNSPlan(PlanInput{Domain: name, Purpose: purpose, ZoneID: zone.ID, ZoneName: zone.Name, ZoneNS: zone.NameServers, ObservedNS: obs, NSLookupFail: failed,
-		DNSSEC: dnssec, Required: req, Existing: recs, MailHost: s.Opts.MailHost})
+		DNSSEC: dnssec, Required: req, Existing: recs, MailHost: mailHost})
 	return plan, zone, nil
 }
 

@@ -110,9 +110,10 @@ type Config struct {
 	SSOAllowedNetworks []netip.Prefix
 
 	// DNS health checker expectations.
-	MailHostname string
-	OutboundIP   string
-	DKIMSelector string
+	LocalMailcowFactsFile string
+	MailHostname          string
+	OutboundIP            string
+	DKIMSelector          string
 
 	// AllowUnregisteredLiveDomains is a temporary upgrade escape hatch: Live
 	// mail and Live senders may use a domain no project has registered or
@@ -473,6 +474,7 @@ func Load() (*Config, error) {
 	default:
 		return nil, fmt.Errorf("ATTACHMENT_STORE must be disk or s3")
 	}
+	c.LocalMailcowFactsFile = get("LOCAL_MAILCOW_FACTS_FILE", "")
 	c.MailHostname = strings.ToLower(get("MAIL_HOSTNAME", ""))
 	c.OutboundIP = get("OUTBOUND_IP", "")
 	c.DKIMSelector = get("DKIM_SELECTOR", "dkim")

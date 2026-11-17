@@ -111,17 +111,16 @@ type ProjectOnboarding struct {
 // step count and progress are computed here; clients must not hard-code them.
 // Receiving mailboxes are optional and never block sending setup.
 func (s *Service) Checklist(ctx context.Context, sc *Scope) (ProjectOnboarding, error) {
-	var domains, dnsOK, senders, keys, captured, submitted, mailboxes bool
+	var domains, dnsOK, senders, keys, submitted, mailboxes bool
 	err := s.Pool.QueryRow(ctx, `SELECT
   EXISTS (SELECT 1 FROM domains WHERE project_id=$1),
   EXISTS (SELECT 1 FROM domains WHERE project_id=$1 AND verified_at IS NOT NULL AND spf_ok AND dkim_ok AND dmarc_ok
           AND (purpose='sending' OR mx_ok)),
   EXISTS (SELECT 1 FROM sender_identities si WHERE si.project_id=$1 AND `+senderVerifiedSQL+`),
   EXISTS (SELECT 1 FROM api_keys WHERE project_id=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())),
-  EXISTS (SELECT 1 FROM messages m JOIN environments e ON e.id=m.environment_id WHERE m.project_id=$1 AND e.mode='sandbox' AND m.state='captured'),
   EXISTS (SELECT 1 FROM messages m JOIN environments e ON e.id=m.environment_id WHERE m.project_id=$1 AND e.mode='live' AND m.state='submitted'),
   EXISTS (SELECT 1 FROM inbound_addresses WHERE project_id=$1 AND NOT temporary)`, sc.ProjectID).
-		Scan(&domains, &dnsOK, &senders, &keys, &captured, &submitted, &mailboxes)
+		Scan(&domains, &dnsOK, &senders, &keys, &submitted, &mailboxes)
 	if err != nil {
 		return ProjectOnboarding{}, unavailable("checklist", err)
 	}
@@ -130,8 +129,8 @@ func (s *Service) Checklist(ctx context.Context, sc *Scope) (ProjectOnboarding, 
 		{Key: "dns", Title: "Publish DNS records", Done: dnsOK, Required: true},
 		{Key: "sender", Title: "Add a sender address", Done: senders, Required: true},
 		{Key: "api_key", Title: "Create an API key", Done: keys, Required: true},
-		{Key: "test_email", Title: "Send a test email", Done: captured && submitted, Required: true,
-			Detail: map[bool]string{true: "", false: "Needs one captured sandbox message and one submitted live message in this project."}[captured && submitted]},
+		{Key: "test_email", Title: "Send a test email", Done: submitted, Required: true,
+			Detail: map[bool]string{true: "", false: "Send one Live message in this project and wait for the mail server to accept it. Sandbox testing is optional."}[submitted]},
 		{Key: "mailbox", Title: "Create a mailbox", Done: mailboxes, Optional: true},
 	}}
 	o.Complete = true

@@ -273,6 +273,7 @@ jobs:
         env: { NEXT_PUBLIC_DOCS_COMMIT: "${{ github.sha }}" }
       - run: npm run check:snippets
         working-directory: apps/docs
+        env: { REQUIRE_PHP: "1" } # ubuntu-latest ships php; a missing php must fail, not skip
       - run: npm run check:export
         working-directory: apps/docs
         env: { NEXT_PUBLIC_DOCS_COMMIT: "${{ github.sha }}" }

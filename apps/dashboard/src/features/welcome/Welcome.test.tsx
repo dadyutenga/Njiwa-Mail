@@ -67,3 +67,10 @@ it("operates code tabs and FAQ by keyboard", async () => {
   fireEvent.click(question);
   expect(question.closest("details")).toHaveAttribute("open");
 });
+
+it("links Docs to the docs pages, never back to this page's own origin", async () => {
+  const { docsHome } = await import("./config");
+  expect(docsHome("https://mail.example.com")).toBe("https://mail.example.com/docs");
+  expect(docsHome("https://mail.example.com/")).toBe("https://mail.example.com/docs");
+  expect(docsHome("")).toBe("");
+});

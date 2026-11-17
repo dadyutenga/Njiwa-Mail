@@ -159,7 +159,7 @@ it("offers to continue an existing installation found from an older version", as
 it("generic SMTP screen has no Mailcow requirement; Mailcow fields appear only when chosen", async () => {
   mockAdmin(state({}));
   wrap(<MailServer />);
-  expect(await screen.findByLabelText(/^SMTP host/)).toBeInTheDocument();
+  expect(await screen.findByLabelText(/^SMTP host$/)).toBeInTheDocument();
   await waitFor(() => expect(screen.getByLabelText(/^Mail server type/)).toHaveValue("generic"));
   expect(screen.queryByText(/Mailcow API/)).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/^API key/)).not.toBeInTheDocument();
@@ -199,7 +199,7 @@ it("managed mode never shows the SMTP password form", async () => {
   // Wait for the mail-server settings to load too, so a form that renders
   // late would still be caught.
   await waitFor(() => expect(admin.get).toHaveBeenCalledWith("/mail-server"));
-  expect(screen.queryByLabelText(/^SMTP host/)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/^SMTP host$/)).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/^Password/)).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/^Mail server type/)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Test connection" })).not.toBeInTheDocument();
@@ -283,7 +283,7 @@ it("saves an existing server's sending facts for its profile", async () => {
 it("does not ask managed or Mailcow installations for sending facts", async () => {
   mockAdmin(state({}), { provider_type: "mailcow" });
   wrap(<MailServer />);
-  expect(await screen.findByLabelText(/^SMTP host/)).toBeInTheDocument();
+  expect(await screen.findByLabelText(/^SMTP host$/)).toBeInTheDocument();
   await waitFor(() => expect(screen.getByLabelText(/^Mail server type/)).toHaveValue("mailcow"));
   expect(screen.queryByText("What your mail server sends from")).not.toBeInTheDocument();
 });

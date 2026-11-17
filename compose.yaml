@@ -33,7 +33,10 @@ x-app: &app
 
 services:
   frontend:
-    build: ./apps/dashboard
+    build:
+      context: ./apps/dashboard
+      # Where the public docs are published (compose.docs.yaml), e.g. https://mail.example.com.
+      args: { VITE_DOCS_URL: "${VITE_DOCS_URL:-}" }
     restart: unless-stopped
     # Host ports are configurable so Njiwa-Mail never competes with an
     # application already on this server (njiwa-mail discover reports one).
@@ -105,7 +108,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    deploy: { resources: { limits: { memory: 128m } } }
+    # The health check starts a second Go process alongside the scheduler.
+    deploy: { resources: { limits: { memory: 256m } } }
 
   # Private SMTP listener for bounces and received mail relayed by your mail
   # server. Published on the host's loopback only (for host Postfix in managed

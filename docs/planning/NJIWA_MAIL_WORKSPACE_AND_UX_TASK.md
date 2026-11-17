@@ -99,7 +99,7 @@ One guided path from empty account to first email. Each step shows done or not d
 | 4. Publish DNS records | SPF, DKIM, DMARC (and MX for receiving) all pass |
 | 5. Add a sender address | One sender on a verified domain |
 | 6. Create an API key | One active key; secret shown once |
-| 7. Send a test email | A sandbox message is captured, then one live message is `submitted` |
+| 7. Send a test email | One live message is `submitted`; sandbox testing is optional |
 | 8. Create a mailbox (optional) | One receiving address exists |
 
 - [ ] The checklist is the landing page until steps 1 to 7 are done, then it collapses into the Dashboard.

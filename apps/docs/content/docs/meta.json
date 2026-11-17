@@ -1,4 +1,1 @@
-{
-  "title": "Njiwa-Mail",
-  "pages": ["index", "quickstart", "authentication", "---Concepts---", "...concepts", "---API---", "...api", "webhooks", "sdks", "---Delivery---", "...setup", "...dns", "---Operations---", "...operations", "reference", "roadmap", "versions", "...planned"]
-}
+{"title": "Njiwa-Mail", "pages": ["index", "quickstart", "authentication", "---Concepts---", "...concepts", "---API---", "...api", "webhooks", "---API reference---", "...api-reference", "sdks", "---Integration guides---", "...guides", "---Delivery---", "...setup", "...dns", "---Operations---", "...operations", "reference", "roadmap", "versions", "...planned"]}

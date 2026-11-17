@@ -166,7 +166,7 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 	_ = s.Pool.QueryRow(ctx, `SELECT verify_token, purpose FROM domains WHERE id=$1`, id).Scan(&token, &purpose)
 	kind := s.senderKind(ctx)
 	var f *SendingFacts
-	if kind == senderGeneric {
+	if kind != senderManaged {
 		f = s.sendingFacts(ctx)
 	}
 	known := ""
@@ -174,6 +174,9 @@ FROM domains d WHERE d.id=$1 AND d.project_id=$2`, id, sc.ProjectID)
 		known = s.managedDKIM(ctx, name)
 	} else if f != nil {
 		known = f.DKIMKeys[name]
+	}
+	if known == "" && kind != senderManaged {
+		known, _ = s.mailcowDKIM(ctx, name)
 	}
 	bd, _ := d["bounce_domain"].(string)
 	expected := s.expectedRecords(kind, f, s.selectorFor(ctx, kind, f), name, purpose, token, known, bd)
@@ -232,12 +235,15 @@ func sameRequirements(saved []any, expected []DomainRecord) bool {
 // (from the Mailcow API); otherwise the DKIM value is a placeholder.
 func (s *Service) expectedRecords(kind string, f *SendingFacts, sel, name, purpose, token, dkimValue, bounceDomain string) []DomainRecord {
 	host := fqdn(s.Opts.MailHost)
+	if f != nil && f.MailHost != "" {
+		host = fqdn(f.MailHost)
+	}
 	recs := []DomainRecord{{Key: "ownership", Type: "TXT", Host: name, Value: "njiwa-mail-verify=" + token,
 		Hint: "Proves the domain is yours. It can stay published; it does not affect mail."}}
 	if sendingPurpose(purpose) {
 		spf := DomainRecord{Key: "spf", Type: "TXT", Host: name,
 			Hint: "If the domain already has a v=spf1 record, edit that record and add the mechanism; never publish two."}
-		if kind == senderGeneric && f != nil && (len(f.EgressIPs) > 0 || f.SPFInclude != "") {
+		if kind != senderManaged && f != nil && (len(f.EgressIPs) > 0 || f.SPFInclude != "") {
 			// The operator stated where their mail server sends from.
 			parts := []string{"v=spf1"}
 			if f.SPFInclude != "" {
@@ -278,6 +284,9 @@ func (s *Service) expectedRecords(kind string, f *SendingFacts, sel, name, purpo
 				dkim.Value = "v=DKIM1; k=rsa; p=<public key from the server that signs your mail>"
 				dkim.Hint = "Get the public key from the DKIM settings of the server that signs your mail, for selector " + sel + ", and publish exactly the value it gives you; also enter it on the Domains page so the check compares it. Some panels split long values into several quoted strings; that is fine."
 			}
+		}
+		if dkim.Placeholder && f != nil && f.MailHost != "" {
+			dkim.Hint = "Mailcow has no signing key for this domain yet. Use Prepare signing domain in Njiwa-Mail to create it through the connected management API, then analyze the Cloudflare plan again."
 		}
 		recs = append(recs, spf, dkim,
 			DomainRecord{Key: "dmarc", Type: "TXT", Host: "_dmarc." + name, Value: "v=DMARC1; p=none; rua=mailto:postmaster@" + name,
@@ -340,11 +349,11 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 	if r == nil {
 		r = net.DefaultResolver
 	}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	dnsCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	kind := s.senderKind(ctx)
 	var facts *SendingFacts
-	if kind == senderGeneric {
+	if kind != senderManaged {
 		facts = s.sendingFacts(ctx)
 	}
 	dkimKnown := ""
@@ -352,7 +361,7 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 		dkimKnown = s.managedDKIM(ctx, name)
 	} else if facts != nil && facts.DKIMKeys[name] != "" {
 		dkimKnown = facts.DKIMKeys[name]
-	} else if pk, err := s.mailcowDKIM(ctx, name); err == nil && pk != "" {
+	} else if pk, err := s.mailcowDKIM(dnsCtx, name); err == nil && pk != "" {
 		dkimKnown = pk
 	}
 	recs := s.expectedRecords(kind, facts, s.selectorFor(ctx, kind, facts), name, purpose, token, dkimKnown, ownBounce)
@@ -374,7 +383,10 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 		envDomain = ownBounce // D04: the domain's own return-path domain
 	}
 	host := fqdn(s.Opts.MailHost)
-	apex, apexErr := r.LookupTXT(ctx, name)
+	if facts != nil && facts.MailHost != "" {
+		host = fqdn(facts.MailHost)
+	}
+	apex, apexErr := r.LookupTXT(dnsCtx, name)
 	var verified, spfOK, dkimOK, dmarcOK, mxOK bool
 	for i := range recs {
 		rec := &recs[i]
@@ -388,7 +400,7 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 			}
 			verified = rec.Pass
 		case "spf":
-			pass, why, spf := evalSPFFor(ctx, r, name, sips, include)
+			pass, why, spf := evalSPFFor(dnsCtx, r, name, sips, include)
 			rec.Found = observed(spf, apexErr)
 			rec.Pass = pass
 			if why != "" {
@@ -396,7 +408,7 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 			}
 			spfOK = rec.Pass
 		case "dkim":
-			txt, err := r.LookupTXT(ctx, rec.Host)
+			txt, err := r.LookupTXT(dnsCtx, rec.Host)
 			rec.Found = observed(txt, err)
 			var hint string
 			rec.Pass, hint = evalDKIM(txt, err, dkimKnown)
@@ -408,22 +420,22 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 			// SPF counts for DMARC on the envelope (bounce) domain.
 			envSPF := spfOK
 			if envDomain != name {
-				envSPF, _, _ = evalSPFFor(ctx, r, envDomain, sips, include)
+				envSPF, _, _ = evalSPFFor(dnsCtx, r, envDomain, sips, include)
 			}
 			var hint string
-			rec.Pass, rec.Found, hint = evalDMARC(ctx, r, name, envDomain, dkimOK, envSPF)
+			rec.Pass, rec.Found, hint = evalDMARC(dnsCtx, r, name, envDomain, dkimOK, envSPF)
 			if hint != "" {
 				rec.Hint = hint
 			}
 			dmarcOK = rec.Pass
 		case "return_path_spf":
-			pass, why, found := evalSPFFor(ctx, r, rec.Host, sips, include)
+			pass, why, found := evalSPFFor(dnsCtx, r, rec.Host, sips, include)
 			rec.Found, rec.Pass = observed(found, nil), pass
 			if why != "" {
 				rec.Hint = why
 			}
 		case "mx", "return_path":
-			mx, err := r.LookupMX(ctx, rec.Host)
+			mx, err := r.LookupMX(dnsCtx, rec.Host)
 			var vals []string
 			for _, m := range mx {
 				vals = append(vals, fqdn(m.Host))
@@ -436,7 +448,19 @@ func (s *Service) CheckDomain(ctx context.Context, id string, r Resolver) ([]Dom
 				mxOK = rec.Pass
 			}
 		}
+		if dnsCtx.Err() != nil && !rec.Pass {
+			rec.Found = dnsLookupTimedOut
+			rec.Hint = "Public DNS lookup timed out. Check this server's DNS resolver and try again."
+		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cancel()
+	// DNS can exhaust its budget without taking the database write with it.
+	// Keep the request's cancellation and bound persistence separately.
+	ctx, storeCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer storeCancel()
 	// Ownership proof alone is not enough: only one project in the
 	// installation may hold the name (D01).
 	tx, err := s.Pool.Begin(ctx)

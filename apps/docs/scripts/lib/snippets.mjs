@@ -116,3 +116,30 @@ export function checkPython(frs) {
   }
   return problems;
 }
+
+/**
+ * PHP snippets must parse (php -l). Without a php binary they are reported as
+ * skipped, unless REQUIRE_PHP=1 (CI), where a missing php is a failure.
+ */
+export function checkPhp(frs) {
+  const problems = [];
+  if (!frs.length) return { problems, skipped: false };
+  try {
+    execFileSync("php", ["-v"], { stdio: "pipe" });
+  } catch {
+    if (process.env.REQUIRE_PHP === "1") problems.push("php is required (REQUIRE_PHP=1) but was not found");
+    return { problems, skipped: true };
+  }
+  for (const f of frs) {
+    const tmp = path.join(os.tmpdir(), `snippet-${process.pid}-${f.line}.php`);
+    fs.writeFileSync(tmp, f.code + "\n");
+    try {
+      execFileSync("php", ["-l", tmp], { stdio: "pipe" });
+    } catch (e) {
+      problems.push(`${f.file}:${f.line}: PHP does not parse: ${e.stdout ?? e.message}`);
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
+  }
+  return { problems, skipped: false };
+}

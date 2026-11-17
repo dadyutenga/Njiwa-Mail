@@ -19,7 +19,7 @@ servers:
 security:
   - bearer: []
 tags:
-  - { name: Emails, description: Queue, read and cancel outbound email }
+  - { name: Emails, description: 'Queue, read and cancel outbound email' }
   - { name: Inbound, description: Read mail received at your inbound addresses }
   - { name: Suppressions, description: Addresses that must not receive mail }
   - { name: Addresses, description: Check addresses before sending to them }
@@ -622,7 +622,7 @@ paths:
         - { name: token, in: path, required: true, schema: { type: string } }
       responses:
         '200': { description: The message HTML, content: { text/html: { schema: { type: string } } } }
-        '404': { description: Unknown, altered or expired link (HTML), content: { text/html: { schema: { type: string } } } }
+        '404': { description: 'Unknown, altered or expired link (HTML)', content: { text/html: { schema: { type: string } } } }
   /health/live:
     get:
       tags: [Health]
@@ -739,7 +739,7 @@ components:
         cc: { type: array, items: { type: string } }
         bcc: { type: array, items: { type: string } }
         priority: { type: string, enum: [high, normal], description: otp and password-reset default to high. }
-        send_at: { type: string, format: date-time, description: RFC 3339, at most 7 days ahead. }
+        send_at: { type: string, format: date-time, description: 'RFC 3339, at most 7 days ahead.' }
         web_view: { type: boolean, description: 'Adds a "view in browser" link at the top of the message, backed by a signed copy of the HTML that expires after 30 days. Not allowed with priority high (one-time codes, password resets).' }
         attachments: { type: array, maxItems: 5, items: { $ref: '#/components/schemas/Attachment' } }
         headers: { type: object, additionalProperties: { type: string } }
@@ -830,7 +830,7 @@ components:
         attachment_count: { type: integer }
         project: { type: string }
         mode: { type: string, enum: [sandbox, live] }
-        in_reply_to: { type: string, format: uuid, description: The id of the outbound message this answers, when known. }
+        in_reply_to: { type: string, format: uuid, description: 'The id of the outbound message this answers, when known.' }
     InboundMessage:
       allOf:
         - $ref: '#/components/schemas/InboundSummary'
@@ -853,14 +853,14 @@ components:
       type: object
       required: [email, result, reasons, syntax_valid, disposable, role_account, suppressed, unsubscribed]
       properties:
-        email: { type: string, description: The address, normalised when the syntax is valid }
+        email: { type: string, description: 'The address, normalised when the syntax is valid' }
         result: { type: string, enum: [deliverable, risky, undeliverable, unknown] }
         reasons:
           type: array
           items: { type: string, enum: [invalid_syntax, null_mx, no_mail_server, dns_timeout, disposable_domain, role_account, suppressed] }
         syntax_valid: { type: boolean }
         domain: { type: string }
-        mx: { type: array, items: { type: string }, description: Mail servers for the domain, sorted }
+        mx: { type: array, items: { type: string }, description: 'Mail servers for the domain, sorted' }
         disposable: { type: boolean }
         role_account: { type: boolean }
         suppressed: { type: boolean, description: On this environment's suppression list; mail to it is refused }

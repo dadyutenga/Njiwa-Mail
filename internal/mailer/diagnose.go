@@ -3,6 +3,7 @@ package mailer
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"net"
 	"net/smtp"
@@ -187,9 +188,12 @@ func Diagnose(ctx context.Context, cfg SMTPConfig, sender string) []Step {
 	if err := cl.Mail(sender); err != nil {
 		return stop(4, CodeSenderRejected, "MAIL FROM "+sender+" refused ("+replyCode(err)+"): allow this login to send as "+sender+" on your mail server")
 	}
-	domain := sender[strings.LastIndexByte(sender, '@')+1:]
-	if err := cl.Rcpt("postmaster@" + domain); err != nil {
-		return stop(4, CodeSenderRejected, "RCPT refused ("+replyCode(err)+"): your mail server rejects "+sender+" for this login; allow the login to send as this address")
+	recipient := sender
+	if strings.Contains(cfg.Username, "@") {
+		recipient = cfg.Username
+	}
+	if err := cl.Rcpt(recipient); err != nil {
+		return stop(4, CodeSenderRejected, "Envelope check refused ("+replyCode(err)+"): confirm that the mailbox exists and this login is allowed to send as "+sender)
 	}
 	_ = cl.Reset()
 	_ = cl.Quit()
@@ -198,6 +202,22 @@ func Diagnose(ctx context.Context, cfg SMTPConfig, sender string) []Step {
 }
 
 func tlsDetail(err error) (string, string) {
+	var hostname x509.HostnameError
+	if errors.As(err, &hostname) {
+		if len(hostname.Certificate.DNSNames) == 0 && len(hostname.Certificate.IPAddresses) == 0 {
+			return CodeTLSCertInvalid, "The SMTP certificate has no Subject Alternative Names (SANs). A legacy Common Name is insufficient. Install a trusted certificate with a SAN for the SMTP hostname on the mail server; the website certificate alone does not fix SMTP. Certificate verification remains enabled."
+		}
+		return CodeTLSCertInvalid, "The SMTP certificate does not cover the configured hostname. Use the hostname listed in its SANs or install a trusted certificate covering this SMTP hostname."
+	}
+	var invalid x509.CertificateInvalidError
+	if errors.As(err, &invalid) && invalid.Reason == x509.Expired {
+		return CodeTLSCertInvalid, "The SMTP certificate is expired or not yet valid. Check the server clock and renew/install the certificate and full chain on the SMTP service."
+	}
+	var unknown x509.UnknownAuthorityError
+	if errors.As(err, &unknown) {
+		return CodeTLSCertInvalid, "The SMTP certificate is not trusted. Install a certificate issued by a trusted CA and its full intermediate chain on the SMTP service. For a private CA, configure the operator's system trust store. Do not disable verification."
+	}
+
 	var te *textproto.Error
 	if errors.As(err, &te) && te.Code >= 400 && te.Code < 500 {
 		return CodeServerTempRefused, "the server answered " + strconv.Itoa(te.Code) + " " + te.Msg +
@@ -211,13 +231,9 @@ func tlsDetail(err error) (string, string) {
 }
 
 func replyCode(err error) string {
-	var te interface{ Error() string }
+	var te *textproto.Error
 	if errors.As(err, &te) {
-		msg := te.Error()
-		if len(msg) > 120 {
-			msg = msg[:120]
-		}
-		return msg
+		return strconv.Itoa(te.Code)
 	}
-	return "error"
+	return "SMTP authentication or protocol error"
 }
