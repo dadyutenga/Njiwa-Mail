@@ -1,9 +1,11 @@
+Namba yako ya uthibitisho ni {{.code}}
+
 Habari{{if .name}} {{.name}}{{end}},
 
-Tumia namba hii kuthibitisha utambulisho wako:
+Tumia namba hii kuthibitisha utambulisho wako{{if .app_name}} kwenye {{.app_name}}{{end}}:
 
-{{.code}}
+    {{.code}}
 
-Namba hii ni halali kwa dakika {{.expires_in_minutes}}. Ikiwa hukuiomba, unaweza kupuuza barua pepe hii.
+Namba hii itakwisha muda baada ya dakika {{.expires_in_minutes}}. Ikiwa hukuiomba, puuza barua pepe hii; akaunti yako iko salama.
 
-Usimpe mtu yeyote namba hii.
+Usimpe mtu yeyote namba hii. {{if .app_name}}{{.app_name}} haitakuomba{{else}}Hatutakuomba{{end}} namba hii kamwe.

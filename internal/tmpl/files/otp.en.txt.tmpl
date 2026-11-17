@@ -1,9 +1,11 @@
+Your verification code is {{.code}}
+
 Hello{{if .name}} {{.name}}{{end}},
 
-Use this code to verify your identity:
+Use this code to verify your identity{{if .app_name}} on {{.app_name}}{{end}}:
 
-{{.code}}
+    {{.code}}
 
-The code is valid for {{.expires_in_minutes}} minutes. If you did not request it, you can ignore this email.
+This code expires in {{.expires_in_minutes}} minutes. If you did not request it, you can ignore this email; your account is safe.
 
-Never share this code with anyone.
+Never share this code with anyone. {{if .app_name}}{{.app_name}}{{else}}We{{end}} will never ask you for it.

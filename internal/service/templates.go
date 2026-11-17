@@ -40,6 +40,9 @@ VALUES (NULL,$1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id::text`,
 			sd.Slug, sd.Description, int(sd.DefaultTTL.Seconds()), int(sd.MaxTTL.Seconds())).Scan(&tid)
 		if errors.Is(err, db.ErrNoRows) { // already seeded
 			tx.Rollback(ctx)
+			if err := s.UpgradeSeed(ctx, sd); err != nil {
+				return err
+			}
 			continue
 		}
 		if err == nil {
@@ -54,6 +57,72 @@ VALUES (NULL,$1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id::text`,
 		}
 	}
 	return nil
+}
+
+// UpgradeSeed publishes a built-in template's current content as a new version when the
+// newest published version is an earlier built-in content (sd.Replaces) left unchanged.
+// A version an operator wrote, or a pending draft, is left alone. Earlier versions stay
+// published, so a client pinned to one keeps it.
+func (s *Service) UpgradeSeed(ctx context.Context, sd tmpl.Seed) error {
+	if len(sd.Replaces) == 0 {
+		return nil
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var tid string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM templates WHERE project_id IS NULL AND slug=$1 FOR UPDATE`, sd.Slug).Scan(&tid); err != nil {
+		if errors.Is(err, db.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	var vid string
+	var latest int
+	var drafts bool
+	err = tx.QueryRow(ctx, `SELECT v.id::text, v.version,
+  EXISTS (SELECT 1 FROM template_versions d WHERE d.template_id=$1 AND d.published_at IS NULL)
+FROM template_versions v WHERE v.template_id=$1 AND v.published_at IS NOT NULL ORDER BY v.version DESC LIMIT 1`, tid).Scan(&vid, &latest, &drafts)
+	if errors.Is(err, db.ErrNoRows) || drafts {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `SELECT locale, subject, html_body, text_body FROM template_contents WHERE version_id=$1`, vid)
+	if err != nil {
+		return err
+	}
+	current := map[string]tmpl.Content{}
+	for rows.Next() {
+		var l string
+		var c tmpl.Content
+		if err := rows.Scan(&l, &c.Subject, &c.HTML, &c.Text); err != nil {
+			rows.Close()
+			return err
+		}
+		current[l] = c
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if tmpl.SameContent(current, sd.Content) {
+		return nil
+	}
+	replaceable := false
+	for _, old := range sd.Replaces {
+		replaceable = replaceable || tmpl.SameContent(current, old)
+	}
+	if !replaceable {
+		return nil // an operator's own version
+	}
+	if err := insertVersion(ctx, tx, tid, latest+1, sd.Schema, sd.Content, true); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func insertVersion(ctx context.Context, tx *db.Tx, templateID string, version int, schema tmpl.Schema, content map[string]tmpl.Content, publish bool, style ...string) error {

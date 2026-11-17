@@ -402,6 +402,39 @@ type Seed struct {
 	MaxTTL      time.Duration
 	Schema      Schema
 	Content     map[string]Content // by locale
+	// Replaces lists earlier built-in contents of this template. An installation whose newest
+	// published version is exactly one of them gets the current content as a new published
+	// version; a version an operator changed is never replaced.
+	Replaces []map[string]Content
+}
+
+// SameContent reports whether two versions have identical content in every locale.
+func SameContent(a, b map[string]Content) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for l, x := range a {
+		if y, ok := b[l]; !ok || x != y {
+			return false
+		}
+	}
+	return true
+}
+
+func legacyContent(file string, subjects map[string]string) map[string]Content {
+	out := map[string]Content{}
+	for _, l := range Locales {
+		h, err := files.ReadFile(fmt.Sprintf("files/legacy/%s.%s.html.tmpl", file, l))
+		if err != nil {
+			panic(err)
+		}
+		x, err := files.ReadFile(fmt.Sprintf("files/legacy/%s.%s.txt.tmpl", file, l))
+		if err != nil {
+			panic(err)
+		}
+		out[l] = Content{Subject: subjects[l], HTML: string(h), Text: string(x)}
+	}
+	return out
 }
 
 func seedContent(slug string, subjects map[string]string) map[string]Content {
@@ -427,8 +460,15 @@ func Seeds() []Seed {
 		{Slug: "otp", Description: "One-time verification code", DefaultTTL: 5 * time.Minute, MaxTTL: 15 * time.Minute,
 			Schema: Schema{name,
 				{Name: "code", Type: TypeString, Required: true, MaxLen: 12, Pattern: `^[A-Za-z0-9]{4,12}$`},
-				{Name: "expires_in_minutes", Type: TypeInt, Required: true, Min: 1, Max: 60}},
-			Content: seedContent("otp", map[string]string{"en": "Your verification code", "sw": "Namba yako ya uthibitisho"})},
+				{Name: "expires_in_minutes", Type: TypeInt, Required: true, Min: 1, Max: 60},
+				{Name: "app_name", Type: TypeString, MaxLen: 60}},
+			// The code leads the subject ("821580 is your verification code") so mail apps such as
+			// Gmail recognise it and offer to copy it.
+			Content: seedContent("otp", map[string]string{
+				"en": "{{.code}} is your {{if .app_name}}{{.app_name}} {{end}}verification code",
+				"sw": "{{.code}} ni namba yako ya uthibitisho{{if .app_name}} ya {{.app_name}}{{end}}",
+			}),
+			Replaces: []map[string]Content{legacyContent("otp.v1", map[string]string{"en": "Your verification code", "sw": "Namba yako ya uthibitisho"})}},
 		{Slug: "password-reset", Description: "Password reset link", DefaultTTL: 5 * time.Minute, MaxTTL: 15 * time.Minute,
 			Schema: Schema{name,
 				{Name: "reset_url", Type: TypeURL, Required: true, MaxLen: 2048},

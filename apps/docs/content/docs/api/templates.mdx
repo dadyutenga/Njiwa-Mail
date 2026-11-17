@@ -9,9 +9,15 @@ A template send names a template and supplies `variables`. The service renders s
 
 | Template | Variables | Default priority |
 |---|---|---|
-| `otp` | `name` (optional), `code` (4 to 12 letters or digits), `expires_in_minutes` (1 to 60) | `high` |
+| `otp` | `name` (optional), `code` (4 to 12 letters or digits), `expires_in_minutes` (1 to 60), `app_name` (optional, up to 60) | `high` |
 | `password-reset` | `name` (optional), `reset_url` (https, origin approved for the environment), `expires_in_minutes` (1 to 1440) | `high` |
 | `account-notice` | `name` (optional), `title` (up to 100, one line), `message` (up to 1000, no HTML) | `normal` |
+
+### The OTP email
+
+The subject starts with the code: `821580 is your verification code`, or `821580 is your Acme verification code` with `app_name` (Kiswahili: `821580 ni namba yako ya uthibitisho`). Gmail and other mail apps recognise this form and can offer to copy the code. The body opens with the same sentence, shows the code in one large block that copies as plain digits, and says when it expires.
+
+Template version 2 introduced this design. Installations still on the original version 1 are upgraded on their next start; a client that pinned `template_version: 1` keeps the old email, and a version an operator wrote is never replaced.
 
 `reset_url` must be an `https` URL whose origin the operator approved for that environment (`njiwa-mail env origins`). Anything else is refused.
 

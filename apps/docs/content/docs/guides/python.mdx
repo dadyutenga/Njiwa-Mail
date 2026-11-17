@@ -76,7 +76,7 @@ def get_status(message_id):
 
 ## Send a one-time code
 
-The built-in `otp` template takes `code` and `expires_in_minutes`, and optionally `name`. Generate the code yourself with a secure random source, store only its hash, and send it.
+The built-in `otp` template takes `code` and `expires_in_minutes`, and optionally `name` and `app_name` (your product's name, shown in the subject: `821580 is your Acme verification code`). Generate the code yourself with a secure random source, store only its hash, and send it.
 
 ```python check
 import secrets

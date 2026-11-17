@@ -206,7 +206,7 @@ func VerifyWebhook(secret, header string, rawBody []byte, now time.Time) bool {
 
 ## Send a one-time code
 
-The built-in `otp` template takes `code` and `expires_in_minutes`, and optionally `name`. Generate the code with `crypto/rand`, store only its hash, and send it.
+The built-in `otp` template takes `code` and `expires_in_minutes`, and optionally `name` and `app_name` (your product's name, shown in the subject: `821580 is your Acme verification code`). Generate the code with `crypto/rand`, store only its hash, and send it.
 
 ```go
 package main
