@@ -37,6 +37,10 @@ func TestRawSendScheduleCancelAndBatch(t *testing.T) {
 	if n := e.runWorker(); n != 0 {
 		t.Fatalf("scheduled message was claimed: %d", n)
 	}
+	// The status read says when a scheduled message becomes due.
+	if st := e.do("GET", "/v1/emails/"+str(sched.JSON, "id"), k.sbx, "", nil); st.Code != 200 || str(st.JSON, "status") != "scheduled" || str(st.JSON, "send_at") != when {
+		t.Fatalf("scheduled status: %d %s (want send_at %s)", st.Code, st.Raw, when)
+	}
 	pdf := base64.StdEncoding.EncodeToString([]byte("%PDF-1.4"))
 	withFile := e.do("POST", "/v1/emails", rawKey, idem("raw-file"), map[string]any{
 		"from": liveFrom, "to": testRcpt, "cc": []string{"cc@example.org"}, "subject": "File", "text": "see attached",

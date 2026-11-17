@@ -14,7 +14,7 @@ Njiwa-Mail is a **self-hosted** transactional email service. There is no central
 3. **One `Idempotency-Key` per logical event** (8 to 128 chars of `A-Za-z0-9._:-`), reused on every retry of that event, new for a new event.
 4. **Never say "delivered".** `submitted` means the mail server accepted the message. There is no `delivered` state or event.
 5. **Retry only** timeouts, network errors, `429` and `5xx`, with the same key, honouring `Retry-After`. Fix the request for every other `4xx`.
-6. **No npm, PyPI, Packagist or Go-proxy package exists.** Go: `github.com/njiwa-tz/mail/njiwamail` from the repository (send, status, webhook verification only). TypeScript: copy `clients/typescript/index.ts`. Python and PHP/Laravel: plain HTTP, following `/docs/guides/python.md` and `/docs/guides/php-laravel.md`. Everything else: plain HTTP.
+6. **No npm, PyPI, Packagist, Maven Central or Go-proxy package exists; `go get` does not work.** Go: copy the standard-library client from `/docs/guides/go.md`. Java: `java.net.http` plus Jackson, following `/docs/guides/java.md`. TypeScript: copy `clients/typescript/index.ts`. Python and PHP/Laravel: plain HTTP, following `/docs/guides/python.md` and `/docs/guides/php-laravel.md`. Scheduling with `send_at`: `/docs/api/scheduling.md`. Everything else: plain HTTP.
 
 ## Fetch order
 

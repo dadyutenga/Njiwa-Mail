@@ -132,7 +132,8 @@ Status
 | `smtp_reply` | string | no | The mail server's acknowledgement text (queue id) once submitted. |
 | `created_at` | string (date-time) | no | &nbsp; |
 | `updated_at` | string (date-time) | no | &nbsp; |
-| `expires_at` | string (date-time) | no | &nbsp; |
+| `expires_at` | string (date-time) | no | Retries stop after this. For a scheduled message the TTL counts from send_at. |
+| `send_at` | string (date-time) | no | Present when the message was scheduled: when it becomes due. |
 | `submitted_at` | string (date-time) | no | &nbsp; |
 | `completed_at` | string (date-time) | no | &nbsp; |
 | `metadata` | map of string to string | no | &nbsp; |
@@ -152,6 +153,7 @@ Status
   "created_at": "2026-11-17T10:00:00Z",
   "updated_at": "2026-11-17T10:00:00Z",
   "expires_at": "2026-11-17T10:00:00Z",
+  "send_at": "2026-11-17T10:00:00Z",
   "submitted_at": "2026-11-17T10:00:00Z",
   "completed_at": "2026-11-17T10:00:00Z",
   "metadata": {},

@@ -5,7 +5,7 @@
 # command in root's authorized_keys (see deploy/rida-server/README.md), so the
 # CI key can run this script and nothing else:
 #
-#   command="/usr/local/sbin/njiwa-deploy",restrict ssh-ed25519 AAAA… github-actions-deploy
+#   command="/usr/local/sbin/njiwa-deploy",restrict ssh-ed25519 AAAA… njiwa-mail-cd
 #
 # The SSH command is the commit to deploy (40 hex characters). The commit must
 # already be on origin/main, so the key cannot deploy arbitrary code. Only the

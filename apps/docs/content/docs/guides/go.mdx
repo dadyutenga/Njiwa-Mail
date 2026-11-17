@@ -1,0 +1,337 @@
+---
+title: Go (Golang)
+description: Send OTP and password-reset email, schedule reminders, read status, cancel, retry safely and verify webhooks from Go with the standard library.
+---
+
+The client below uses **only the Go standard library**. Copy it into your project; there is nothing to `go get`. Every call runs on your server, never in a browser.
+
+## Configure
+
+```bash
+export NJIWA_MAIL_URL="https://mail-api.example.com"
+export NJIWA_MAIL_API_KEY="dmk_sbx_..."   # from your operator; never commit it
+export NJIWA_WEBHOOK_SECRET="whsec_..."   # only if you receive webhooks
+```
+
+Use a sandbox key (`dmk_sbx_…`) while you build: sandbox mail is captured, never sent.
+
+## A small client
+
+Save this as `njiwamail/njiwamail.go` in your module. It sends one email, retries only what is safe to retry (timeouts, network errors, `429` and `5xx`) with the **same** idempotency key, honours `Retry-After`, and can read status and cancel.
+
+```go check
+// Package njiwamail is a small Njiwa-Mail client: send, status, cancel, webhooks.
+package njiwamail
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Email is one message. Use Template+Variables, or Subject with HTML and/or Text (raw send).
+type Email struct {
+	From      string         `json:"from"`
+	To        string         `json:"to"`
+	Template  string         `json:"template,omitempty"`
+	Locale    string         `json:"locale,omitempty"`
+	Variables map[string]any `json:"variables,omitempty"`
+	Subject   string         `json:"subject,omitempty"`
+	HTML      string         `json:"html,omitempty"`
+	Text      string         `json:"text,omitempty"`
+	// SendAt schedules the message (at most 7 days ahead). nil sends now.
+	SendAt   *time.Time        `json:"send_at,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type Accepted struct {
+	ID     string `json:"id"`
+	Status string `json:"status"` // "queued", or "scheduled" when SendAt is in the future
+}
+
+type Status struct {
+	ID          string     `json:"id"`
+	Status      string     `json:"status"`
+	Attempts    int        `json:"attempts"`
+	SendAt      *time.Time `json:"send_at,omitempty"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	SubmittedAt *time.Time `json:"submitted_at,omitempty"`
+	SMTPReply   string     `json:"smtp_reply,omitempty"`
+}
+
+// Error is a non-success answer. Code is stable: switch on it, not on Message.
+type Error struct {
+	HTTPStatus int
+	Code       string
+	Message    string
+}
+
+func (e *Error) Error() string {
+	return fmt.Sprintf("njiwa-mail: %d %s %s", e.HTTPStatus, e.Code, e.Message)
+}
+
+type Client struct {
+	BaseURL string
+	APIKey  string
+	HTTP    *http.Client
+}
+
+// FromEnv reads NJIWA_MAIL_URL and NJIWA_MAIL_API_KEY.
+func FromEnv() *Client {
+	return &Client{
+		BaseURL: strings.TrimRight(os.Getenv("NJIWA_MAIL_URL"), "/"),
+		APIKey:  os.Getenv("NJIWA_MAIL_API_KEY"),
+		HTTP:    &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+// NewIdempotencyKey makes one key per logical event (one OTP, one reminder). Reuse it on retries.
+func NewIdempotencyKey(purpose string) string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return purpose + ":" + hex.EncodeToString(b)
+}
+
+// Send queues one email, retrying safe failures with the same idempotency key.
+func (c *Client) Send(ctx context.Context, idempotencyKey string, e Email) (*Accepted, error) {
+	body, err := json.Marshal(e)
+	if err != nil {
+		return nil, err
+	}
+	delay := time.Second
+	for attempt := 1; ; attempt++ {
+		var out Accepted
+		retryAfter, err := c.call(ctx, http.MethodPost, "/v1/emails", idempotencyKey, body, http.StatusAccepted, &out)
+		if err == nil {
+			return &out, nil
+		}
+		var apiErr *Error
+		retryable := !errors.As(err, &apiErr) || apiErr.HTTPStatus == 429 || apiErr.HTTPStatus >= 500
+		if !retryable || attempt == 4 || ctx.Err() != nil {
+			return nil, err
+		}
+		if retryAfter > 0 {
+			delay = retryAfter
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+}
+
+// Status reads a message's state (metadata only, never the content).
+func (c *Client) Status(ctx context.Context, id string) (*Status, error) {
+	var out Status
+	_, err := c.call(ctx, http.MethodGet, "/v1/emails/"+id, "", nil, http.StatusOK, &out)
+	return &out, err
+}
+
+// Cancel stops a message that is still scheduled or queued.
+// Once submission has started it fails with Code "not_cancellable".
+func (c *Client) Cancel(ctx context.Context, id string) error {
+	_, err := c.call(ctx, http.MethodPost, "/v1/emails/"+id+"/cancel", "", nil, http.StatusOK, nil)
+	return err
+}
+
+func (c *Client) call(ctx context.Context, method, path, idem string, body []byte, want int, out any) (time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if idem != "" {
+		req.Header.Set("Idempotency-Key", idem)
+	}
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return 0, err // network error or timeout: safe to retry with the same key
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if res.StatusCode != want {
+		var e struct {
+			Error struct{ Code, Message string } `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		secs, _ := strconv.Atoi(res.Header.Get("Retry-After"))
+		return time.Duration(secs) * time.Second, &Error{HTTPStatus: res.StatusCode, Code: e.Error.Code, Message: e.Error.Message}
+	}
+	if out != nil {
+		return 0, json.Unmarshal(raw, out)
+	}
+	return 0, nil
+}
+
+// VerifyWebhook checks X-DM-Signature ("t=<unix>,v1=<hex>") over the raw body.
+func VerifyWebhook(secret, header string, rawBody []byte, now time.Time) bool {
+	var ts, sig string
+	for _, part := range strings.Split(header, ",") {
+		k, v, _ := strings.Cut(strings.TrimSpace(part), "=")
+		switch k {
+		case "t":
+			ts = v
+		case "v1":
+			sig = v
+		}
+	}
+	t, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil || now.Sub(time.Unix(t, 0)).Abs() > 5*time.Minute {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(ts + "."))
+	mac.Write(rawBody)
+	want := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(want), []byte(sig))
+}
+```
+
+## Send a one-time code
+
+The built-in `otp` template takes `code` and `expires_in_minutes`, and optionally `name`. Generate the code with `crypto/rand`, store only its hash, and send it.
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"fmt"
+	"log"
+	"math/big"
+
+	"example.com/yourapp/njiwamail"
+)
+
+func main() {
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		log.Fatal(err)
+	}
+	code := fmt.Sprintf("%06d", n.Int64())
+	mail := njiwamail.FromEnv()
+	accepted, err := mail.Send(context.Background(), njiwamail.NewIdempotencyKey("otp"), njiwamail.Email{
+		From:      "noreply@notify.example.com",
+		To:        "user@example.org",
+		Template:  "otp",
+		Locale:    "en",
+		Variables: map[string]any{"name": "Ada", "code": code, "expires_in_minutes": 5},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(accepted.ID, accepted.Status)
+}
+```
+
+## Send a password reset
+
+`password-reset` needs `reset_url` (an `https` URL whose origin your operator approved for the environment) and `expires_in_minutes`.
+
+```go
+_, err := mail.Send(ctx, njiwamail.NewIdempotencyKey("reset"), njiwamail.Email{
+	From:     "noreply@notify.example.com",
+	To:       "user@example.org",
+	Template: "password-reset",
+	Variables: map[string]any{
+		"reset_url":          "https://app.example.com/reset?token=" + resetToken,
+		"expires_in_minutes": 30,
+	},
+})
+```
+
+## Schedule a reminder
+
+Set `SendAt` (at most 7 days ahead). The answer is `scheduled`; keep the `ID` with your own record so you can cancel it. See [Scheduled sending](/docs/api/scheduling).
+
+```go
+loc, _ := time.LoadLocation("Africa/Dar_es_Salaam")
+at := time.Date(2026, time.November, 20, 8, 0, 0, 0, loc) // 08:00 local; sent as UTC
+accepted, err := mail.Send(ctx, "reminder:invoice-1042", njiwamail.Email{
+	From:    "billing@notify.example.com",
+	To:      "user@example.org",
+	Subject: "Your invoice is due tomorrow",
+	Text:    "Invoice 1042 is due on 21 November.",
+	SendAt:  &at,
+})
+if err != nil {
+	return err
+}
+invoice.ReminderMessageID = accepted.ID // accepted.Status == "scheduled"
+```
+
+The key `reminder:invoice-1042` is stable for that reminder, so a retry or a second click never schedules a second copy.
+
+## Read the status, or cancel
+
+```go
+st, err := mail.Status(ctx, invoice.ReminderMessageID)
+if err != nil {
+	return err
+}
+if st.Status == "scheduled" {
+	fmt.Println("due at", st.SendAt)
+}
+
+// The customer paid early: stop the reminder.
+var apiErr *njiwamail.Error
+if err := mail.Cancel(ctx, invoice.ReminderMessageID); errors.As(err, &apiErr) && apiErr.Code == "not_cancellable" {
+	// Submission already started; it can no longer be stopped.
+}
+```
+
+`submitted` means your mail server accepted the message. There is no `delivered` state. See [Status and cancel](/docs/api/status-and-cancel).
+
+## Verify webhooks (net/http)
+
+Verify the signature over the **raw** body before you parse it.
+
+```go
+http.HandleFunc("POST /hooks/njiwa", func(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil || !njiwamail.VerifyWebhook(os.Getenv("NJIWA_WEBHOOK_SECRET"), r.Header.Get("X-DM-Signature"), raw, time.Now()) {
+		http.Error(w, "bad signature", http.StatusUnauthorized)
+		return
+	}
+	var event struct {
+		ID   string         `json:"id"`
+		Type string         `json:"type"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &event); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	// Deliveries can repeat: de-duplicate on event.ID before acting.
+	log.Println(event.Type, event.Data["message_id"])
+	w.WriteHeader(http.StatusNoContent)
+})
+```
+
+See [Webhooks](/docs/webhooks) for every event type and the retry schedule.
+
+## Checklist
+
+- One new idempotency key per event; the same key on every retry of it.
+- Retry only timeouts, network errors, `429` and `5xx`; fix every other `4xx` ([error codes](/docs/api/rate-limits-and-errors)).
+- Pass a `context` with a deadline from your request handler, so a slow call never hangs a user.
+- Keys stay on the server, in environment configuration, never in logs.
+- Switch to a live key (`dmk_liv_…`) only after the domain and sender are verified ([Sandbox and live](/docs/concepts/sandbox-and-live)).

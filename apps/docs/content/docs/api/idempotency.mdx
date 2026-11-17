@@ -44,6 +44,8 @@ export async function sendOtp(to: string, code: string) {
 
 The Go client retries for you with the same key:
 
+This uses the client from the Njiwa-Mail repository, which cannot be fetched with `go get` yet. In your own module, use the copy-in client from the [Go guide](/docs/guides/go).
+
 ```go check
 package main
 

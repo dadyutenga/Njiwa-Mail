@@ -1,0 +1,108 @@
+---
+title: Scheduled sending
+description: Send an email later with send_at, read when it is due, and cancel it before it goes.
+---
+
+Add `send_at` to `POST /v1/emails` (or to each item of a [batch](/docs/api/batch)) to send later. The message is stored encrypted straight away, answered `202` with status `scheduled`, and handed to the mail server when its time comes. Use it for reminders, digests and "send tomorrow at 08:00" features. Do not use it for one-time codes: those must go out now.
+
+## How a scheduled message moves
+
+```text
+ POST /v1/emails  { ..., "send_at": "2026-11-20T08:00:00+03:00" }
+        |
+        |  202 {"status": "scheduled"}          send_at <= now + 1 min: plain "queued"
+        v
+ +-------------+   POST /v1/emails/{id}/cancel    +-----------+
+ |  scheduled  | -------------------------------> | cancelled |
+ +-------------+                                  +-----------+
+        |  a worker checks about every second: send_at <= now
+        v
+ +-------------+   cancel still allowed here
+ |   queued    | -------------------------------> cancelled
+ +-------------+
+        |
+        v
+   submitting --> submitted   (your mail server accepted it; this is not inbox delivery)
+        |
+        +--> retry_wait --> submitted | failed | expired
+```
+
+## Rules
+
+| Rule | Detail |
+|---|---|
+| Format | RFC 3339 with a time zone: `2026-11-20T05:00:00Z` or `2026-11-20T08:00:00+03:00`. A time without a zone is `422 invalid_send_at` |
+| Time zone | Stored and returned in UTC. Convert the user's local time on your side; Njiwa-Mail does not know their zone |
+| How far ahead | At most 7 days. Further is `422 invalid_send_at`; keep longer schedules in your own job queue and send within the last week |
+| In the past | Up to one minute in the past is accepted and sent now (status `queued`). Older is `422 invalid_send_at` |
+| Precision | Workers check about every second, so a message is due within seconds of `send_at`. A paused or unready live transport, or a busy queue, delays it |
+| Time to live | `ttl_seconds` counts from `send_at`, not from the request. A message that cannot be submitted before `send_at + ttl` becomes `expired` |
+| Checks | Sender approval, suppressions, template variables and quotas are checked when you schedule, so a bad request fails now, not at send time |
+| Content | Fixed when you schedule. To change the text or time, cancel and schedule a new message with a new idempotency key |
+
+## Schedule a message
+
+```bash
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/emails" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Idempotency-Key: reminder:invoice-1042" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from": "billing@notify.example.com",
+    "to": "user@example.org",
+    "subject": "Your invoice is due tomorrow",
+    "text": "Invoice 1042 is due on 21 November.",
+    "send_at": "2026-11-20T08:00:00+03:00"
+  }'
+```
+
+```json
+{ "id": "6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11", "status": "scheduled" }
+```
+
+Use one idempotency key per logical reminder (here, per invoice). A retry of the same request returns the same `id`; it never schedules a second copy.
+
+## Read when it is due
+
+`GET /v1/emails/{id}` includes `send_at` for a scheduled message:
+
+```json
+{
+  "id": "6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11",
+  "status": "scheduled",
+  "template": "raw",
+  "template_version": 0,
+  "attempts": 0,
+  "created_at": "2026-11-18T10:00:00Z",
+  "updated_at": "2026-11-18T10:00:00Z",
+  "send_at": "2026-11-20T05:00:00Z",
+  "expires_at": "2026-11-20T06:00:00Z",
+  "metadata": {},
+  "events": [{ "type": "accepted", "at": "2026-11-18T10:00:00Z" }]
+}
+```
+
+## Cancel or change it
+
+`POST /v1/emails/{id}/cancel` works while the message is `scheduled` or `queued`:
+
+```bash
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/emails/$MESSAGE_ID/cancel" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY"
+```
+
+`200 {"status":"cancelled"}`. Once submission has started it is `409 not_cancellable`. To move a reminder, cancel it and schedule a new one with a **new** idempotency key (for example `reminder:invoice-1042:v2`).
+
+Operators see the same messages in the dashboard under **Mail › Scheduled**, with **Send now** and **Cancel**. The dashboard's Compose form has a send-later time too.
+
+## In your language
+
+- [Python](/docs/guides/python), [PHP and Laravel](/docs/guides/php-laravel), [Go](/docs/guides/go#schedule-a-reminder) and [Java](/docs/guides/java#schedule-a-reminder) guides.
+- Every field: [API reference › Queue one email](/docs/api-reference/emails/send-email).
+
+## Checklist
+
+- Store the returned `id` with your own record (invoice, booking) so you can cancel it.
+- Send `send_at` with an explicit offset or `Z`; test around midnight and daylight-saving changes in your own code.
+- Keep schedules longer than 7 days in your application, and hand them to Njiwa-Mail inside the last week.
+- Treat `submitted` as "your mail server accepted it". There is no `delivered` state.

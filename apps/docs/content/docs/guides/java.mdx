@@ -1,0 +1,332 @@
+---
+title: Java
+description: Send OTP and password-reset email, schedule reminders, read status, cancel, retry safely and verify webhooks from Java 17+ and Spring Boot.
+---
+
+There is **no Njiwa-Mail artifact on Maven Central**. Java calls the HTTP API directly with the JDK's `java.net.http.HttpClient` (Java 11+; the code below uses Java 17). The only library is [Jackson](https://github.com/FasterXML/jackson-databind), which Spring Boot already includes. Every call runs on your server, never in a browser or an Android app.
+
+## Configure
+
+```bash
+export NJIWA_MAIL_URL="https://mail-api.example.com"
+export NJIWA_MAIL_API_KEY="dmk_sbx_..."   # from your operator; never commit it
+export NJIWA_WEBHOOK_SECRET="whsec_..."   # only if you receive webhooks
+```
+
+Outside Spring Boot, add Jackson:
+
+```xml
+<dependency>
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-databind</artifactId>
+  <version>2.17.2</version>
+</dependency>
+```
+
+Use a sandbox key (`dmk_sbx_…`) while you build: sandbox mail is captured, never sent.
+
+## A small client
+
+Copy this class into your project as `NjiwaMail.java` (add your own `package` line). It sends one email, retries only what is safe to retry (timeouts, network errors, `429` and `5xx`) with the **same** idempotency key, honours `Retry-After`, reads status and cancels. It is thread-safe: create one and share it.
+
+```java check
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+public final class NjiwaMail {
+    private static final Set<Integer> RETRYABLE = Set.of(429, 500, 502, 503, 504);
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    private final String baseUrl;
+    private final String apiKey;
+    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+
+    public NjiwaMail(String baseUrl, String apiKey) {
+        this.baseUrl = baseUrl.replaceAll("/+$", "");
+        this.apiKey = apiKey;
+    }
+
+    /** Reads NJIWA_MAIL_URL and NJIWA_MAIL_API_KEY. */
+    public static NjiwaMail fromEnv() {
+        return new NjiwaMail(System.getenv("NJIWA_MAIL_URL"), System.getenv("NJIWA_MAIL_API_KEY"));
+    }
+
+    /** One key per logical event (one OTP, one reminder). Reuse it on every retry of that event. */
+    public static String newIdempotencyKey(String purpose) {
+        return purpose + ":" + UUID.randomUUID();
+    }
+
+    /** A failed call. Switch on code(), which is stable; message() is for people. */
+    public static final class Error extends RuntimeException {
+        private final int status;
+        private final String code;
+
+        Error(int status, String code, String message) {
+            super(status + " " + code + (message.isEmpty() ? "" : " " + message));
+            this.status = status;
+            this.code = code;
+        }
+
+        public int status() { return status; }
+        public String code() { return code; }
+    }
+
+    /** Queues one email. Returns {"id": "...", "status": "queued" | "scheduled"}. */
+    public JsonNode send(Map<String, Object> email, String idempotencyKey) throws IOException, InterruptedException {
+        byte[] body = JSON.writeValueAsBytes(email);
+        long delayMs = 1000;
+        for (int attempt = 1; ; attempt++) {
+            HttpRequest req = request("/v1/emails")
+                    .header("Content-Type", "application/json")
+                    .header("Idempotency-Key", idempotencyKey)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                    .build();
+            HttpResponse<String> res;
+            try {
+                res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            } catch (IOException e) { // timeout or network error: safe to retry with the same key
+                if (attempt == 4) throw e;
+                Thread.sleep(delayMs);
+                delayMs *= 2;
+                continue;
+            }
+            if (res.statusCode() == 202) return JSON.readTree(res.body());
+            if (RETRYABLE.contains(res.statusCode()) && attempt < 4) {
+                long retryAfter = res.headers().firstValueAsLong("Retry-After").orElse(0);
+                Thread.sleep(retryAfter > 0 ? retryAfter * 1000 : delayMs);
+                delayMs *= 2;
+                continue;
+            }
+            throw error(res);
+        }
+    }
+
+    /** Metadata only (never content): status, attempts, send_at, submitted_at, events. */
+    public JsonNode status(String id) throws IOException, InterruptedException {
+        HttpResponse<String> res = http.send(request("/v1/emails/" + id).GET().build(), HttpResponse.BodyHandlers.ofString());
+        if (res.statusCode() != 200) throw error(res);
+        return JSON.readTree(res.body());
+    }
+
+    /** Stops a message that is still scheduled or queued; otherwise code() is "not_cancellable". */
+    public void cancel(String id) throws IOException, InterruptedException {
+        HttpRequest req = request("/v1/emails/" + id + "/cancel").POST(HttpRequest.BodyPublishers.noBody()).build();
+        HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+        if (res.statusCode() != 200) throw error(res);
+    }
+
+    private HttpRequest.Builder request(String path) {
+        return HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Bearer " + apiKey);
+    }
+
+    private static Error error(HttpResponse<String> res) {
+        String code = "unknown", message = "";
+        try {
+            JsonNode e = JSON.readTree(res.body()).path("error");
+            code = e.path("code").asText("unknown");
+            message = e.path("message").asText("");
+        } catch (IOException ignored) {
+            // not JSON: keep "unknown"
+        }
+        return new Error(res.statusCode(), code, message);
+    }
+}
+```
+
+Copy this class too if you receive webhooks (`NjiwaWebhooks.java`). It uses only the JDK.
+
+```java check
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
+import java.util.HexFormat;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+public final class NjiwaWebhooks {
+    private NjiwaWebhooks() {}
+
+    /** Checks X-DM-Signature ("t=unix,v1=hex") over the raw request body, within 5 minutes. */
+    public static boolean verify(String secret, String header, byte[] rawBody) {
+        if (header == null) return false;
+        String ts = "", sig = "";
+        for (String part : header.split(",")) {
+            String[] kv = part.trim().split("=", 2);
+            if (kv.length != 2) return false;
+            if (kv[0].equals("t")) ts = kv[1];
+            if (kv[0].equals("v1")) sig = kv[1];
+        }
+        try {
+            long t = Long.parseLong(ts);
+            if (Math.abs(Instant.now().getEpochSecond() - t) > 300) return false;
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            mac.update((ts + ".").getBytes(StandardCharsets.UTF_8));
+            byte[] expected = HexFormat.of().formatHex(mac.doFinal(rawBody)).getBytes(StandardCharsets.UTF_8);
+            return MessageDigest.isEqual(expected, sig.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+}
+```
+
+## Send a one-time code
+
+The built-in `otp` template takes `code` and `expires_in_minutes`, and optionally `name`. Generate the code with `SecureRandom`, store only its hash, and send it.
+
+```java check
+import com.fasterxml.jackson.databind.JsonNode;
+
+import java.security.SecureRandom;
+import java.util.Map;
+
+public class SendOtp {
+    public static void main(String[] args) throws Exception {
+        NjiwaMail mail = NjiwaMail.fromEnv();
+        String code = String.format("%06d", new SecureRandom().nextInt(1_000_000));
+        JsonNode accepted = mail.send(Map.of(
+                "from", "noreply@notify.example.com",
+                "to", "user@example.org",
+                "template", "otp",
+                "locale", "en",
+                "variables", Map.of("name", "Ada", "code", code, "expires_in_minutes", 5)),
+                NjiwaMail.newIdempotencyKey("otp"));
+        System.out.println(accepted.path("id").asText() + " " + accepted.path("status").asText());
+    }
+}
+```
+
+## Send a password reset
+
+`password-reset` needs `reset_url` (an `https` URL whose origin your operator approved for the environment) and `expires_in_minutes`.
+
+```java check
+import java.util.Map;
+
+public class SendPasswordReset {
+    public static void send(NjiwaMail mail, String email, String resetToken) throws Exception {
+        mail.send(Map.of(
+                "from", "noreply@notify.example.com",
+                "to", email,
+                "template", "password-reset",
+                "variables", Map.of(
+                        "reset_url", "https://app.example.com/reset?token=" + resetToken,
+                        "expires_in_minutes", 30)),
+                NjiwaMail.newIdempotencyKey("reset"));
+    }
+}
+```
+
+## Schedule a reminder
+
+Add `send_at` (at most 7 days ahead) as an ISO-8601 instant. The answer is `scheduled`; store the `id` with your own record so you can cancel it. See [Scheduled sending](/docs/api/scheduling).
+
+```java check
+import com.fasterxml.jackson.databind.JsonNode;
+
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Map;
+
+public class ScheduleReminder {
+    /** Returns the message id to keep with the invoice. */
+    public static String schedule(NjiwaMail mail, String invoiceNumber, String email) throws Exception {
+        // 08:00 in the customer's zone, sent as UTC ("2026-11-20T05:00:00Z").
+        String sendAt = LocalDateTime.of(2026, 11, 20, 8, 0)
+                .atZone(ZoneId.of("Africa/Dar_es_Salaam"))
+                .toInstant()
+                .toString();
+        JsonNode accepted = mail.send(Map.of(
+                "from", "billing@notify.example.com",
+                "to", email,
+                "subject", "Your invoice is due tomorrow",
+                "text", "Invoice " + invoiceNumber + " is due on 21 November.",
+                "send_at", sendAt),
+                "reminder:invoice-" + invoiceNumber); // stable key: a retry never schedules twice
+        return accepted.path("id").asText(); // status is "scheduled"
+    }
+
+    /** The customer paid early: stop the reminder if it has not started. */
+    public static boolean cancel(NjiwaMail mail, String messageId) throws Exception {
+        try {
+            mail.cancel(messageId);
+            return true;
+        } catch (NjiwaMail.Error e) {
+            if (e.code().equals("not_cancellable")) return false; // submission already started
+            throw e;
+        }
+    }
+}
+```
+
+## Read the status
+
+```java check
+import com.fasterxml.jackson.databind.JsonNode;
+
+public class ReadStatus {
+    public static void main(String[] args) throws Exception {
+        JsonNode st = NjiwaMail.fromEnv().status("6f1c2d0e-3b52-4d49-9a43-7d1f0c5e8a11");
+        System.out.println(st.path("status").asText()); // queued, scheduled, submitted, captured, failed, ...
+        if (st.has("send_at")) System.out.println("due at " + st.path("send_at").asText());
+    }
+}
+```
+
+`submitted` means your mail server accepted the message. There is no `delivered` state. See [Status and cancel](/docs/api/status-and-cancel).
+
+## Verify webhooks (Spring Boot)
+
+Take the body as **raw bytes**, verify, and only then parse it. Spring must not convert it first.
+
+```java
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class NjiwaWebhookController {
+    private final ObjectMapper json = new ObjectMapper();
+
+    @Value("${NJIWA_WEBHOOK_SECRET}")
+    private String secret;
+
+    @PostMapping("/hooks/njiwa")
+    public ResponseEntity<Void> receive(@RequestHeader(value = "X-DM-Signature", required = false) String signature,
+                                        @RequestBody byte[] raw) throws Exception {
+        if (!NjiwaWebhooks.verify(secret, signature, raw)) return ResponseEntity.status(401).build();
+        JsonNode event = json.readTree(raw);
+        // Deliveries can repeat: de-duplicate on event.id before acting.
+        System.out.println(event.path("type").asText() + " " + event.path("data").path("message_id").asText());
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+See [Webhooks](/docs/webhooks) for every event type and the retry schedule.
+
+## Checklist
+
+- One new idempotency key per event; the same key on every retry of it.
+- Retry only timeouts, network errors, `429` and `5xx`; fix every other `4xx` ([error codes](/docs/api/rate-limits-and-errors)).
+- Call `send` from a background job or a request handler with a timeout; it can wait up to about a minute while it retries.
+- Keys stay on the server, in environment configuration, never in logs or in an Android or desktop app.
+- Switch to a live key (`dmk_liv_…`) only after the domain and sender are verified ([Sandbox and live](/docs/concepts/sandbox-and-live)).

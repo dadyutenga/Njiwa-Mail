@@ -271,9 +271,17 @@ jobs:
       - run: npm run build
         working-directory: apps/docs
         env: { NEXT_PUBLIC_DOCS_COMMIT: "${{ github.sha }}" }
+      - name: Fetch Jackson for the Java guide's compile check
+        run: |
+          mkdir -p "$RUNNER_TEMP/java-cp" && cd "$RUNNER_TEMP/java-cp"
+          for a in jackson-databind jackson-core jackson-annotations; do
+            curl -fsSLO "https://repo1.maven.org/maven2/com/fasterxml/jackson/core/$a/2.17.2/$a-2.17.2.jar"
+          done
+          echo "JAVA_SNIPPET_CLASSPATH=$(ls -d "$PWD"/*.jar | paste -sd:)" >> "$GITHUB_ENV"
       - run: npm run check:snippets
         working-directory: apps/docs
-        env: { REQUIRE_PHP: "1" } # ubuntu-latest ships php; a missing php must fail, not skip
+        # ubuntu-latest ships php and a JDK; a missing one must fail, not skip
+        env: { REQUIRE_PHP: "1", REQUIRE_JAVA: "1" }
       - run: npm run check:export
         working-directory: apps/docs
         env: { NEXT_PUBLIC_DOCS_COMMIT: "${{ github.sha }}" }

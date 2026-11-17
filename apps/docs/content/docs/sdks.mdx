@@ -1,29 +1,24 @@
 ---
 title: SDKs and agent skill
-description: The Go and TypeScript clients, how to call the API from any language, and the skill for coding agents.
+description: Clients and guides for TypeScript, Go, Python, PHP and Java, how to call the API from any language, and the skill for coding agents.
 ---
 
 ## What exists today
 
 | | Status |
 |---|---|
-| **Go** client | In the repository: `github.com/njiwa-tz/mail/njiwamail` (and the same code as `.../client`). It sends and reads status with retries on the same idempotency key, and verifies webhooks. It has **no** batch, cancel, inbound or suppression methods |
+| **Go** | No module to fetch yet. The [Go guide](/docs/guides/go) has a copy-in client (standard library only) that sends, schedules, reads status, cancels and verifies webhooks |
 | **TypeScript** client | One file, `clients/typescript/index.ts`: copy it into your project. It sends, cancels, reads status and verifies webhooks. **It is not published to npm** |
 | **Python** | No package. Plain HTTP with `requests`: the [Python guide](/docs/guides/python) has a copy-in client, OTP, password reset and webhook verification |
 | **PHP / Laravel** | No package. Laravel's `Http` client or cURL: the [PHP and Laravel guide](/docs/guides/php-laravel) |
+| **Java / Spring Boot** | No Maven artifact. `java.net.http` plus Jackson: the [Java guide](/docs/guides/java) has a copy-in client and a Spring Boot webhook controller |
 | Any other language | Call the HTTP API using the [OpenAPI file](/openapi.yaml); the [quickstart](/docs/quickstart) shows curl |
 
-Packages published to npm, PyPI, Packagist or a Go proxy are [planned](/docs/roadmap), not available. Do not run `npm install`, `pip install` or `composer require` for a Njiwa-Mail package.
+Packages published to npm, PyPI, Packagist, Maven Central or a Go proxy are [planned](/docs/roadmap), not available. Do not run `npm install`, `pip install`, `composer require` or `go get`, or add a Maven dependency, for a Njiwa-Mail package.
 
 ## Go
 
-Add the module and import the client:
-
-```bash
-go get github.com/njiwa-tz/mail@latest
-```
-
-See the [quickstart](/docs/quickstart) and [Idempotency](/docs/api/idempotency) for complete programs.
+The Go client in the repository (`client/`) is not published under a fetchable module path yet, so `go get` does not work. Copy the client from the [Go guide](/docs/guides/go) into your module instead.
 
 ## Agent skill [#agent-skill]
 

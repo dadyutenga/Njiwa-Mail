@@ -143,3 +143,52 @@ export function checkPhp(frs) {
   }
   return { problems, skipped: false };
 }
+
+/**
+ * Compiles every checked Java fence together with javac, one file per public class, so a usage
+ * example may call the client class from another fence. JAVA_SNIPPET_CLASSPATH supplies Jackson
+ * (the only third-party library the guide uses). REQUIRE_JAVA=1 makes a missing javac a failure.
+ */
+export function checkJava(frs) {
+  const problems = [];
+  if (!frs.length) return { problems, skipped: false };
+  try {
+    execFileSync("javac", ["-version"], { stdio: "pipe" });
+  } catch {
+    if (process.env.REQUIRE_JAVA === "1") problems.push("javac is required (REQUIRE_JAVA=1) but was not found");
+    return { problems, skipped: true };
+  }
+  if (!process.env.JAVA_SNIPPET_CLASSPATH) {
+    if (process.env.REQUIRE_JAVA === "1") problems.push("JAVA_SNIPPET_CLASSPATH (the Jackson jars) is required with REQUIRE_JAVA=1");
+    return { problems, skipped: true };
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "java-snippets-"));
+  const files = [];
+  try {
+    for (const f of frs) {
+      const m = /^public\s+(?:final\s+|abstract\s+)?(?:class|record|interface|enum)\s+(\w+)/m.exec(f.code);
+      if (!m) {
+        problems.push(`${f.file}:${f.line}: a checked Java fence must declare one public class`);
+        continue;
+      }
+      const file = path.join(dir, `${m[1]}.java`);
+      if (files.includes(file)) {
+        problems.push(`${f.file}:${f.line}: public class ${m[1]} is declared twice`);
+        continue;
+      }
+      fs.writeFileSync(file, f.code + "\n");
+      files.push(file);
+    }
+    if (files.length) {
+      const cp = process.env.JAVA_SNIPPET_CLASSPATH ?? "";
+      try {
+        execFileSync("javac", ["-d", path.join(dir, "out"), "-Xlint:none", ...(cp ? ["-cp", cp] : []), ...files], { stdio: "pipe" });
+      } catch (e) {
+        problems.push(`Java snippets do not compile:\n${e.stderr ?? e.message}`);
+      }
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  return { problems, skipped: false };
+}

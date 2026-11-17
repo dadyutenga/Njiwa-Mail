@@ -790,7 +790,8 @@ components:
         smtp_reply: { type: string, description: The mail server's acknowledgement text (queue id) once submitted. }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
-        expires_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time, description: 'Retries stop after this. For a scheduled message the TTL counts from send_at.' }
+        send_at: { type: string, format: date-time, description: 'Present when the message was scheduled: when it becomes due.' }
         submitted_at: { type: string, format: date-time }
         completed_at: { type: string, format: date-time }
         metadata: { type: object, additionalProperties: { type: string } }

@@ -23,6 +23,7 @@ type Status struct {
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 	ExpiresAt       time.Time         `json:"expires_at"`
+	SendAt          *time.Time        `json:"send_at,omitempty"` // set when the message was scheduled
 	SubmittedAt     *time.Time        `json:"submitted_at,omitempty"`
 	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
 	Attempts        int               `json:"attempts"`
@@ -46,10 +47,10 @@ func (s *Service) GetStatus(ctx context.Context, p *Principal, id string) (*Stat
 	var meta []byte
 	var reply *string
 	err := s.Pool.QueryRow(ctx, `
-SELECT id::text, state, template, template_version, created_at, updated_at, expires_at, submitted_at, completed_at, attempts, smtp_reply, metadata
+SELECT id::text, state, template, template_version, created_at, updated_at, expires_at, send_at, submitted_at, completed_at, attempts, smtp_reply, metadata
 FROM messages WHERE id=$1 AND project_id=$2 AND environment_id=$3`, id, p.ProjectID, p.EnvironmentID).
 		Scan(&st.ID, &st.Status, &st.Template, &st.TemplateVersion, &st.CreatedAt, &st.UpdatedAt, &st.ExpiresAt,
-			&st.SubmittedAt, &st.CompletedAt, &st.Attempts, &reply, &meta)
+			&st.SendAt, &st.SubmittedAt, &st.CompletedAt, &st.Attempts, &reply, &meta)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(404, "not_found")
 	}

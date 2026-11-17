@@ -28,7 +28,7 @@ Build logs: `/opt/njiwa-mail-backups/deploy-<sha>.log`.
 ```sh
 # on the server
 install -m 755 deploy/rida-server/njiwa-deploy.sh /usr/local/sbin/njiwa-deploy
-ssh-keygen -t ed25519 -N '' -C github-actions-deploy -f /root/.ssh/github-deploy
+ssh-keygen -t ed25519 -N '' -C njiwa-mail-cd -f /root/.ssh/github-deploy
 echo "command=\"/usr/local/sbin/njiwa-deploy\",restrict $(cat /root/.ssh/github-deploy.pub)" >> /root/.ssh/authorized_keys
 ```
 
@@ -42,6 +42,6 @@ by hand: the pipeline never replaces its own entrypoint.
 ## Turning it off or rolling back
 
 - Pause: GitHub → Actions → Deploy → Disable workflow. Revoke: delete the
-  `github-actions-deploy` line from `/root/.ssh/authorized_keys`.
+  `njiwa-mail-cd` line from `/root/.ssh/authorized_keys`.
 - Roll back a release: `ssh rida-server /usr/local/sbin/njiwa-deploy <older-main-sha>`
   (forward-only migrations stay applied; restore the dump if one is needed).
