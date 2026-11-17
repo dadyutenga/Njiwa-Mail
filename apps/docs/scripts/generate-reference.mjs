@@ -31,9 +31,16 @@ const problems = [];
 
 /** Prose for MDX: no expressions, no elements, no table breaks. */
 function prose(s = "") {
+  // Inline code spans are kept verbatim: MDX renders them literally.
   return String(s)
     .replace(/\s+/g, " ")
     .trim()
+    .split(/(`[^`]*`)/)
+    .map((part, i) => (i % 2 ? part : escapeProse(part)))
+    .join("");
+}
+function escapeProse(s) {
+  return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -345,7 +352,7 @@ function page(o) {
   const where = `${o.method} ${o.path}`;
   const lines = [];
   const title = op.summary ?? where;
-  lines.push("---", HEADER, `title: ${yamlStr(title)}`, `description: ${yamlStr(`${where}. ${op.summary ?? ""}`.trim())}`, "---", "");
+  lines.push("---", HEADER, `title: ${yamlStr(title)}`, `description: ${yamlStr(op.summary ? `${op.summary} (${where})` : where)}`, "---", "");
   lines.push("```http", `${o.method} ${o.path}`, "```", "");
   if (op.description) lines.push(prose(op.description), "");
 
