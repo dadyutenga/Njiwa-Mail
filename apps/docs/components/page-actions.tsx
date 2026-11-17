@@ -1,7 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, ExternalLink } from "lucide-react";
-import { AI_SERVICES, buildPrompt, isAllowedExternal, isPublicOrigin } from "@/lib/ai-services";
+import {
+  AI_SERVICES,
+  buildPrompt,
+  isAllowedExternal,
+  isPublicOrigin,
+} from "@/lib/ai-services";
 import { copyText } from "@/lib/clipboard";
 import { useToast } from "./toast";
 
@@ -17,11 +22,14 @@ export function PageActions({ markdownPath }: { markdownPath: string }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
-        root.current?.querySelector<HTMLElement>("[data-open-trigger]")?.focus();
+        root.current
+          ?.querySelector<HTMLElement>("[data-open-trigger]")
+          ?.focus();
       }
     };
     const onClick = (e: MouseEvent) => {
-      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
+      if (root.current && !root.current.contains(e.target as Node))
+        setOpen(false);
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onClick);
@@ -33,7 +41,9 @@ export function PageActions({ markdownPath }: { markdownPath: string }) {
 
   const copyMarkdown = async () => {
     try {
-      const res = await fetch(markdownPath, { headers: { Accept: "text/markdown" } });
+      const res = await fetch(markdownPath, {
+        headers: { Accept: "text/markdown" },
+      });
       if (!res.ok) throw new Error(String(res.status));
       const ok = await copyText(await res.text());
       if (!ok) throw new Error("clipboard");
@@ -54,30 +64,61 @@ export function PageActions({ markdownPath }: { markdownPath: string }) {
     const svc = AI_SERVICES.find((s) => s.id === id);
     if (!svc) return;
     setOpen(false);
-    const target = linkable && svc.mode === "prefill" && svc.prefillUrl ? svc.prefillUrl(prompt) : svc.homepage;
+    const target =
+      linkable && svc.mode === "prefill" && svc.prefillUrl
+        ? svc.prefillUrl(prompt)
+        : svc.homepage;
     if (!isAllowedExternal(target)) {
       toast("That link is not allowed.", "error");
       return;
     }
-    if (target !== svc.homepage) {
-      window.open(target, "_blank", "noopener,noreferrer");
-      return;
-    }
-    // Start the copy and open the window in the same click: a window opened
-    // after an await is no longer a user action and may be blocked as a popup.
+    // Always copy the prompt in the same click, then open the chat: a prefilled
+    // link can be ignored by the service, and the prompt is then one paste away.
+    // The window opens before any await, so it is still a user action.
     const copying = copyText(prompt);
     window.open(target, "_blank", "noopener,noreferrer");
     const ok = await copying;
-    toast(ok ? `Prompt copied. Paste it into ${svc.name}.` : "Could not copy the prompt.", ok ? "ok" : "error");
+    if (!ok)
+      toast(
+        "Could not copy the prompt. Use View as Markdown instead.",
+        "error",
+      );
+    else if (target !== svc.homepage)
+      toast(`Prompt copied. If ${svc.name} opens empty, paste it (Ctrl+V).`);
+    else toast(`Prompt copied. Paste it into ${svc.name} (Ctrl+V).`);
+  };
+
+  const copyPrompt = async () => {
+    setOpen(false);
+    const ok = await copyText(prompt);
+    toast(
+      ok
+        ? "Prompt copied. Paste it into any AI chat."
+        : "Could not copy the prompt.",
+      ok ? "ok" : "error",
+    );
   };
 
   const btn =
     "inline-flex items-center gap-1.5 rounded-md border bg-fd-secondary px-2.5 py-1.5 text-sm font-medium text-fd-secondary-foreground hover:bg-fd-accent focus-visible:outline-2 focus-visible:outline-fd-ring";
 
   return (
-    <div ref={root} className="not-prose relative mb-6 flex flex-wrap items-center gap-2" data-testid="page-actions">
-      <button type="button" className={btn} onClick={copyMarkdown} data-testid="copy-markdown">
-        {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+    <div
+      ref={root}
+      className="not-prose relative mb-6 flex flex-wrap items-center gap-2"
+      data-testid="page-actions"
+    >
+      <button
+        type="button"
+        className={btn}
+        onClick={copyMarkdown}
+        data-testid="copy-markdown"
+      >
+        {copied ? (
+          <Check size={14} aria-hidden="true" />
+        ) : (
+          <Copy size={14} aria-hidden="true" />
+        )}
         Copy Markdown
       </button>
       <div>
@@ -94,7 +135,11 @@ export function PageActions({ markdownPath }: { markdownPath: string }) {
           <ChevronDown size={14} aria-hidden="true" />
         </button>
         {open && (
-          <div role="menu" aria-label="Open this page in an AI service" className="absolute left-0 top-full z-50 mt-1 w-72 max-w-full rounded-lg border bg-fd-popover p-1 text-sm shadow-lg">
+          <div
+            role="menu"
+            aria-label="Open this page in an AI service"
+            className="absolute left-0 top-full z-50 mt-1 w-72 max-w-full rounded-lg border bg-fd-popover p-1 text-sm shadow-lg"
+          >
             {AI_SERVICES.map((s) => (
               <button
                 key={s.id}
@@ -104,19 +149,50 @@ export function PageActions({ markdownPath }: { markdownPath: string }) {
                 className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-fd-accent"
                 onClick={() => void choose(s.id)}
               >
-                <ExternalLink size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                <ExternalLink
+                  size={14}
+                  className="mt-0.5 shrink-0"
+                  aria-hidden="true"
+                />
                 <span>
                   Open in {s.name}
                   <span className="block text-xs text-fd-muted-foreground">
-                    {linkable && s.mode === "prefill" ? "Opens with a short prompt that links to this page" : "Copies a prompt, then opens the site"}
+                    {linkable && s.mode === "prefill"
+                      ? "Copies the prompt and opens it filled in"
+                      : "Copies the prompt, then opens the site"}
                   </span>
                 </span>
               </button>
             ))}
-            <a role="menuitem" className="block rounded-md px-2 py-1.5 hover:bg-fd-accent" href={markdownPath} data-testid="view-markdown">
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="copy-prompt"
+              className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-fd-accent"
+              onClick={() => void copyPrompt()}
+            >
+              <Copy size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>
+                Copy prompt
+                <span className="block text-xs text-fd-muted-foreground">
+                  For any other AI chat or coding agent
+                </span>
+              </span>
+            </button>
+            <div role="separator" className="my-1 border-t" />
+            <a
+              role="menuitem"
+              className="block rounded-md px-2 py-1.5 hover:bg-fd-accent"
+              href={markdownPath}
+              data-testid="view-markdown"
+            >
               View as Markdown
             </a>
-            <a role="menuitem" className="block rounded-md px-2 py-1.5 hover:bg-fd-accent" href="/openapi.yaml">
+            <a
+              role="menuitem"
+              className="block rounded-md px-2 py-1.5 hover:bg-fd-accent"
+              href="/openapi.yaml"
+            >
               View OpenAPI
             </a>
           </div>
