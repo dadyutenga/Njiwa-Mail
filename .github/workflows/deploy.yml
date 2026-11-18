@@ -9,6 +9,7 @@
 #   DEPLOY_SSH_KEY      private key whose public half is the forced-command entry
 #   DEPLOY_HOST         server address
 #   DEPLOY_KNOWN_HOSTS  the server's ssh-keyscan line, pinned (no trust on first use)
+# and the environment variable DEPLOY_PORT, the server's SSH port (22 when unset).
 name: Deploy
 on:
   workflow_run:
@@ -39,12 +40,14 @@ jobs:
           KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           HOST: ${{ secrets.DEPLOY_HOST }}
           KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          PORT: ${{ vars.DEPLOY_PORT || '22' }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 \
-            "root@$HOST" "$SHA"
+          # HostKeyAlias: the pinned key is checked by host name whatever the port.
+          ssh -i ~/.ssh/deploy -p "$PORT" -o HostKeyAlias="$HOST" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 "root@$HOST" "$SHA"
       - name: Check the public site
         run: |
           curl -fsS -o /dev/null https://njiwamail.qarmalab.dev/

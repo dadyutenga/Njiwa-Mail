@@ -45,3 +45,10 @@ by hand: the pipeline never replaces its own entrypoint.
   `njiwa-mail-cd` line from `/root/.ssh/authorized_keys`.
 - Roll back a release: `ssh rida-server /usr/local/sbin/njiwa-deploy <older-main-sha>`
   (forward-only migrations stay applied; restore the dump if one is needed).
+
+## SSH port
+
+The workflow connects on the `production` environment variable `DEPLOY_PORT` (22 when unset); the server's
+SSH listens on 6969 (`/etc/ssh/sshd_config.d/10-port.conf`). After moving SSH again, update it:
+`gh variable set DEPLOY_PORT --env production --body <port>`. The pinned host key is checked by host name
+(`HostKeyAlias`), so a port change alone does not need a new `DEPLOY_KNOWN_HOSTS`.
