@@ -8,6 +8,17 @@ import { swSetup } from "./sw-setup";
 import { swTools } from "./sw-tools";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "Clear search": "Futa utafutaji",
+  Filters: "Vichujio",
+  "Find by recipient address, e.g. name@example.com":
+    "Tafuta kwa anwani ya mpokeaji, mfano jina@example.com",
+  "Recipient and subject": "Mpokeaji na kichwa",
+  "Refreshes every 15 seconds": "Husasishwa kila sekunde 15",
+  to: "hadi",
+  Queued: "Kwenye foleni",
+  Retrying: "Inajaribu tena",
+  Expired: "Muda umekwisha",
+  Cancelled: "Imeghairiwa",
   "Back to home": "Rudi mwanzo",
   "Add provider": "Ongeza mtoa huduma",
   "Allowed email domains": "Vikoa vya barua pepe vinavyoruhusiwa",

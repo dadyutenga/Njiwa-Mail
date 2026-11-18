@@ -6,11 +6,19 @@ import {
   ArchiveRestore,
   ArrowLeft,
   Ban,
+  ChevronRight,
+  Code2,
+  FlaskConical,
   Forward,
   MailOpen,
+  Megaphone,
   Paperclip,
+  PenSquare,
   Reply,
+  Search,
   Trash2,
+  Workflow,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
@@ -636,42 +644,138 @@ function MessageList({ preset, extended }: { preset?: { state?: string }; extend
   return (
     <>
       {extended ? (
-        <section className="mb-4 rounded-xl border bg-card p-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:items-end">
-            <SendingMode value={env} onChange={setEnv} />
+        <section
+          className="mb-4 rounded-xl border bg-card p-3 sm:p-4"
+          aria-label={phrase("Filters")}
+        >
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
             <form
-              className="flex items-end gap-2"
+              role="search"
+              className="relative min-w-0 flex-1"
               onSubmit={(e) => {
                 e.preventDefault();
                 setRecipient(rcpt.trim());
               }}
             >
-              <Field
-                className="min-w-0 flex-1"
-                label={phrase("Recipient")}
-                hint={phrase("Full address, matched exactly. Stored only as a keyed hash.")}
-              >
-                <input
-                  className={inputClass}
-                  type="search"
-                  value={rcpt}
-                  placeholder="name@example.com"
-                  onChange={(e) => setRcpt(e.target.value)}
-                />
-              </Field>
-              <Button type="submit" variant="outline">
-                {phrase("Find")}
-              </Button>
+              <Search
+                size={16}
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <input
+                className={cn(inputClass, "h-10 pl-9 pr-20")}
+                type="search"
+                aria-label={phrase("Recipient")}
+                title={phrase("Full address, matched exactly. Stored only as a keyed hash.")}
+                value={rcpt}
+                placeholder={phrase("Find by recipient address, e.g. name@example.com")}
+                onChange={(e) => setRcpt(e.target.value)}
+              />
+              <span className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                {recipient && (
+                  <button
+                    type="button"
+                    aria-label={phrase("Clear search")}
+                    className="rounded p-1 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setRcpt("");
+                      setRecipient("");
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                )}
+                <Button type="submit" size="sm" variant="secondary" className="h-7">
+                  {phrase("Find")}
+                </Button>
+              </span>
             </form>
+            <ModeSwitch value={env} onChange={setEnv} />
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            {stateField}
-            {sourceField}
-            {senderField}
-            {fromField}
-            {toField}
+          {!preset?.state && (
+            <div
+              className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1"
+              role="group"
+              aria-label={phrase("State")}
+            >
+              {LOG_STATES.filter(([v]) => v !== "captured" || env === "sandbox").map(([v, l]) => (
+                <button
+                  key={v || "all"}
+                  type="button"
+                  aria-pressed={state === v}
+                  onClick={() => setState(v)}
+                  className={cn(
+                    "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition",
+                    state === v
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                  )}
+                >
+                  {phrase(l)}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 grid gap-2 border-t pt-3 sm:grid-cols-2 lg:grid-cols-[repeat(2,minmax(0,1fr))_auto_auto_auto] lg:items-center">
+            <select
+              aria-label={phrase("Source")}
+              className={selectClass}
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+            >
+              <option value="">{phrase("All sources")}</option>
+              {SOURCES.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {phrase(l)}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label={phrase("Sender")}
+              className={selectClass}
+              value={sender}
+              onChange={(e) => setSender(e.target.value)}
+            >
+              <option value="">{phrase("All senders")}</option>
+              {senders.data?.items.map((x) => (
+                <option key={s(x.id)} value={s(x.email)}>
+                  {s(x.email)}
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              {phrase("From")}
+              <input
+                type="date"
+                aria-label={phrase("From date")}
+                className={cn(inputClass, "lg:w-40")}
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              {phrase("to")}
+              <input
+                type="date"
+                aria-label={phrase("To date")}
+                className={cn(inputClass, "lg:w-40")}
+                value={until}
+                onChange={(e) => setUntil(e.target.value)}
+              />
+            </label>
+            {narrowed ? (
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="?">{phrase("Clear filters")}</Link>
+              </Button>
+            ) : (
+              <span className="hidden lg:block" />
+            )}
           </div>
-          {clearFilters && <div className="mt-3">{clearFilters}</div>}
+          {active.length > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {phrase("Filtered by")} {active.join(", ")}
+            </p>
+          )}
         </section>
       ) : (
         <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -746,87 +850,271 @@ function MessageList({ preset, extended }: { preset?: { state?: string }; extend
           )
         }
       >
-        {(d) => (
-          <>
-            <Table
-              rows={d.items}
-              rowKey={(r) => s(r.id)}
-              onRow={(r) => navigate(to(`messages/${s(r.id)}`))}
-              columns={[
-                {
-                  key: "recipient",
-                  label: phrase("Recipient"),
-                  render: (r) => s(r.recipient) || "—",
-                },
-                {
-                  key: "subject",
-                  label: phrase("Subject or template"),
-                  render: (r) => (
-                    <Link to={to(`messages/${s(r.id)}`)} className="hover:underline">
-                      {s(r.subject) || (
-                        <span className="text-muted-foreground">{s(r.template)}</span>
-                      )}
-                    </Link>
-                  ),
-                },
-                { key: "sender", label: phrase("Sender") },
-                {
-                  key: "state",
-                  label: phrase("State"),
-                  render: (r) => <StateBadge state={s(r.state)} />,
-                },
-                { key: "source", label: phrase("Source"), className: "hidden md:table-cell" },
-                {
-                  key: "time",
-                  label: scheduled ? phrase("Send at") : phrase("Created"),
-                  render: (r) => <Time value={scheduled ? r.send_at : r.created_at} />,
-                },
-                ...(scheduled
-                  ? [
-                      {
-                        key: "actions",
-                        label: <span className="sr-only">{phrase("Actions")}</span>,
-                        render: (r: Row) => (
-                          <span className="flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={async () => {
-                                await run(
-                                  () => api.send(`/messages/${s(r.id)}/send-now`, "POST"),
-                                  phrase("Queued now."),
-                                );
-                                client.invalidateQueries({ queryKey: key("messages") });
-                              }}
-                            >
-                              {phrase("Send now")}
-                            </Button>
-                            <ConfirmButton
-                              title={phrase("Cancel this scheduled message?")}
-                              description={`${phrase("It will not be sent to")} ${s(r.recipient)}.`}
-                              confirm="Cancel message"
-                              onConfirm={async () => {
-                                await run(
-                                  () => api.send(`/messages/${s(r.id)}/cancel`, "POST"),
-                                  phrase("Cancelled."),
-                                );
-                                client.invalidateQueries({ queryKey: key("messages") });
-                              }}
-                            >
-                              {phrase("Cancel")}
-                            </ConfirmButton>
-                          </span>
-                        ),
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-            <Pager page={d} />
-          </>
-        )}
+        {(d) =>
+          extended ? (
+            <>
+              <LogList
+                rows={d.items}
+                offset={offset}
+                hasMore={d.has_more}
+                open={(id) => navigate(to(`messages/${id}`))}
+                href={(id) => to(`messages/${id}`)}
+              />
+              <Pager page={d} />
+            </>
+          ) : (
+            <>
+              <Table
+                rows={d.items}
+                rowKey={(r) => s(r.id)}
+                onRow={(r) => navigate(to(`messages/${s(r.id)}`))}
+                columns={[
+                  {
+                    key: "recipient",
+                    label: phrase("Recipient"),
+                    render: (r) => s(r.recipient) || "—",
+                  },
+                  {
+                    key: "subject",
+                    label: phrase("Subject or template"),
+                    render: (r) => (
+                      <Link to={to(`messages/${s(r.id)}`)} className="hover:underline">
+                        {s(r.subject) || (
+                          <span className="text-muted-foreground">{s(r.template)}</span>
+                        )}
+                      </Link>
+                    ),
+                  },
+                  { key: "sender", label: phrase("Sender") },
+                  {
+                    key: "state",
+                    label: phrase("State"),
+                    render: (r) => <StateBadge state={s(r.state)} />,
+                  },
+                  { key: "source", label: phrase("Source"), className: "hidden md:table-cell" },
+                  {
+                    key: "time",
+                    label: scheduled ? phrase("Send at") : phrase("Created"),
+                    render: (r) => <Time value={scheduled ? r.send_at : r.created_at} />,
+                  },
+                  ...(scheduled
+                    ? [
+                        {
+                          key: "actions",
+                          label: <span className="sr-only">{phrase("Actions")}</span>,
+                          render: (r: Row) => (
+                            <span className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                  await run(
+                                    () => api.send(`/messages/${s(r.id)}/send-now`, "POST"),
+                                    phrase("Queued now."),
+                                  );
+                                  client.invalidateQueries({ queryKey: key("messages") });
+                                }}
+                              >
+                                {phrase("Send now")}
+                              </Button>
+                              <ConfirmButton
+                                title={phrase("Cancel this scheduled message?")}
+                                description={`${phrase("It will not be sent to")} ${s(r.recipient)}.`}
+                                confirm="Cancel message"
+                                onConfirm={async () => {
+                                  await run(
+                                    () => api.send(`/messages/${s(r.id)}/cancel`, "POST"),
+                                    phrase("Cancelled."),
+                                  );
+                                  client.invalidateQueries({ queryKey: key("messages") });
+                                }}
+                              >
+                                {phrase("Cancel")}
+                              </ConfirmButton>
+                            </span>
+                          ),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+              <Pager page={d} />
+            </>
+          )
+        }
       </DataState>
     </>
+  );
+}
+
+const LOG_STATES: [string, string][] = [
+  ["", "All"],
+  ["submitted", "Submitted"],
+  ["queued", "Queued"],
+  ["scheduled", "Scheduled"],
+  ["retry_wait", "Retrying"],
+  ["failed", "Failed"],
+  ["unknown", "Unknown"],
+  ["expired", "Expired"],
+  ["cancelled", "Cancelled"],
+  ["captured", "Captured"],
+];
+
+const SOURCE_ICON: Record<string, typeof Code2> = {
+  ui: PenSquare,
+  api: Code2,
+  bulk: Megaphone,
+  automation: Workflow,
+  forward: Forward,
+  test: FlaskConical,
+};
+
+/** Live / Sandbox as a two-button switch; the same URL parameter as SendingMode. */
+function ModeSwitch({
+  value,
+  onChange,
+}: {
+  value: "live" | "sandbox";
+  onChange: (v: "live" | "sandbox") => void;
+}) {
+  const phrase = usePhrase();
+  return (
+    <div
+      role="radiogroup"
+      aria-label={phrase("Sending mode")}
+      className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5"
+    >
+      {(
+        [
+          ["live", "Live"],
+          ["sandbox", "Sandbox"],
+        ] as const
+      ).map(([v, l]) => (
+        <button
+          key={v}
+          type="button"
+          role="radio"
+          aria-checked={value === v}
+          onClick={() => onChange(v)}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
+            value === v
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className={cn("size-1.5 rounded-full", v === "live" ? "bg-success" : "bg-warning")}
+          />
+          {phrase(l)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The message log as a list: who, what, state, where from and when, one row per message. */
+function LogList({
+  rows,
+  offset,
+  hasMore,
+  open,
+  href,
+}: {
+  rows: Row[];
+  offset: number;
+  hasMore: boolean;
+  open: (id: string) => void;
+  href: (id: string) => string;
+}) {
+  const phrase = usePhrase();
+  const head = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
+  const cols =
+    "grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 md:grid-cols-[2.25rem_minmax(0,2.2fr)_minmax(0,1.4fr)_7.5rem_6.5rem_8rem_1rem]";
+  return (
+    <section className="overflow-hidden rounded-xl border bg-card">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+        <h2 className="text-sm font-semibold">
+          {phrase("Messages")}{" "}
+          <span className="font-normal text-muted-foreground">
+            {offset + 1}–{offset + rows.length}
+            {hasMore ? "+" : ""}
+          </span>
+        </h2>
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-success" />
+          {phrase("Refreshes every 15 seconds")}
+        </span>
+      </header>
+      <div className={cn(cols, "hidden border-b bg-muted/30 px-4 py-2 md:grid")} aria-hidden="true">
+        <span />
+        <span className={head}>{phrase("Recipient and subject")}</span>
+        <span className={head}>{phrase("Sender")}</span>
+        <span className={head}>{phrase("State")}</span>
+        <span className={head}>{phrase("Source")}</span>
+        <span className={cn(head, "text-right")}>{phrase("Created")}</span>
+        <span />
+      </div>
+      <ul className="divide-y">
+        {rows.map((r) => {
+          const id = s(r.id);
+          const recipient = s(r.recipient) || "—";
+          const Icon = SOURCE_ICON[s(r.source)] ?? Code2;
+          return (
+            <li key={id}>
+              <Link
+                to={href(id)}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey) return;
+                  e.preventDefault();
+                  open(id);
+                }}
+                className={cn(
+                  cols,
+                  "group gap-y-1 px-4 py-3 transition hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none",
+                )}
+              >
+                <span
+                  aria-hidden="true"
+                  className="row-span-2 flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold uppercase text-primary md:row-span-1"
+                >
+                  {recipient.charAt(0)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{recipient}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {s(r.subject) || `${phrase("Template")}: ${s(r.template)}`}
+                  </span>
+                </span>
+                <span className="hidden min-w-0 truncate text-sm text-muted-foreground md:block">
+                  {s(r.sender) || "—"}
+                </span>
+                <span className="justify-self-end md:justify-self-start">
+                  <StateBadge state={s(r.state)} />
+                </span>
+                <span className="col-start-2 flex items-center gap-1.5 text-xs text-muted-foreground md:col-start-auto">
+                  <Icon size={14} aria-hidden="true" />
+                  {phrase(SOURCES.find(([v]) => v === s(r.source))?.[1] ?? s(r.source))}
+                  <span className="md:hidden">
+                    {" · "}
+                    <Time value={r.created_at} relative />
+                  </span>
+                </span>
+                <span className="hidden text-right text-sm text-muted-foreground md:block">
+                  <Time value={r.created_at} relative />
+                </span>
+                <ChevronRight
+                  size={16}
+                  aria-hidden="true"
+                  className="hidden text-muted-foreground opacity-0 transition group-hover:opacity-100 md:block"
+                />
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
