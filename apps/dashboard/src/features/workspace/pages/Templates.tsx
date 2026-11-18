@@ -28,10 +28,11 @@ import {
 } from "../ui";
 import { SendingMode } from "../SendingMode";
 import { cn } from "@/lib/utils";
+import { FIELD_ROW_KEYS, variableValue, type VarType } from "../variables";
 
 type VarSpec = {
   name: string;
-  type: "string" | "int" | "url";
+  type: VarType;
   required?: boolean;
   max_len?: number;
   min?: number;
@@ -577,7 +578,8 @@ function Editor({ id }: { id: string }) {
   };
   const used = useMemo(() => usedVars(content), [content]);
   const declared = new Set(schema.map((v) => v.name));
-  const undeclared = used.filter((v) => !declared.has(v));
+  const hasFields = schema.some((v) => v.type === "fields");
+  const undeclared = used.filter((v) => !declared.has(v) && !(hasFields && FIELD_ROW_KEYS.has(v)));
   const missingSample = schema.filter((v) => v.required && !sample[v.name]).map((v) => v.name);
   const versionForPreview = draft?.version ?? latest?.version;
 
@@ -587,8 +589,7 @@ function Editor({ id }: { id: string }) {
     const timer = setTimeout(async () => {
       const vars: Record<string, unknown> = {};
       for (const v of schema)
-        if (sample[v.name])
-          vars[v.name] = v.type === "int" ? Number(sample[v.name]) : sample[v.name];
+        if (sample[v.name]) vars[v.name] = variableValue(v.type, sample[v.name]);
       try {
         setPreview(
           await api.send<Content>(
@@ -821,12 +822,20 @@ function Editor({ id }: { id: string }) {
                           next[i] =
                             type === "int"
                               ? { name: v.name, type, required: v.required, min: 0, max: 1000000 }
-                              : {
-                                  name: v.name,
-                                  type,
-                                  required: v.required,
-                                  max_len: type === "url" ? 2048 : 200,
-                                };
+                              : type === "fields"
+                                ? {
+                                    name: v.name,
+                                    type,
+                                    required: v.required,
+                                    max: 30,
+                                    max_len: 500,
+                                  }
+                                : {
+                                    name: v.name,
+                                    type,
+                                    required: v.required,
+                                    max_len: type === "url" ? 2048 : 200,
+                                  };
                           setSchema(next);
                           setDirty(true);
                         }}
@@ -834,6 +843,7 @@ function Editor({ id }: { id: string }) {
                         <option value="string">text</option>
                         <option value="int">number</option>
                         <option value="url">link</option>
+                        <option value="fields">details</option>
                       </select>
                       <label className="flex items-center gap-1 text-xs">
                         <input
@@ -929,11 +939,20 @@ function Editor({ id }: { id: string }) {
               <div className="mb-3 grid gap-2 sm:grid-cols-2">
                 {schema.map((v) => (
                   <Field key={v.name} label={`${v.name}${v.required ? " *" : ""}`}>
-                    <input
-                      className={inputClass}
-                      value={sample[v.name] ?? ""}
-                      onChange={(e) => setSample({ ...sample, [v.name]: e.target.value })}
-                    />
+                    {v.type === "fields" ? (
+                      <textarea
+                        className={cn(inputClass, "min-h-20 font-mono text-xs")}
+                        placeholder={"Order: #1042\nAmount: TZS 25,000"}
+                        value={sample[v.name] ?? ""}
+                        onChange={(e) => setSample({ ...sample, [v.name]: e.target.value })}
+                      />
+                    ) : (
+                      <input
+                        className={inputClass}
+                        value={sample[v.name] ?? ""}
+                        onChange={(e) => setSample({ ...sample, [v.name]: e.target.value })}
+                      />
+                    )}
                   </Field>
                 ))}
               </div>
@@ -997,8 +1016,7 @@ function Editor({ id }: { id: string }) {
                     if (!v) return;
                     const vars: Record<string, unknown> = {};
                     for (const x of schema)
-                      if (sample[x.name])
-                        vars[x.name] = x.type === "int" ? Number(sample[x.name]) : sample[x.name];
+                      if (sample[x.name]) vars[x.name] = variableValue(x.type, sample[x.name]);
                     const r = await run(
                       () =>
                         testApi.send<{ id: string }>(

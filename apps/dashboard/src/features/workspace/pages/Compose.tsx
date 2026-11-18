@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useWorkspace, useSendingEnvironment, type Env } from "../context";
 import { SendingMode } from "../SendingMode";
+import { variableValue, type VarType } from "../variables";
+import { cn } from "@/lib/utils";
 import {
   emailOk,
   errorMessage,
@@ -140,7 +142,7 @@ type TemplateDetail = {
     published_at: string | null;
     variable_schema: {
       name: string;
-      type: string;
+      type: VarType;
       required?: boolean;
       min?: number;
       max?: number;
@@ -382,7 +384,7 @@ export function ComposePanel({
         body.variables = Object.fromEntries(
           schema
             .filter((v) => vars[v.name] !== undefined && vars[v.name] !== "")
-            .map((v) => [v.name, v.type === "int" ? Number(vars[v.name]) : vars[v.name]]),
+            .map((v) => [v.name, variableValue(v.type, vars[v.name])]),
         );
       } else {
         body.subject = subject.trim();
@@ -635,16 +637,25 @@ export function ComposePanel({
                     label={`${v.name}${v.required ? " *" : ""}`}
                     error={errors["var_" + v.name]}
                   >
-                    <input
-                      className={inputClass}
-                      type={v.type === "int" ? "number" : "text"}
-                      step={v.type === "int" ? 1 : undefined}
-                      min={v.type === "int" ? (v.min ?? 0) : undefined}
-                      max={v.type === "int" ? (v.max ?? 0) : undefined}
-                      maxLength={v.type !== "int" ? v.max_len : undefined}
-                      value={vars[v.name] ?? ""}
-                      onChange={(e) => setVars({ ...vars, [v.name]: e.target.value })}
-                    />
+                    {v.type === "fields" ? (
+                      <textarea
+                        className={cn(inputClass, "min-h-24 font-mono text-xs")}
+                        placeholder={"Order: #1042\nAmount: TZS 25,000"}
+                        value={vars[v.name] ?? ""}
+                        onChange={(e) => setVars({ ...vars, [v.name]: e.target.value })}
+                      />
+                    ) : (
+                      <input
+                        className={inputClass}
+                        type={v.type === "int" ? "number" : "text"}
+                        step={v.type === "int" ? 1 : undefined}
+                        min={v.type === "int" ? (v.min ?? 0) : undefined}
+                        max={v.type === "int" ? (v.max ?? 0) : undefined}
+                        maxLength={v.type !== "int" ? v.max_len : undefined}
+                        value={vars[v.name] ?? ""}
+                        onChange={(e) => setVars({ ...vars, [v.name]: e.target.value })}
+                      />
+                    )}
                   </Field>
                 ))}
                 {!schema.length && (

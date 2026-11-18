@@ -1,0 +1,13 @@
+{{.title}}
+{{if .name}}
+Habari {{.name}},
+{{end}}{{if .message}}
+{{.message}}
+{{end}}{{if .details}}
+{{range .details}}{{.label}}: {{.value}}
+{{end}}{{end}}{{if .action_url}}
+{{if .action_label}}{{.action_label}}{{else}}Fungua{{end}}: {{.action_url}}
+{{end}}{{if .footer}}
+--
+{{.footer}}
+{{end}}

@@ -258,6 +258,30 @@ _, err := mail.Send(ctx, njiwamail.NewIdempotencyKey("reset"), njiwamail.Email{
 })
 ```
 
+## Send any data (orders, receipts, alerts)
+
+The built-in `notification` template shows any data as a table of label and value rows (`details`), with an optional button. Use it for orders, receipts and alerts without writing a template. See [Templates](/docs/api/templates#the-general-notification-template).
+
+```go
+_, err := mail.Send(ctx, "order-1042-confirmation", njiwamail.Email{
+	From:     "orders@notify.example.com",
+	To:       "user@example.org",
+	Template: "notification",
+	Variables: map[string]any{
+		"name":    "Ada",
+		"title":   "Order #1042 confirmed",
+		"message": "We will email you again when it ships.",
+		"details": []map[string]string{
+			{"label": "Order", "value": "#1042"},
+			{"label": "Total", "value": "TZS 85,000"},
+			{"label": "Deliver to", "value": "Plot 12, Mikocheni"},
+		},
+		"action_url":   "https://app.example.com/orders/1042",
+		"action_label": "View order",
+	},
+})
+```
+
 ## Schedule a reminder
 
 Set `SendAt` (at most 7 days ahead). The answer is `scheduled`; keep the `ID` with your own record so you can cancel it. See [Scheduled sending](/docs/api/scheduling).

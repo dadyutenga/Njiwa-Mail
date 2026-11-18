@@ -119,6 +119,35 @@ send_email(
 )
 ```
 
+## Send any data (orders, receipts, alerts)
+
+The built-in `notification` template shows any data as a table of label and value rows (`details`), with an optional button. Use it for orders, receipts and alerts without writing a template. See [Templates](/docs/api/templates#the-general-notification-template).
+
+```python check
+from njiwa_mail import send_email
+
+send_email(
+    {
+        "from": "orders@notify.example.com",
+        "to": "user@example.org",
+        "template": "notification",
+        "variables": {
+            "name": "Ada",
+            "title": "Order #1042 confirmed",
+            "message": "We will email you again when it ships.",
+            "details": [
+                {"label": "Order", "value": "#1042"},
+                {"label": "Total", "value": "TZS 85,000"},
+                {"label": "Deliver to", "value": "Plot 12, Mikocheni"},
+            ],
+            "action_url": "https://app.example.com/orders/1042",
+            "action_label": "View order",
+        },
+    },
+    idempotency_key="order-1042-confirmation",
+)
+```
+
 ## Read the status
 
 ```python check

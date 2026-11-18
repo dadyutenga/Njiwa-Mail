@@ -230,6 +230,35 @@ public class SendPasswordReset {
 }
 ```
 
+## Send any data (orders, receipts, alerts)
+
+The built-in `notification` template shows any data as a table of label and value rows (`details`), with an optional button. Use it for orders, receipts and alerts without writing a template. See [Templates](/docs/api/templates#the-general-notification-template).
+
+```java check
+import java.util.List;
+import java.util.Map;
+
+public class SendOrderConfirmation {
+    public static void send(NjiwaMail mail, String email) throws Exception {
+        mail.send(Map.of(
+                "from", "orders@notify.example.com",
+                "to", email,
+                "template", "notification",
+                "variables", Map.of(
+                        "name", "Ada",
+                        "title", "Order #1042 confirmed",
+                        "message", "We will email you again when it ships.",
+                        "details", List.of(
+                                Map.of("label", "Order", "value", "#1042"),
+                                Map.of("label", "Total", "value", "TZS 85,000"),
+                                Map.of("label", "Deliver to", "value", "Plot 12, Mikocheni")),
+                        "action_url", "https://app.example.com/orders/1042",
+                        "action_label", "View order")),
+                "order-1042-confirmation");
+    }
+}
+```
+
 ## Schedule a reminder
 
 Add `send_at` (at most 7 days ahead) as an ISO-8601 instant. The answer is `scheduled`; store the `id` with your own record so you can cancel it. See [Scheduled sending](/docs/api/scheduling).

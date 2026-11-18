@@ -25,10 +25,10 @@ Content type: `application/json`. Required.
 | `messages` | array of object | yes | at least 1 items. at most 100 items. |
 | `messages[].from` | string | yes | An approved sender identity for the key's project and environment. |
 | `messages[].to` | string | yes | One recipient (bare address). Together with cc and bcc at most 10 addresses. |
-| `messages[].template` | string | no | A built-in template (otp, password-reset, account-notice) or one published for the project. Omit it for a raw send. |
+| `messages[].template` | string | no | A built-in template (otp, password-reset, account-notice, notification) or one published for the project. Omit it for a raw send. |
 | `messages[].template_version` | integer | no | Omit it to use the newest published version. minimum 1. |
 | `messages[].locale` | string | no | A language tag such as en or sw (Kiswahili); your own templates can use others such as fr. Missing content falls back to English. default `"en"`. pattern `^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$`. |
-| `messages[].variables` | object | no | otp: name?, code (4-12 letters or digits), expires_in_minutes (1-60). password-reset: name?, reset_url (https, origin approved for the environment), expires_in_minutes (1-1440). account-notice: name?, title (&lt;=100, single line), message (&lt;=1000). HTML is escaped. |
+| `messages[].variables` | object | no | otp: name?, code (4-12 letters or digits), expires_in_minutes (1-60). password-reset: name?, reset_url (https, origin approved for the environment), expires_in_minutes (1-1440). account-notice: name?, title (&lt;=100, single line), message (&lt;=1000). notification: title (&lt;=150), name?, message? (&lt;=2000), details? (a list of &#123;label, value&#125; rows or an object of label: value; up to 30 rows, values &lt;=500), action_url? (https, approved origin), action_label? (&lt;=40), footer? (&lt;=500), app_name? (&lt;=60), preheader? (&lt;=150). HTML is escaped. |
 | `messages[].ttl_seconds` | integer | no | Submission will not start after this. Auth templates default 300 (max 900); notices default 3600 (max 86400). minimum 30. |
 | `messages[].metadata` | object | no | no other fields. |
 | `messages[].metadata.request_id` | string | no | pattern `^[A-Za-z0-9._:-]{1,128}$`. |

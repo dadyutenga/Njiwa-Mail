@@ -11,12 +11,12 @@ description: POST /v1/emails queues one template or raw email.
 |---|---|---|
 | `from` | string | Required. An approved sender identity for the key's project and environment |
 | `to` | string | Required. One bare address. With `cc` and `bcc`, at most 10 addresses in total |
-| `template` | string | `otp`, `password-reset`, `account-notice`, or a template published for the project. Omit it for a raw send |
+| `template` | string | `otp`, `password-reset`, `account-notice`, `notification` (any details), or a template published for the project. Omit it for a raw send. See [Templates](/docs/api/templates) |
 | `template_version` | integer | Optional. Omitted pins the newest published version |
 | `locale` | language tag | Default `en`. `sw` is Kiswahili; your own templates can use others such as `fr`. Missing content falls back to English |
 | `variables` | object | Names and types come from the template. HTML is escaped |
 | `ttl_seconds` | integer | Submission will not start after this. Minimum 30. Auth templates default 300 (max 900); notices default 3600 (max 86400) |
-| `metadata.request_id` | string | Optional correlation id, `[A-Za-z0-9._:-]`, up to 128. Not a secret |
+| `metadata.request_id` | string | Optional correlation id, `[A-Za-z0-9._:-]`, up to 128. Not a secret and not shown in the email; to show data, use the `notification` template's `details` |
 | `subject`, `html`, `text` | string | Raw send only (scope `emails:send_raw`) |
 | `reply_to`, `cc`, `bcc` | string, arrays | Optional |
 | `priority` | `high` or `normal` | `otp` and `password-reset` default to `high` |

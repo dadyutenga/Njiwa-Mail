@@ -63,7 +63,7 @@ All of them answer `429 rate_limited` (or `503 queue_full`). Wait `Retry-After` 
 | `missing_variable` | 422 | A variable the template requires is missing |
 | `invalid_variable_type` | 422 | A variable has the wrong JSON type |
 | `invalid_variable_format` | 422 | A variable does not match its format (for example a code with other characters) |
-| `variable_too_long` | 422 | A variable is longer than its limit |
+| `variable_too_long` | 422 | A variable is longer than its limit, or a `details` list has too many rows |
 | `variable_out_of_range` | 422 | A number is outside its allowed range (for example `expires_in_minutes`) |
 | `invalid_characters` | 422 | A variable contains characters that are not allowed (such as line breaks in a title) |
 | `invalid_url` | 422 | A URL variable is not a valid `https` URL |

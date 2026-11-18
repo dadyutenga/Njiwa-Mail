@@ -27,7 +27,7 @@ type tplRef struct {
 }
 
 // SeedTemplates installs the built-in shared templates (otp, password-reset,
-// account-notice) as published version 1 in English and Kiswahili. Idempotent.
+// account-notice, notification) as published version 1 in English and Kiswahili. Idempotent.
 func (s *Service) SeedTemplates(ctx context.Context) error {
 	for _, sd := range tmpl.Seeds() {
 		tx, err := s.Pool.Begin(ctx)

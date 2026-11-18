@@ -1,9 +1,55 @@
 ---
 title: Templates
-description: The built-in templates, their variables, locales, and custom templates.
+description: How to send with a template, the built-in templates, the general notification template for any details, and writing your own.
 ---
 
-A template send names a template and supplies `variables`. The service renders subject, text and HTML; HTML in a variable is escaped. A raw send (`subject` plus `html` and/or `text`, scope `emails:send_raw`) bypasses templates.
+A template is an email that is already written. You send its name and a few `variables`; Njiwa-Mail fills them in and builds the subject, the HTML and the plain-text version. You never send HTML for a template, and anything you put in a variable is escaped, so a user's name can never break or inject into the email.
+
+## Template or raw send?
+
+| You want to send | Use |
+|---|---|
+| A sign-in code | `otp` |
+| A password reset link | `password-reset` |
+| A short account message (title and text) | `account-notice` |
+| **Anything else with data**: an order, a receipt, an alert, a booking, a report | `notification`, with your data in `details` |
+| A design of your own, reused many times | Your own template ([below](#your-own-templates)) |
+| A one-off email whose HTML you build yourself | A raw send: `subject` with `html` and/or `text`, scope `emails:send_raw` |
+
+Start with a template. A raw send needs an extra scope and leaves escaping to you.
+
+## How to send with a template
+
+1. Choose the template and look up its variables in the table below.
+2. Send `template` and `variables` to `POST /v1/emails` (see [Send an email](/docs/api/send-email)).
+3. On `202` you get an `id`; on `422` the `error.code` names the variable rule you broke ([table](#when-a-variable-is-refused)).
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/emails" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d @- <<'JSON'
+{
+  "from": "noreply@notify.example.com",
+  "to": "user@example.org",
+  "template": "account-notice",
+  "locale": "en",
+  "variables": {
+    "name": "Ada",
+    "title": "Your account is ready",
+    "message": "You can now sign in and invite your team."
+  }
+}
+JSON
+```
+
+Rules that apply to every template:
+
+- Send only the variables the template declares. An extra name is `unknown_variable`, so a typo never goes unnoticed.
+- Numbers are JSON numbers (`5`, not `"5"`). Text is a JSON string.
+- Leave out an optional variable rather than sending `""`; the email then skips that part.
+- `locale` picks the language (`en` or `sw` for the built-in templates).
 
 ## Built-in templates
 
@@ -12,14 +58,181 @@ A template send names a template and supplies `variables`. The service renders s
 | `otp` | `name` (optional), `code` (4 to 12 letters or digits), `expires_in_minutes` (1 to 60), `app_name` (optional, up to 60) | `high` |
 | `password-reset` | `name` (optional), `reset_url` (https, origin approved for the environment), `expires_in_minutes` (1 to 1440) | `high` |
 | `account-notice` | `name` (optional), `title` (up to 100, one line), `message` (up to 1000, no HTML) | `normal` |
+| `notification` | `title` (required, up to 150), and optionally `name`, `message`, `details`, `action_url`, `action_label`, `footer`, `app_name`, `preheader` ([details](#the-general-notification-template)) | `normal` |
 
-### The OTP email
+## The general notification template
+
+`notification` sends **any data** without writing a template: a title, a message, a table of label and value rows (`details`), an optional button and a footer. Use it for order confirmations, receipts, payment alerts, booking details, security alerts and internal reports.
+
+| Variable | Type | Rule |
+|---|---|---|
+| `title` | text | **Required.** One line, up to 150. Also the subject |
+| `name` | text | Optional. Adds "Hello Ada," |
+| `message` | text | Optional. Up to 2000; line breaks are kept |
+| `details` | details | Optional. Up to 30 rows; each label up to 100 (one line), each value up to 500 (line breaks kept) |
+| `action_url` | link | Optional. An `https` URL whose origin is approved for the environment. Shows a button |
+| `action_label` | text | Optional. Button text, up to 40. Default "Open" ("Fungua" in Kiswahili) |
+| `footer` | text | Optional. Small print under a line, up to 500 |
+| `app_name` | text | Optional. Your product's name, shown above the title |
+| `preheader` | text | Optional. The preview line mail apps show after the subject, up to 150 |
+
+### Sending details
+
+`details` is a **list of rows**, shown in the order you give them:
+
+```bash curl-check
+curl -sS -X POST "$NJIWA_MAIL_URL/v1/emails" \
+  -H "Authorization: Bearer $NJIWA_MAIL_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d @- <<'JSON'
+{
+  "from": "noreply@notify.example.com",
+  "to": "user@example.org",
+  "template": "notification",
+  "variables": {
+    "app_name": "Acme Shop",
+    "name": "Ada",
+    "title": "Order #1042 confirmed",
+    "message": "Thank you for your order. We will email you again when it ships.",
+    "details": [
+      { "label": "Order", "value": "#1042" },
+      { "label": "Items", "value": "2 x Coffee beans (500 g)\n1 x Grinder" },
+      { "label": "Total", "value": "TZS 85,000" },
+      { "label": "Paid with", "value": "M-Pesa" },
+      { "label": "Deliver to", "value": "Plot 12, Mikocheni, Dar es Salaam" }
+    ],
+    "action_url": "https://app.example.com/orders/1042",
+    "action_label": "View order",
+    "footer": "Questions? Reply to this email."
+  }
+}
+JSON
+```
+
+Values may be strings, numbers or `true`/`false`; they are shown as written. Format money and dates yourself (`"TZS 85,000"`, `"20 Nov 2026, 08:00"`) so the email shows exactly what your app shows.
+
+You can also send an **object** when the order does not matter. Its rows are then sorted by label:
+
+```json
+{ "details": { "Reference": "INV-1042", "Amount": "TZS 25,000", "Due": "21 Nov 2026" } }
+```
+
+The email looks like this (the plain-text version has the same rows as `Label: value` lines):
+
+```text
+ACME SHOP
+Order #1042 confirmed
+
+Hello Ada,
+Thank you for your order. We will email you again when it ships.
+
+┌──────────────┬───────────────────────────────────┐
+│ Order        │ #1042                             │
+│ Items        │ 2 x Coffee beans (500 g)          │
+│              │ 1 x Grinder                       │
+│ Total        │ TZS 85,000                        │
+│ Paid with    │ M-Pesa                            │
+│ Deliver to   │ Plot 12, Mikocheni, Dar es Salaam │
+└──────────────┴───────────────────────────────────┘
+
+[ View order ]
+
+Questions? Reply to this email.
+```
+
+### More examples
+
+A security alert:
+
+```json
+{
+  "template": "notification",
+  "variables": {
+    "title": "New sign-in to your account",
+    "message": "If this was you, there is nothing to do.",
+    "details": [
+      { "label": "When", "value": "18 Nov 2026, 21:04 EAT" },
+      { "label": "Device", "value": "Chrome on Windows" },
+      { "label": "Location", "value": "Dar es Salaam, TZ" }
+    ],
+    "action_url": "https://app.example.com/security",
+    "action_label": "Review activity"
+  }
+}
+```
+
+A daily report to your own team, sent at 07:00 with [`send_at`](/docs/api/scheduling):
+
+```json
+{
+  "template": "notification",
+  "send_at": "2026-11-19T04:00:00Z",
+  "variables": {
+    "title": "Daily sales: 18 Nov 2026",
+    "details": { "Orders": 128, "Revenue": "TZS 4,210,000", "Refunds": 2, "New customers": 37 }
+  }
+}
+```
+
+### Data in the email vs `metadata`
+
+`details` is shown **to the recipient**. Put only what they may read in it: never passwords, tokens or another customer's data.
+
+`metadata.request_id` is **not** shown in the email. It is a correlation id for your logs, webhooks and the message log. To find your own record when a webhook arrives, store the message `id` from the `202` answer with your record.
+
+## When a variable is refused
+
+| Code | Meaning | Fix |
+|---|---|---|
+| `unknown_variable` | A name the template does not declare | Check the spelling against the table |
+| `missing_variable` | A required variable is missing or empty, or a `details` row has no label | Send it |
+| `invalid_variable_type` | Wrong JSON type: a number as a string, `details` that is not a list or object, a nested value in a row | Send the type in the table |
+| `variable_too_long` | Over its length limit, or `details` has too many rows | Shorten it, or split into two emails |
+| `variable_out_of_range` | A number outside its range | Use a value in range |
+| `invalid_variable_format` | Does not match the format (an `otp` code with spaces) | Send only the allowed characters |
+| `invalid_characters` | Control characters, or a line break in a one-line field | Remove them |
+| `invalid_url`, `url_origin_not_approved` | A link that is not `https` on an approved origin | Ask your operator to approve the origin (`njiwa-mail env origins`) |
+
+The error never repeats the value you sent. See [Rate limits and errors](/docs/api/rate-limits-and-errors) for every code.
+
+## The OTP email
 
 The subject starts with the code: `821580 is your verification code`, or `821580 is your Acme verification code` with `app_name` (Kiswahili: `821580 ni namba yako ya uthibitisho`). Gmail and other mail apps recognise this form and can offer to copy the code. The body opens with the same sentence, shows the code in one large block that copies as plain digits, and says when it expires.
 
 Template version 2 introduced this design. Installations still on the original version 1 are upgraded on their next start; a client that pinned `template_version: 1` keeps the old email, and a version an operator wrote is never replaced.
 
 `reset_url` must be an `https` URL whose origin the operator approved for that environment (`njiwa-mail env origins`). Anything else is refused.
+
+## Your own templates
+
+When you send the same layout many times, write it once in the dashboard: **Templates → New template**.
+
+1. Give it a slug, for example `invoice-due`. You send it as `"template": "invoice-due"`.
+2. Write the subject, the HTML and the plain text. Put variables in with `{{.name}}`.
+3. Declare each variable: **text**, **number** (with a range), **link** (an `https` URL on an approved origin) or **details** (label and value rows, as in `notification`). Mark the ones that are required.
+4. Fill in sample values, check the preview, and send yourself a test.
+5. **Publish**. Only a published version can be sent, and it never changes afterwards; an edit becomes the next version.
+
+The template language is Go's [`text/template`](https://pkg.go.dev/text/template) (escaped as HTML in the HTML part). The parts you need:
+
+| Write | Does |
+|---|---|
+| `{{.name}}` | Inserts a variable |
+| `{{if .name}}Hello {{.name}},{{else}}Hello,{{end}}` | Shows a part only when the variable was sent |
+| `{{range .details}}{{.label}}: {{.value}}{{end}}` | Repeats for every row of a details variable |
+
+A details table in HTML:
+
+```html
+<table role="presentation" cellpadding="8">
+  {{range .details}}<tr><td>{{.label}}</td><td><strong>{{.value}}</strong></td></tr>{{end}}
+</table>
+```
+
+What you cannot do, by design: call functions that read files, the network or the environment; include other templates; or have a variable's content treated as template code (a user who types `{{.code}}` gets those characters, not your code).
+
+The dashboard's **Import** also turns an HTML file into a draft: `{{name}}` placeholders become text variables.
 
 ## Locales
 
@@ -28,9 +241,9 @@ as `fr` or `pt-br` (`pt_BR` is accepted and normalised). The built-in templates 
 If a template has no content in the requested language, English is used. A version can hold up to 20 languages, and
 English is always required as the fallback.
 
-## Versions and custom templates
+## Versions
 
-Each template has published versions. Omit `template_version` to use the newest published version; pass a number to pin one. Projects can publish their own templates in the dashboard; a template you publish is then usable by its slug, with the variables it declares. There is no public endpoint to list templates: read them in the dashboard.
+Each template has published versions. Omit `template_version` to use the newest published version; pass a number to pin one. A template you publish is usable by its slug in the project it belongs to, with the variables it declares. There is no public endpoint to list templates: read them in the dashboard.
 
 ## Stylesheets, import and export
 

@@ -1,7 +1,7 @@
 // Package tmpl is the template engine: variable schemas, validation and
 // rendering. Templates themselves live in the database as immutable published
 // versions (see service/templates.go); this package also carries the seed
-// content for the three built-in templates in English and Kiswahili.
+// content for the built-in templates in English and Kiswahili.
 //
 // Caller input is only ever substituted into auto-escaped placeholders. It is
 // never evaluated as a template, and templates get no functions that touch
@@ -11,11 +11,14 @@ package tmpl
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	htmltemplate "html/template"
 	"net/url"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	texttemplate "text/template"
@@ -30,6 +33,17 @@ const (
 	TypeString = "string"
 	TypeInt    = "int"
 	TypeURL    = "url"
+	// TypeFields is a list of label/value rows ("Order: 1042", "Amount: TZS 25,000"): any
+	// details a caller wants to show. Templates range over it: {{range .details}}{{.label}}{{.value}}{{end}}.
+	TypeFields = "fields"
+
+	// Field-list limits. VarSpec.Max is the row limit and VarSpec.MaxLen the value length;
+	// zero means these defaults.
+	DefaultFieldRows   = 30
+	MaxFieldRows       = 50
+	DefaultFieldValue  = 500
+	MaxFieldValue      = 2000
+	MaxFieldLabelBytes = 100
 
 	MaxBodyBytes    = 256 << 10
 	MaxSubjectBytes = 300
@@ -162,8 +176,15 @@ func (s Schema) Check() error {
 					return fmt.Errorf("variable %q: invalid pattern", v.Name)
 				}
 			}
+		case TypeFields:
+			if v.Max < 0 || v.Max > MaxFieldRows {
+				return fmt.Errorf("variable %q: max (rows) must be between 0 and %d", v.Name, MaxFieldRows)
+			}
+			if v.MaxLen < 0 || v.MaxLen > MaxFieldValue {
+				return fmt.Errorf("variable %q: max_len must be between 0 and %d", v.Name, MaxFieldValue)
+			}
 		default:
-			return fmt.Errorf("variable %q: type must be string, int or url", v.Name)
+			return fmt.Errorf("variable %q: type must be string, int, url or fields", v.Name)
 		}
 	}
 	return nil
@@ -243,6 +264,19 @@ func (s Schema) Validate(in map[string]any, origins []string) (map[string]string
 		}
 		var str string
 		switch spec.Type {
+		case TypeFields:
+			rows, e := fieldRows(v, spec)
+			if e != nil {
+				return nil, e
+			}
+			if len(rows) == 0 {
+				if spec.Required {
+					return nil, bad("missing_variable")
+				}
+				continue
+			}
+			b, _ := json.Marshal(rows)
+			str = string(b)
 		case TypeInt:
 			var i int64
 			switch n := v.(type) {
@@ -297,6 +331,91 @@ func (s Schema) Validate(in map[string]any, origins []string) (map[string]string
 	return out, nil
 }
 
+// fieldRows reads a fields variable: a list of {"label","value"} objects (kept in order), or
+// an object of label: value (rows sorted by label). Values may be strings, numbers or booleans.
+func fieldRows(v any, spec VarSpec) ([]map[string]string, *ValidationError) {
+	maxRows, maxLen := spec.Max, spec.MaxLen
+	if maxRows == 0 {
+		maxRows = DefaultFieldRows
+	}
+	if maxLen == 0 {
+		maxLen = DefaultFieldValue
+	}
+	var rows []map[string]string
+	add := func(label string, val any) *ValidationError {
+		var s string
+		switch x := val.(type) {
+		case string:
+			s = x
+		case bool:
+			s = strconv.FormatBool(x)
+		case float64:
+			s = strconv.FormatFloat(x, 'f', -1, 64)
+		case int:
+			s = strconv.Itoa(x)
+		case interface{ String() string }: // json.Number
+			s = x.String()
+		case nil:
+			s = ""
+		default:
+			return bad("invalid_variable_type")
+		}
+		label = strings.TrimSpace(label)
+		if label == "" {
+			return bad("missing_variable")
+		}
+		if len(label) > MaxFieldLabelBytes || len(s) > maxLen {
+			return bad("variable_too_long")
+		}
+		if hasControl(label, false) || hasControl(s, true) {
+			return bad("invalid_characters")
+		}
+		rows = append(rows, map[string]string{"label": label, "value": s})
+		return nil
+	}
+	switch x := v.(type) {
+	case []any:
+		if len(x) > maxRows {
+			return nil, bad("variable_too_long")
+		}
+		for _, item := range x {
+			m, ok := item.(map[string]any)
+			if !ok {
+				return nil, bad("invalid_variable_type")
+			}
+			for k := range m {
+				if k != "label" && k != "value" {
+					return nil, bad("invalid_variable_type")
+				}
+			}
+			label, ok := m["label"].(string)
+			if !ok {
+				return nil, bad("invalid_variable_type")
+			}
+			if e := add(label, m["value"]); e != nil {
+				return nil, e
+			}
+		}
+	case map[string]any:
+		if len(x) > maxRows {
+			return nil, bad("variable_too_long")
+		}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if e := add(k, x[k]); e != nil {
+				return nil, e
+			}
+		}
+	default:
+		return nil, bad("invalid_variable_type")
+	}
+	return rows, nil
+}
+
 // Sample returns placeholder values for previews. URL variables use the first
 // approved origin when one is given.
 func (s Schema) Sample(origins []string) map[string]string {
@@ -309,6 +428,8 @@ func (s Schema) Sample(origins []string) map[string]string {
 				n = 10
 			}
 			out[v.Name] = fmt.Sprint(n)
+		case TypeFields:
+			out[v.Name] = `[{"label":"Reference","value":"INV-1042"},{"label":"Amount","value":"TZS 25,000"}]`
 		case TypeURL:
 			o := "https://app.example.com"
 			if len(origins) > 0 {
@@ -369,9 +490,19 @@ func Render(c Content, s Schema, vars map[string]string) (subject, text, html st
 	if err != nil {
 		return "", "", "", err
 	}
-	data := map[string]string{}
+	data := map[string]any{}
 	for _, v := range s {
-		data[v.Name] = vars[v.Name]
+		if v.Type != TypeFields {
+			data[v.Name] = vars[v.Name]
+			continue
+		}
+		var rows []map[string]string
+		if raw := vars[v.Name]; raw != "" {
+			if json.Unmarshal([]byte(raw), &rows) != nil {
+				return "", "", "", errors.New("a fields variable is not a list of rows")
+			}
+		}
+		data[v.Name] = rows
 	}
 	var sb, tb, hb bytes.Buffer
 	if err = st.Execute(&sb, data); err != nil {
@@ -453,7 +584,7 @@ func seedContent(slug string, subjects map[string]string) map[string]Content {
 	return out
 }
 
-// Seeds returns the built-in templates: otp, password-reset and account-notice.
+// Seeds returns the built-in templates: otp, password-reset, account-notice and notification.
 func Seeds() []Seed {
 	name := VarSpec{Name: "name", Type: TypeString, MaxLen: 100}
 	return []Seed{
@@ -479,5 +610,21 @@ func Seeds() []Seed {
 				{Name: "title", Type: TypeString, Required: true, MaxLen: 100},
 				{Name: "message", Type: TypeString, Required: true, MaxLen: 1000, Multiline: true}},
 			Content: seedContent("account-notice", map[string]string{"en": "{{.title}}", "sw": "{{.title}}"})},
+		// A general-purpose message: a title, free text, any label/value details (order numbers,
+		// amounts, dates, references), an optional button and footer.
+		{Slug: "notification", Description: "General message with any details", DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour,
+			Schema: Schema{name,
+				{Name: "title", Type: TypeString, Required: true, MaxLen: 150},
+				{Name: "message", Type: TypeString, MaxLen: 2000, Multiline: true},
+				{Name: "details", Type: TypeFields, Max: DefaultFieldRows, MaxLen: DefaultFieldValue},
+				{Name: "action_url", Type: TypeURL, MaxLen: 2048},
+				{Name: "action_label", Type: TypeString, MaxLen: 40},
+				{Name: "footer", Type: TypeString, MaxLen: 500, Multiline: true},
+				{Name: "app_name", Type: TypeString, MaxLen: 60},
+				{Name: "preheader", Type: TypeString, MaxLen: 150}},
+			Content: seedContent("notification", map[string]string{
+				"en": "{{.title}}",
+				"sw": "{{.title}}",
+			})},
 	}
 }

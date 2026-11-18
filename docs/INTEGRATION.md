@@ -53,7 +53,7 @@ Content-Type: application/json
 
 | Field | Rule |
 |---|---|
-| `template` | `otp`, `password-reset`, or `account-notice`, or a template published for that project |
+| `template` | `otp`, `password-reset`, `account-notice` or `notification`, or a template published for that project |
 | `locale` | `en` (default) or `sw`. Missing Kiswahili content falls back to English |
 | `template_version` | Omit it to pin the newest published version. A number pins that version |
 | `variables` | Names and types from the template schema. HTML is escaped |
@@ -67,6 +67,8 @@ Content-Type: application/json
 `otp` variables: `name` (optional), `code` (4–12 letters or digits), `expires_in_minutes`.
 `password-reset` variables: `name` (optional), `reset_url` (https, origin approved for the environment), `expires_in_minutes`.
 `account-notice` variables: `name` (optional), `title`, `message`.
+
+`notification` variables: `title`, and optionally `name`, `message`, `details` (a list of `{"label","value"}` rows, or an object), `action_url`, `action_label`, `footer`, `app_name`, `preheader`. Use it to show any data (orders, receipts, alerts) in the email.
 
 ## 3. Status, cancel, batch
 

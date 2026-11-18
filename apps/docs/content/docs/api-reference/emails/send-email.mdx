@@ -32,10 +32,10 @@ Unknown fields are rejected with 422 invalid_request. (Not expressed as addition
 |---|---|---|---|
 | `from` | string | yes | An approved sender identity for the key's project and environment. |
 | `to` | string | yes | One recipient (bare address). Together with cc and bcc at most 10 addresses. |
-| `template` | string | no | A built-in template (otp, password-reset, account-notice) or one published for the project. Omit it for a raw send. |
+| `template` | string | no | A built-in template (otp, password-reset, account-notice, notification) or one published for the project. Omit it for a raw send. |
 | `template_version` | integer | no | Omit it to use the newest published version. minimum 1. |
 | `locale` | string | no | A language tag such as en or sw (Kiswahili); your own templates can use others such as fr. Missing content falls back to English. default `"en"`. pattern `^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$`. |
-| `variables` | object | no | otp: name?, code (4-12 letters or digits), expires_in_minutes (1-60). password-reset: name?, reset_url (https, origin approved for the environment), expires_in_minutes (1-1440). account-notice: name?, title (&lt;=100, single line), message (&lt;=1000). HTML is escaped. |
+| `variables` | object | no | otp: name?, code (4-12 letters or digits), expires_in_minutes (1-60). password-reset: name?, reset_url (https, origin approved for the environment), expires_in_minutes (1-1440). account-notice: name?, title (&lt;=100, single line), message (&lt;=1000). notification: title (&lt;=150), name?, message? (&lt;=2000), details? (a list of &#123;label, value&#125; rows or an object of label: value; up to 30 rows, values &lt;=500), action_url? (https, approved origin), action_label? (&lt;=40), footer? (&lt;=500), app_name? (&lt;=60), preheader? (&lt;=150). HTML is escaped. |
 | `ttl_seconds` | integer | no | Submission will not start after this. Auth templates default 300 (max 900); notices default 3600 (max 86400). minimum 30. |
 | `metadata` | object | no | no other fields. |
 | `metadata.request_id` | string | no | pattern `^[A-Za-z0-9._:-]{1,128}$`. |
@@ -389,7 +389,7 @@ Errors share one shape: `error.code` is stable, `error.message` is optional deta
 | `missing_variable` | 422 | A variable the template requires is missing |
 | `invalid_variable_type` | 422 | A variable has the wrong JSON type |
 | `invalid_variable_format` | 422 | A variable does not match its format (for example a code with other characters) |
-| `variable_too_long` | 422 | A variable is longer than its limit |
+| `variable_too_long` | 422 | A variable is longer than its limit, or a `details` list has too many rows |
 | `variable_out_of_range` | 422 | A number is outside its allowed range (for example `expires_in_minutes`) |
 | `invalid_characters` | 422 | A variable contains characters that are not allowed (such as line breaks in a title) |
 | `invalid_url` | 422 | A URL variable is not a valid `https` URL |

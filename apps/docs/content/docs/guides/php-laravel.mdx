@@ -135,6 +135,34 @@ app(NjiwaMail::class)->send([
 
 Send from a queued job so a slow mail API never blocks the request. Keep the idempotency key in the job's payload so a retried job reuses it.
 
+## Send any data (orders, receipts, alerts)
+
+The built-in `notification` template shows any data as a table of label and value rows (`details`), with an optional button. Use it for orders, receipts and alerts without writing a template. See [Templates](/docs/api/templates#the-general-notification-template).
+
+```php check
+<?php
+
+use App\Services\NjiwaMail;
+
+app(NjiwaMail::class)->send([
+    'from' => 'orders@notify.example.com',
+    'to' => 'user@example.org',
+    'template' => 'notification',
+    'variables' => [
+        'name' => 'Ada',
+        'title' => 'Order #1042 confirmed',
+        'message' => 'We will email you again when it ships.',
+        'details' => [
+            ['label' => 'Order', 'value' => '#1042'],
+            ['label' => 'Total', 'value' => 'TZS 85,000'],
+            ['label' => 'Deliver to', 'value' => 'Plot 12, Mikocheni'],
+        ],
+        'action_url' => 'https://app.example.com/orders/1042',
+        'action_label' => 'View order',
+    ],
+], 'order-1042-confirmation');
+```
+
 ## Verify webhooks
 
 Register the route outside the `web` middleware group (or exclude it from CSRF), and verify the signature over the **raw** body:

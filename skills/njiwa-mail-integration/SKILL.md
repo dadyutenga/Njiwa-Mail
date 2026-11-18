@@ -24,6 +24,7 @@ Njiwa-Mail is a **self-hosted** transactional email service. There is no central
 |---|---|
 | Send an OTP | `references/otp.md` |
 | Password reset | `references/password-reset.md` |
+| Any other email with data (orders, receipts, alerts): template `notification` with `details` rows | `/docs/api/templates.md` |
 | Verify webhooks | `references/webhooks.md` |
 | Create, scope, rotate or revoke keys | `references/keys.md` |
 | Diagnose DNS or domain readiness | `references/dns.md` |
