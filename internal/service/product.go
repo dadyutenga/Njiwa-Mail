@@ -155,6 +155,12 @@ func (s *Service) ListSessions(ctx context.Context, userID string) ([]map[string
 	return s.maps(ctx, `SELECT encode(token_hash,'hex') AS id, ip, user_agent, created_at, expires_at FROM sessions WHERE user_id=$1 AND expires_at>now() ORDER BY created_at DESC`, userID)
 }
 
+// MySessions lists the signed-in user's live sessions and marks the one making this request.
+func (s *Service) MySessions(ctx context.Context, u *AdminUser) ([]map[string]any, error) {
+	return s.maps(ctx, `SELECT encode(token_hash,'hex') AS id, ip, user_agent, created_at, expires_at, token_hash=$2 AS current
+FROM sessions WHERE user_id=$1 AND expires_at>now() ORDER BY token_hash=$2 DESC, created_at DESC`, u.ID, u.tokenHash)
+}
+
 func (s *Service) RevokeSession(ctx context.Context, userID, id string) error {
 	hash, err := hex.DecodeString(id)
 	if err != nil {

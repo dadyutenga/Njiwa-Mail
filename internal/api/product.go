@@ -158,7 +158,7 @@ func (s *Server) productRoutes(app *fiber.App) {
 		return nil, nil
 	})
 	h(fiber.MethodGet, "/admin/v1/auth/sessions", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
-		items, err := svc.ListSessions(reqCtx(c), u.ID)
+		items, err := svc.MySessions(reqCtx(c), u)
 		if err != nil {
 			return nil, err
 		}

@@ -45,8 +45,19 @@ func TestAccountPasswordSessionsAndAudit(t *testing.T) {
 	d2 := e.raw("POST", "/admin/v1/auth/login", nil, map[string]any{"email": "ann@njiwa.co.tz", "password": newPass})
 	dev2 := session{cookie: strings.SplitN(d2.Hdr.Get("Set-Cookie"), ";", 2)[0], csrf: str(d2.JSON, "csrf_token")}
 	_ = d1
-	if n := len(e.admOK(ann, "GET", "/admin/v1/auth/sessions", nil).JSON["items"].([]any)); n < 3 {
-		t.Fatalf("sessions: %d", n)
+	listed := e.admOK(ann, "GET", "/admin/v1/auth/sessions", nil).JSON["items"].([]any)
+	if len(listed) < 3 {
+		t.Fatalf("sessions: %d", len(listed))
+	}
+	// Exactly one session is the browser asking, and it is listed first.
+	current := 0
+	for _, it := range listed {
+		if it.(map[string]any)["current"] == true {
+			current++
+		}
+	}
+	if current != 1 || listed[0].(map[string]any)["current"] != true {
+		t.Fatalf("current session not marked once and first: %v", listed)
 	}
 	rv := e.admOK(ann, "POST", "/admin/v1/auth/sessions/revoke-others", map[string]any{})
 	if rv.JSON["revoked"].(float64) < 2 {

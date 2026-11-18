@@ -8,6 +8,21 @@ import { swSetup } from "./sw-setup";
 import { swTools } from "./sw-tools";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "Every browser except this one is signed out and must sign in again.":
+    "Kila kivinjari isipokuwa hiki kitatolewa na lazima kiingie tena.",
+  "Sign out every other browser?": "Toa kila kivinjari kingine?",
+  "Sign out other browsers": "Toa vivinjari vingine",
+  "Sign out others": "Toa vingine",
+  "Signed in": "Kiliingia",
+  "Signed in now": "Kimeingia sasa",
+  "This browser": "Kivinjari hiki",
+  "Unknown browser": "Kivinjari kisichojulikana",
+  ago: "zilizopita",
+  d: "siku",
+  h: "saa",
+  min: "dak",
+  "expires in": "kinaisha baada ya",
+  "just now": "sasa hivi",
   "Clear search": "Futa utafutaji",
   Filters: "Vichujio",
   "Find by recipient address, e.g. name@example.com":
