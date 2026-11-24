@@ -1,0 +1,246 @@
+/*
+ * OpenDashboards design system.
+ *
+ * Three layers, taken from the product as it ships:
+ *   dashboard  @openuidev/dashboard-library default light and dark themes
+ *   app        app/globals.css (shadcn radix-nova, neutral) plus Inter / Geist Mono
+ *   marketing  the landing page: Inter Display, bevel pills, #0a0a0a
+ *
+ * Put class "od" on a root. data-mode="dark" switches the dashboard tokens.
+ * App-shell tokens live on .od-app. Marketing tokens live on .od-mkt.
+ */
+
+.od {
+  color-scheme: light;
+  --od-font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --od-font-display: "Inter Display", Inter, ui-sans-serif, system-ui, sans-serif;
+  --od-font-wordmark: Geist, Inter, ui-sans-serif, system-ui, sans-serif;
+  --od-font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --od-type-page-size: 1.75rem;
+  --od-type-page-weight: 700;
+  --od-type-page-leading: 1.2;
+  --od-type-page-tracking: -0.02em;
+  --od-type-section-size: 15px;
+  --od-type-section-weight: 600;
+  --od-type-section-tracking: -0.005em;
+  --od-type-card-size: 14px;
+  --od-type-card-weight: 600;
+  --od-type-card-leading: 1.35;
+  --od-type-kpi-size: 26px;
+  --od-type-kpi-weight: 600;
+  --od-type-kpi-leading: 1.1;
+  --od-type-body-size: 13px;
+  --od-type-body-weight: 500;
+  --od-type-body-leading: 1.45;
+  --od-type-caption-size: 12px;
+  --od-type-caption-leading: 1.4;
+  --od-type-display-size: clamp(1.75rem, 3vw, 2.5rem);
+  --od-type-display-weight: 600;
+  --od-type-display-leading: 1.1;
+  --od-type-display-tracking: -0.02em;
+
+  --od-sheen-peak: 2.5%;
+  --od-skel-line: 3.5%;
+  --od-skel-block: 2.5%;
+  --od-page: #ffffff;
+  --od-surface: #ffffff;
+  --od-surface-subtle: rgba(0, 0, 0, 0.04);
+  --od-border: rgba(0, 0, 0, 0.06);
+  --od-border-strong: rgba(0, 0, 0, 0.1);
+  --od-ink: #0d0d0d;
+  --od-ink-secondary: rgba(13, 13, 13, 0.64);
+  --od-ink-muted: rgba(13, 13, 13, 0.52);
+  --od-grid: #f1f1f1;
+  --od-accent: #0e0e0e;
+  --od-accent-ink: #ffffff;
+
+  --od-series-1: #6155e8;
+  --od-series-2: #16b76f;
+  --od-series-3: #ffc700;
+  --od-series-4: #df507b;
+  --od-series-5: #3894ff;
+  --od-series-6: #ff8000;
+  --od-series-7: #a0522d;
+  --od-series-8: #00cbd9;
+  --od-muted-mark: #b4b4b4;
+
+  --od-seq-1: #f5f6ff;
+  --od-seq-2: #d9ddff;
+  --od-seq-3: #c0c5f9;
+  --od-seq-4: #a7acf1;
+  --od-seq-5: #9094e8;
+  --od-seq-6: #797cdd;
+  --od-seq-7: #6563d2;
+  --od-seq-8: #5248c6;
+  --od-seq-9: #4229ba;
+
+  --od-div-1: #b32f5b;
+  --od-div-2: #ca647e;
+  --od-div-3: #dd92a2;
+  --od-div-4: #eebfc9;
+  --od-div-5: #e7e7e7;
+  --od-div-6: #c6caf2;
+  --od-div-7: #9fa4e5;
+  --od-div-8: #7b7ed7;
+  --od-div-9: #5a56c7;
+
+  --od-good: #079455;
+  --od-good-mark: #16b76f;
+  --od-bad: #c82c37;
+  --od-bad-mark: #d03348;
+  --od-warning: #cd8200;
+  --od-warning-soft: rgba(255, 199, 0, 0.12);
+  --od-warning-mark: #ffc700;
+  --od-info: #317ce6;
+  --od-neutral-soft: rgba(0, 0, 0, 0.04);
+  --od-map-land: #efefef;
+
+  --od-area-wash: 0.09;
+  --od-area-dot: 0.4;
+  --od-area-stack-top: 0.55;
+  --od-area-stack-bottom: 0.35;
+
+  --od-radius: 16px;
+  --od-radius-md: 12px;
+  --od-radius-sm: 8px;
+  --od-space-xs: 8px;
+  --od-space-sm: 12px;
+  --od-space-md: 16px;
+  --od-space-lg: 20px;
+  --od-space-xl: 24px;
+  --od-space-2xl: 36px;
+  --od-shadow: 0 3px 8px -3px rgba(0, 0, 0, 0.04), 0 1px 2px -2px rgba(0, 0, 0, 0.02);
+  --od-shadow-pop: 0 6px 12px -6px rgba(0, 0, 0, 0.1), 0 10px 40px -8px rgba(0, 0, 0, 0.08);
+
+  color: var(--od-ink);
+  background: var(--od-page);
+  font-family: var(--od-font-sans);
+  font-feature-settings: "liga", "calt";
+  -webkit-font-smoothing: antialiased;
+}
+
+.od[data-mode="dark"] {
+  color-scheme: dark;
+  --od-sheen-peak: 3.5%;
+  --od-skel-line: 5%;
+  --od-skel-block: 3.5%;
+  --od-page: #141414;
+  --od-surface: #151515;
+  --od-surface-subtle: rgba(255, 255, 255, 0.04);
+  --od-border: rgba(255, 255, 255, 0.04);
+  --od-border-strong: rgba(255, 255, 255, 0.12);
+  --od-ink: #fafafa;
+  --od-ink-secondary: rgba(250, 250, 250, 0.62);
+  --od-ink-muted: rgba(250, 250, 250, 0.5);
+  --od-grid: rgba(255, 255, 255, 0.04);
+  --od-accent: #fafafa;
+  --od-accent-ink: #0d0d0d;
+
+  --od-series-1: #7b72f2;
+  --od-series-2: #16b76f;
+  --od-series-3: #ffc700;
+  --od-series-4: #df507b;
+  --od-series-5: #3894ff;
+  --od-series-6: #ff8000;
+  --od-series-7: #b8693a;
+  --od-series-8: #00cbd9;
+  --od-muted-mark: rgba(250, 250, 250, 0.3);
+
+  --od-seq-1: #1b1c34;
+  --od-seq-2: #2c2e4e;
+  --od-seq-3: #3e4069;
+  --od-seq-4: #515484;
+  --od-seq-5: #6568a1;
+  --od-seq-6: #7a7ebd;
+  --od-seq-7: #8f94d9;
+  --od-seq-8: #a6abf4;
+  --od-seq-9: #bdc3ff;
+
+  --od-div-1: #eb7d98;
+  --od-div-2: #c2687e;
+  --od-div-3: #995565;
+  --od-div-4: #73414d;
+  --od-div-5: #3a3a3c;
+  --od-div-6: #4b4e79;
+  --od-div-7: #6366a1;
+  --od-div-8: #7b7fcc;
+  --od-div-9: #9599f9;
+
+  --od-good: #7fe0b1;
+  --od-good-mark: #2ce98a;
+  --od-bad: #f1838c;
+  --od-bad-mark: #ea4e58;
+  --od-warning: #ffd84d;
+  --od-warning-soft: rgba(255, 199, 0, 0.16);
+  --od-warning-mark: #ffc700;
+  --od-info: #8fbcf7;
+  --od-neutral-soft: rgba(255, 255, 255, 0.06);
+  --od-map-land: #232323;
+
+  --od-area-wash: 0.02;
+  --od-area-dot: 0.08;
+  --od-area-stack-top: 0.2;
+  --od-area-stack-bottom: 0.08;
+
+  --od-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.22), 0 3px 10px -3px rgba(0, 0, 0, 0.16);
+  --od-shadow-pop: 0 10px 28px -8px rgba(0, 0, 0, 0.45), 0 20px 56px -12px rgba(0, 0, 0, 0.3);
+}
+
+/* Signed-in app chrome. Radius is 10px, and the chart slots are a gray ramp,
+   separate from the dashboard series colors. */
+.od-app {
+  --od-app-font: var(--od-font-sans, Inter, ui-sans-serif, system-ui, sans-serif);
+  --od-app-radius: 0.625rem;
+  --od-app-background: oklch(1 0 0);
+  --od-app-foreground: oklch(0.145 0 0);
+  --od-app-card: oklch(1 0 0);
+  --od-app-primary: oklch(0.205 0 0);
+  --od-app-primary-foreground: oklch(0.985 0 0);
+  --od-app-secondary: oklch(0.97 0 0);
+  --od-app-secondary-foreground: oklch(0.205 0 0);
+  --od-app-muted: oklch(0.97 0 0);
+  --od-app-muted-foreground: oklch(0.556 0 0);
+  --od-app-border: oklch(0.922 0 0);
+  --od-app-ring: oklch(0.708 0 0);
+  --od-app-destructive: oklch(0.577 0.245 27.325);
+  --od-app-sidebar: oklch(0.985 0 0);
+  --od-app-chart-1: oklch(0.87 0 0);
+  --od-app-chart-2: oklch(0.556 0 0);
+  --od-app-chart-3: oklch(0.439 0 0);
+  --od-app-chart-4: oklch(0.371 0 0);
+  --od-app-chart-5: oklch(0.269 0 0);
+  color: var(--od-app-foreground);
+  background: var(--od-app-background);
+  font-family: var(--od-app-font);
+}
+
+.od-app[data-mode="dark"] {
+  --od-app-background: oklch(0.145 0 0);
+  --od-app-foreground: oklch(0.985 0 0);
+  --od-app-card: oklch(0.205 0 0);
+  --od-app-primary: oklch(0.922 0 0);
+  --od-app-primary-foreground: oklch(0.205 0 0);
+  --od-app-secondary: oklch(0.269 0 0);
+  --od-app-secondary-foreground: oklch(0.985 0 0);
+  --od-app-muted: oklch(0.269 0 0);
+  --od-app-muted-foreground: oklch(0.708 0 0);
+  --od-app-border: oklch(1 0 0 / 10%);
+  --od-app-ring: oklch(0.556 0 0);
+  --od-app-destructive: oklch(0.704 0.191 22.216);
+  --od-app-sidebar: oklch(0.205 0 0);
+}
+
+/* Landing page. Light only. */
+.od-mkt {
+  --od-mkt-page: #ffffff;
+  --od-mkt-ink: #0a0a0a;
+  --od-mkt-muted: rgb(10 10 10 / 0.6);
+  --od-mkt-secondary: #f7f7f8;
+  --od-mkt-bevel-primary: #0a0a0a;
+  --od-mkt-bevel-primary-ink: #ffffff;
+  --od-mkt-radius-pill: 999px;
+  color: var(--od-mkt-ink);
+  background: var(--od-mkt-page);
+  font-family: var(--od-font-display, "Inter Display", Inter, ui-sans-serif, system-ui, sans-serif);
+}

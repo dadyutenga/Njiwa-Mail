@@ -1099,11 +1099,11 @@ export function Analytics() {
   };
   const upIsGood = new Set(["messages", "submitted", "remote_accepted"]);
   const changeClass = (key: string, value: unknown) => {
-    if (value === null || value === undefined) return "text-muted-foreground";
+    if (value === null || value === undefined) return "od-delta od-delta-neutral";
     const n = Number(value);
-    if (!n) return "text-muted-foreground";
+    if (!n) return "od-delta od-delta-neutral";
     const better = upIsGood.has(key) ? n > 0 : n < 0;
-    return better ? "text-primary" : "text-destructive";
+    return better ? "od-delta od-delta-good" : "od-delta od-delta-bad";
   };
   const shownEnd = new Date(end.getTime() - 86400000);
   const periodLabel = `${start.toISOString().slice(0, 10)} – ${shownEnd.toISOString().slice(0, 10)}`;
@@ -1113,69 +1113,49 @@ export function Analytics() {
         title={phrase("Analytics")}
         description={`${project}: ${phrase("this period compared with the one before it.")}`}
       />
-      <section className="mb-4 rounded-xl border bg-card p-4">
+      <section className="od-card mb-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-medium text-muted-foreground">{phrase("Sending mode")}</p>
-            <div className="relative mt-2 inline-flex">
-              <div
-                aria-hidden
-                className="absolute inset-0 rounded-xl bg-gradient-to-r from-sky-400/45 to-emerald-300/40"
-              />
-              <div
-                className="relative inline-flex rounded-xl border border-white/70 bg-white/35 p-1 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10"
-                role="group"
-                aria-label={phrase("Sending mode")}
-              >
-                {(
-                  [
-                    ["live", phrase("Live — send to real recipients")],
-                    ["sandbox", phrase("Sandbox — capture only")],
-                  ] as const
-                ).map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    aria-pressed={env === mode}
-                    className={`rounded-lg px-3 py-1.5 text-sm backdrop-blur ${env === mode ? "bg-white/75 text-foreground shadow-sm dark:bg-white/20 dark:text-white" : "text-muted-foreground hover:bg-white/40 dark:hover:bg-white/10"}`}
-                    onClick={() => setEnv(mode)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+            <p className="od-kpi-label">{phrase("Sending mode")}</p>
+            <div className="od-chips mt-2" role="group" aria-label={phrase("Sending mode")}>
+              {(
+                [
+                  ["live", phrase("Live — send to real recipients")],
+                  ["sandbox", phrase("Sandbox — capture only")],
+                ] as const
+              ).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-checked={env === mode}
+                  className="od-chip"
+                  onClick={() => setEnv(mode)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
           <div>
-            <p className="text-xs font-medium text-muted-foreground">{phrase("Period")}</p>
-            <div className="relative mt-2 inline-flex">
-              <div
-                aria-hidden
-                className="absolute inset-0 rounded-xl bg-gradient-to-r from-emerald-300/40 to-sky-400/45"
-              />
-              <div
-                className="relative inline-flex rounded-xl border border-white/70 bg-white/35 p-1 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10"
-                role="group"
-                aria-label={phrase("Period")}
-              >
-                {(
-                  [
-                    ["7", phrase("Last 7 days")],
-                    ["30", phrase("Last 30 days")],
-                    ["90", phrase("Last 90 days")],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={days === value}
-                    className={`rounded-lg px-3 py-1.5 text-sm backdrop-blur ${days === value ? "bg-white/75 text-foreground shadow-sm dark:bg-white/20 dark:text-white" : "text-muted-foreground hover:bg-white/40 dark:hover:bg-white/10"}`}
-                    onClick={() => setDays(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+            <p className="od-kpi-label">{phrase("Period")}</p>
+            <div className="od-chips mt-2" role="group" aria-label={phrase("Period")}>
+              {(
+                [
+                  ["7", phrase("Last 7 days")],
+                  ["30", phrase("Last 30 days")],
+                  ["90", phrase("Last 90 days")],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-checked={days === value}
+                  className="od-chip"
+                  onClick={() => setDays(value)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
           <p className="text-sm text-muted-foreground" role="status">
@@ -1215,9 +1195,9 @@ export function Analytics() {
                 {metrics.map(([k, label]) => {
                   const c = ch[k];
                   return (
-                    <article key={k} className="rounded-xl border bg-card p-4">
-                      <p className="text-sm text-muted-foreground">{phrase(label)}</p>
-                      <p className="mt-2 text-3xl font-bold tracking-tight">{s(tot[k]) || "0"}</p>
+                    <article key={k} className="od-card">
+                      <p className="od-kpi-label">{phrase(label)}</p>
+                      <p className="od-kpi-value">{s(tot[k]) || "0"}</p>
                       <p className={`mt-2 text-xs font-medium ${changeClass(k, c)}`}>
                         {c === null || c === undefined
                           ? phrase("no earlier data")
@@ -1231,8 +1211,8 @@ export function Analytics() {
                 <h2 className="mb-3 text-sm font-semibold">{phrase("How long it took")}</h2>
                 <div className="grid gap-3 lg:grid-cols-2">
                   {timings.map((t) => (
-                    <article key={t.k} className="rounded-xl border bg-card p-4">
-                      <h3 className="text-sm font-medium">{t.label}</h3>
+                    <article key={t.k} className="od-card">
+                      <h3 className="od-card-title">{t.label}</h3>
                       <dl className="mt-4 grid grid-cols-3 gap-3">
                         {(
                           [
@@ -1601,11 +1581,7 @@ export function Audit() {
           setQuery(draft.trim());
         }}
       >
-        <div
-          aria-hidden
-          className="absolute inset-0 rounded-2xl bg-gradient-to-r from-sky-400/35 to-emerald-300/30"
-        />
-        <div className="relative flex flex-wrap items-end gap-2 rounded-2xl border border-white/70 bg-white/40 p-4 shadow-sm backdrop-blur-xl dark:border-white/15 dark:bg-white/10">
+        <div className="od-card flex-row flex-wrap items-end">
           <Field label={phrase("Search the log")} className="min-w-64 flex-1">
             <input
               className={inputClass}

@@ -1,1 +1,3 @@
+@import "./styles/opendashboards/tokens.css";
+@import "./styles/opendashboards/components.css";
 @import "./styles/globals.css";

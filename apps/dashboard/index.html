@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="od od-app">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,16 +13,18 @@
       property="og:description"
       content="Send, receive and track transactional email through one API, on servers you control."
     />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FAF7F2" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0F1114" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141414" />
     <link rel="icon" type="image/svg+xml" href="/njiwa-dove.svg" />
+    <link rel="preconnect" href="https://fonts.bunny.net" />
+    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700" rel="stylesheet" />
     <script>
       try {
         const theme = localStorage.getItem("theme");
-        document.documentElement.classList.toggle(
-          "dark",
-          theme === "dark" || (!theme && matchMedia("(prefers-color-scheme: dark)").matches),
-        );
+        const dark =
+          theme === "dark" || (!theme && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+        document.documentElement.dataset.mode = dark ? "dark" : "light";
       } catch {}
     </script>
     <title>Njiwa-Mail — Your own mail carrier.</title>

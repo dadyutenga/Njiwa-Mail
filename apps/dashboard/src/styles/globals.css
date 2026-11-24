@@ -5,6 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* 12px base lands rounded-md on the 10px app radius and rounded-xl on the 16px card radius. */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -32,76 +33,62 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-info: var(--info);
   --color-surface: var(--surface);
   --color-surface-elevated: var(--surface-elevated);
-  --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
+  --font-display: var(--od-font-sans);
+  --font-sans: var(--od-font-sans);
+  --font-mono: var(--od-font-mono);
 }
 
-/* Dark theme tokens */
-:root.dark {
-  --radius: 0.875rem;
-
-  --background: oklch(0.16 0.012 240);
-  --foreground: oklch(0.97 0.005 240);
-
-  --surface: oklch(0.21 0.014 240);
-  --surface-elevated: oklch(0.25 0.016 240);
-
-  --card: oklch(0.21 0.014 240);
-  --card-foreground: oklch(0.97 0.005 240);
-
-  --popover: oklch(0.21 0.014 240);
-  --popover-foreground: oklch(0.97 0.005 240);
-
-  --primary: oklch(0.78 0.17 155);
-  --primary-foreground: oklch(0.18 0.02 155);
-
-  --secondary: oklch(0.27 0.016 240);
-  --secondary-foreground: oklch(0.97 0.005 240);
-
-  --muted: oklch(0.27 0.016 240);
-  --muted-foreground: oklch(0.66 0.02 240);
-
-  --accent: oklch(0.78 0.16 80);
-  --accent-foreground: oklch(0.18 0.02 80);
-
-  --success: oklch(0.78 0.17 155);
-  --warning: oklch(0.78 0.16 60);
-
-  --destructive: oklch(0.66 0.22 25);
-  --destructive-foreground: oklch(0.98 0.01 25);
-
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.78 0.17 155 / 50%);
-}
-
+/*
+ * App chrome and status colors read OpenDashboards tokens.
+ * html carries .od and .od-app; data-mode="dark" swaps both palettes.
+ * Dashboard charts use the series ramp, not the gray app-shell chart ramp.
+ */
 :root {
-  --radius: 0.875rem;
-  --background: oklch(0.98 0.005 240);
-  --foreground: oklch(0.2 0.02 240);
-  --surface: white;
-  --surface-elevated: white;
-  --card: white;
-  --card-foreground: oklch(0.2 0.02 240);
-  --popover: white;
-  --popover-foreground: oklch(0.2 0.02 240);
-  --primary: oklch(0.52 0.14 155);
-  --primary-foreground: white;
-  --secondary: oklch(0.94 0.01 240);
-  --secondary-foreground: oklch(0.2 0.02 240);
-  --muted: oklch(0.94 0.01 240);
-  --muted-foreground: oklch(0.46 0.02 240);
-  --accent: oklch(0.93 0.03 155);
-  --accent-foreground: oklch(0.2 0.02 240);
-  --success: oklch(0.52 0.14 155);
-  --warning: oklch(0.65 0.16 60);
-  --destructive: oklch(0.55 0.2 25);
-  --destructive-foreground: white;
-  --border: oklch(0.88 0.01 240);
-  --input: oklch(0.85 0.01 240);
-  --ring: oklch(0.52 0.14 155);
+  --radius: 0.75rem;
+  --background: var(--od-app-background);
+  --foreground: var(--od-app-foreground);
+  --surface: var(--od-surface);
+  --surface-elevated: var(--od-app-card);
+  --card: var(--od-surface);
+  --card-foreground: var(--od-ink);
+  --popover: var(--od-app-card);
+  --popover-foreground: var(--od-app-foreground);
+  --primary: var(--od-app-primary);
+  --primary-foreground: var(--od-app-primary-foreground);
+  --secondary: var(--od-app-secondary);
+  --secondary-foreground: var(--od-app-secondary-foreground);
+  --muted: var(--od-app-muted);
+  --muted-foreground: var(--od-app-muted-foreground);
+  --accent: var(--od-app-secondary);
+  --accent-foreground: var(--od-app-secondary-foreground);
+  --success: var(--od-good);
+  --warning: var(--od-warning);
+  --info: var(--od-info);
+  --destructive: var(--od-app-destructive);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: var(--od-border);
+  --input: var(--od-app-border);
+  --ring: var(--od-app-ring);
+  --sidebar: var(--od-app-sidebar);
+  --chart-1: var(--od-series-1);
+  --chart-2: var(--od-series-2);
+  --chart-3: var(--od-series-3);
+  --chart-4: var(--od-series-4);
+  --chart-5: var(--od-series-5);
+  --chart-6: var(--od-series-6);
+  --chart-7: var(--od-series-7);
+  --chart-8: var(--od-series-8);
 }
 
 @layer base {
@@ -132,7 +119,7 @@
     height: 4px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: oklch(1 0 0 / 12%);
+    background: var(--od-border-strong);
     border-radius: 4px;
   }
   .no-scrollbar::-webkit-scrollbar {

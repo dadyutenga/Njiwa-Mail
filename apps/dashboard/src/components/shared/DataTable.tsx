@@ -44,7 +44,7 @@ export function DataTable<T extends { id: string }>({
     ]);
   }
   return (
-    <div className="rounded-2xl border bg-card p-5">
+    <div className="od-card">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input
           aria-label="Search records"

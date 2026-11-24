@@ -3,6 +3,7 @@ function applyTheme(theme: string) {
   const dark =
     theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.dataset.mode = dark ? "dark" : "light";
 }
 export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {

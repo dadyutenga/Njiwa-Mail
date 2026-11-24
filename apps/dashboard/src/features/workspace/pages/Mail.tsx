@@ -142,11 +142,7 @@ export function Inbox() {
             />
           </Field>
         </form>
-        <div
-          className="flex gap-1 rounded-lg bg-muted p-1 text-sm"
-          role="group"
-          aria-label={phrase("Filter")}
-        >
+        <div className="od-chips" role="group" aria-label={phrase("Filter")}>
           {[
             ["", "", "All"],
             ["1", "", "Unread"],
@@ -154,15 +150,12 @@ export function Inbox() {
           ].map(([u, a, label]) => (
             <button
               key={label}
-              aria-pressed={unread === u && archived === a}
+              aria-checked={unread === u && archived === a}
               onClick={() => {
                 setUnread(u);
                 setArchived(a);
               }}
-              className={cn(
-                "rounded-md px-3 py-1",
-                unread === u && archived === a ? "bg-background shadow" : "text-muted-foreground",
-              )}
+              className="od-chip"
             >
               {phrase(label)}
               {label === "Unread" && counts.data?.total ? ` (${counts.data.total})` : ""}
@@ -694,7 +687,7 @@ function MessageList({ preset, extended }: { preset?: { state?: string }; extend
           </div>
           {!preset?.state && (
             <div
-              className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1"
+              className="od-chips -mx-1 mt-3 max-w-full overflow-x-auto"
               role="group"
               aria-label={phrase("State")}
             >
@@ -702,14 +695,9 @@ function MessageList({ preset, extended }: { preset?: { state?: string }; extend
                 <button
                   key={v || "all"}
                   type="button"
-                  aria-pressed={state === v}
+                  aria-checked={state === v}
                   onClick={() => setState(v)}
-                  className={cn(
-                    "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition",
-                    state === v
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground",
-                  )}
+                  className="od-chip shrink-0"
                 >
                   {phrase(l)}
                 </button>
@@ -979,11 +967,7 @@ function ModeSwitch({
 }) {
   const phrase = usePhrase();
   return (
-    <div
-      role="radiogroup"
-      aria-label={phrase("Sending mode")}
-      className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5"
-    >
+    <div role="radiogroup" aria-label={phrase("Sending mode")} className="od-chips shrink-0">
       {(
         [
           ["live", "Live"],
@@ -996,12 +980,7 @@ function ModeSwitch({
           role="radio"
           aria-checked={value === v}
           onClick={() => onChange(v)}
-          className={cn(
-            "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
-            value === v
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
+          className="od-chip inline-flex items-center gap-1.5"
         >
           <span
             aria-hidden="true"

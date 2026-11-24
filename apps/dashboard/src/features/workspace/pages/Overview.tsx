@@ -73,9 +73,9 @@ export function AppResolver() {
           <li key={p.id}>
             <Link
               to={`/p/${encodeURIComponent(p.name)}/dashboard`}
-              className="flex items-center gap-3 rounded-xl border bg-card p-4 hover:border-primary"
+              className="od-card flex-row items-center hover:border-[var(--od-border-strong)]"
             >
-              <FolderKanban size={20} className="text-primary" />
+              <FolderKanban size={20} className="text-[var(--od-series-1)]" />
               <span className="font-semibold">{p.name}</span>
               {!p.enabled && <StateBadge state="cancelled" label={phrase("disabled")} />}
             </Link>
@@ -104,12 +104,10 @@ function FirstRun() {
   ];
   return (
     <FirstRunShell>
-      <div className="rounded-2xl border bg-card p-6 sm:p-10">
-        <p className="text-sm font-semibold uppercase tracking-wide text-primary">
-          {phrase("Welcome")}
-        </p>
-        <h1 className="mt-2 text-3xl font-bold">{phrase("Set up Njiwa-Mail")}</h1>
-        <p className="mt-2 text-muted-foreground">
+      <div className="od-card">
+        <p className="od-caption font-semibold uppercase tracking-wide">{phrase("Welcome")}</p>
+        <h1 className="od-page-title">{phrase("Set up Njiwa-Mail")}</h1>
+        <p className="od-caption">
           {phrase(
             "Start with a project. Each project has a Sandbox, where mail is captured, and a Live environment for real mail.",
           )}
@@ -267,12 +265,15 @@ type Tone = "success" | "primary" | "warning" | "danger" | "neutral";
 
 const toneStyles: Record<Tone, { icon: string; active: string }> = {
   success: { icon: "bg-success/15 text-success", active: "" },
-  primary: { icon: "bg-primary/15 text-primary", active: "" },
-  neutral: { icon: "bg-muted text-muted-foreground", active: "" },
-  warning: { icon: "bg-warning/15 text-warning", active: "border-warning/50 bg-warning/5" },
+  primary: { icon: "bg-chart-1/15 text-chart-1", active: "" },
+  neutral: { icon: "bg-[var(--od-neutral-soft)] text-[var(--od-ink-secondary)]", active: "" },
+  warning: {
+    icon: "bg-[var(--od-warning-soft)] text-warning",
+    active: "border-[var(--od-warning-mark)]",
+  },
   danger: {
     icon: "bg-destructive/15 text-destructive",
-    active: "border-destructive/50 bg-destructive/5",
+    active: "border-[var(--od-bad-mark)]",
   },
 };
 
@@ -283,9 +284,7 @@ function KpiGroup({ title, cards }: { title: string; cards: Kpi[] }) {
   const { to } = useWorkspace();
   return (
     <section aria-label={title}>
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h2>
+      <h2 className="od-section-title mb-2">{title}</h2>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {cards.map(({ label, value, link, icon: Icon, tone }) => {
           const st = toneStyles[tone];
@@ -296,27 +295,23 @@ function KpiGroup({ title, cards }: { title: string; cards: Kpi[] }) {
               key={label}
               to={to(link)}
               className={cn(
-                "group flex flex-col justify-between gap-3 rounded-xl border bg-card p-4 transition hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "od-card justify-between transition hover:border-[var(--od-border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 !muted && st.active,
               )}
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="text-xs leading-snug text-muted-foreground sm:text-sm">
-                  {phrase(label)}
-                </p>
+                <p className="od-kpi-label">{phrase(label)}</p>
                 <span
                   className={cn(
-                    "grid h-8 w-8 shrink-0 place-items-center rounded-lg",
-                    muted ? "bg-muted text-muted-foreground" : st.icon,
+                    "grid h-8 w-8 shrink-0 place-items-center rounded-[var(--od-radius-sm)]",
+                    muted ? "bg-[var(--od-neutral-soft)] text-[var(--od-ink-muted)]" : st.icon,
                   )}
                 >
                   <Icon size={16} aria-hidden />
                 </span>
               </div>
               <div className="flex items-end justify-between">
-                <p className="text-2xl font-bold tabular-nums sm:text-3xl">
-                  {value.toLocaleString()}
-                </p>
+                <p className="od-kpi-value">{value.toLocaleString()}</p>
                 <ArrowUpRight
                   size={16}
                   aria-hidden
@@ -332,34 +327,34 @@ function KpiGroup({ title, cards }: { title: string; cards: Kpi[] }) {
 }
 
 // Message states grouped by what they mean for the sender. Colours match StateBadge.
-const stateGroups: { title: string; states: { key: string; bar: string }[] }[] = [
+const stateGroups: { title: string; states: { key: string; color: string }[] }[] = [
   {
     title: "Accepted",
     states: [
-      { key: "submitted", bar: "bg-success" },
-      { key: "captured", bar: "bg-primary" },
+      { key: "submitted", color: "var(--od-good-mark)" },
+      { key: "captured", color: "var(--od-series-5)" },
     ],
   },
   {
     title: "In progress",
     states: [
-      { key: "queued", bar: "bg-muted-foreground/60" },
-      { key: "submitting", bar: "bg-muted-foreground/40" },
-      { key: "scheduled", bar: "bg-accent" },
-      { key: "retry_wait", bar: "bg-warning/70" },
+      { key: "queued", color: "var(--od-muted-mark)" },
+      { key: "submitting", color: "var(--od-series-8)" },
+      { key: "scheduled", color: "var(--od-series-3)" },
+      { key: "retry_wait", color: "var(--od-warning-mark)" },
     ],
   },
   {
     title: "Problems",
     states: [
-      { key: "failed", bar: "bg-destructive" },
-      { key: "expired", bar: "bg-destructive/60" },
-      { key: "unknown", bar: "bg-warning" },
+      { key: "failed", color: "var(--od-bad-mark)" },
+      { key: "expired", color: "var(--od-series-4)" },
+      { key: "unknown", color: "var(--od-series-6)" },
     ],
   },
   {
     title: "Stopped",
-    states: [{ key: "cancelled", bar: "bg-muted-foreground/30" }],
+    states: [{ key: "cancelled", color: "var(--od-muted-mark)" }],
   },
 ];
 
@@ -376,7 +371,7 @@ function MessagesByState({ counts }: { counts: Record<string, number> }) {
             title: "Other",
             states: Object.keys(counts)
               .filter((k) => !known.has(k))
-              .map((key) => ({ key, bar: "bg-muted-foreground/40" })),
+              .map((key) => ({ key, color: "var(--od-series-7)" })),
           },
         ]
       : []),
@@ -394,7 +389,7 @@ function MessagesByState({ counts }: { counts: Record<string, number> }) {
       }
     >
       <div className="mb-4 flex items-baseline gap-2">
-        <span className="text-3xl font-bold tabular-nums">{total.toLocaleString()}</span>
+        <span className="od-kpi-value">{total.toLocaleString()}</span>
         <span className="text-sm text-muted-foreground">{phrase("messages in total")}</span>
       </div>
       <div
@@ -402,12 +397,12 @@ function MessagesByState({ counts }: { counts: Record<string, number> }) {
         role="img"
         aria-label={phrase("Share of messages in each state")}
       >
-        {all.map(({ key, bar }) =>
+        {all.map(({ key, color }) =>
           counts[key] ? (
             <div
               key={key}
-              className={cn("h-full", bar)}
-              style={{ width: `${(counts[key] / total) * 100}%` }}
+              className="h-full"
+              style={{ width: `${(counts[key] / total) * 100}%`, background: color }}
               title={`${key.replace(/_/g, " ")}: ${counts[key]}`}
             />
           ) : null,
@@ -427,7 +422,7 @@ function MessagesByState({ counts }: { counts: Record<string, number> }) {
                 </span>
               </div>
               <ul>
-                {g.states.map(({ key, bar }) => {
+                {g.states.map(({ key, color }) => {
                   const n = counts[key] ?? 0;
                   return (
                     <li key={key}>
@@ -439,7 +434,8 @@ function MessagesByState({ counts }: { counts: Record<string, number> }) {
                         )}
                       >
                         <span
-                          className={cn("h-2.5 w-2.5 shrink-0 rounded-full", bar)}
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ background: color }}
                           aria-hidden
                         />
                         <span className="flex-1 capitalize">{key.replace(/_/g, " ")}</span>
@@ -626,10 +622,7 @@ export function Checklist() {
                   const link = stepLinks[st.key];
                   if (!link) return null;
                   return (
-                    <li
-                      key={st.key}
-                      className="flex flex-wrap items-start gap-3 rounded-xl border bg-card p-4"
-                    >
+                    <li key={st.key} className="od-card flex-row flex-wrap items-start">
                       {st.done ? (
                         <CheckCircle2 className="mt-0.5 text-success" aria-label="done" />
                       ) : (

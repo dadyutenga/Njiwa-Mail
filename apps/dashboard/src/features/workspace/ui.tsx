@@ -63,10 +63,8 @@ export function PageHeader({
       )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
-          {description && (
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p>
-          )}
+          <h1 className="od-page-title">{title}</h1>
+          {description && <p className="od-caption mt-1 max-w-2xl">{description}</p>}
         </div>
         {action && <div className="flex shrink-0 flex-wrap gap-2">{action}</div>}
       </div>
@@ -86,10 +84,10 @@ export function Section({
   className?: string;
 }) {
   return (
-    <section className={cn("rounded-xl border bg-card p-4 sm:p-5", className)}>
+    <section className={cn("od-card", className)}>
       {(title || action) && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          {title && <h2 className="font-semibold">{title}</h2>}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {title && <h2 className="od-card-title">{title}</h2>}
           {action}
         </div>
       )}
@@ -284,11 +282,11 @@ export function Time({ value, relative }: { value: unknown; relative?: boolean }
 
 const tone: Record<string, string> = {
   submitted: "bg-success/15 text-success",
-  captured: "bg-primary/15 text-primary",
+  captured: "bg-info/15 text-info",
   queued: "bg-muted text-foreground",
   submitting: "bg-muted text-foreground",
   retry_wait: "bg-warning/15 text-warning",
-  scheduled: "bg-accent/15 text-accent-foreground dark:text-accent",
+  scheduled: "bg-[var(--od-warning-soft)] text-warning",
   failed: "bg-destructive/15 text-destructive",
   expired: "bg-destructive/10 text-destructive",
   unknown: "bg-warning/20 text-warning",
@@ -299,7 +297,7 @@ const tone: Record<string, string> = {
   pending: "bg-warning/15 text-warning",
   active: "bg-success/15 text-success",
   revoked: "bg-muted text-muted-foreground",
-  sending: "bg-primary/15 text-primary",
+  sending: "bg-chart-1/15 text-chart-1",
   paused: "bg-warning/20 text-warning",
   completed: "bg-success/15 text-success",
   draft: "bg-muted text-foreground",
@@ -429,7 +427,7 @@ export function Field({
 }
 
 export const inputClass =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+  "h-8 w-full rounded-[var(--od-app-radius)] border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 export const selectClass = inputClass + " pr-8";
 export const textareaClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -449,7 +447,7 @@ export function Table({
   onRow?: (r: Row) => void;
 }) {
   return (
-    <div className="relative overflow-x-auto rounded-xl border bg-card">
+    <div className="relative overflow-x-auto rounded-[var(--od-radius)] border border-[var(--od-border)] bg-[var(--od-surface)]">
       <table className="w-full text-left text-sm">
         <thead className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
           <tr>

@@ -101,9 +101,9 @@ export function Platform({ embedded = false }: { embedded?: boolean }) {
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {tiles.map(([label, value]) => (
-                <div key={label} className="rounded-lg border p-3">
-                  <div className="text-xs text-muted-foreground">{label}</div>
-                  <div className="text-xl font-semibold">{value}</div>
+                <div key={label} className="od-card">
+                  <div className="od-kpi-label">{label}</div>
+                  <div className="od-kpi-value">{value}</div>
                 </div>
               ))}
             </div>

@@ -42,6 +42,7 @@ function ThemeSwitch() {
         const next = !dark;
         localStorage.setItem("theme", next ? "dark" : "light");
         document.documentElement.classList.toggle("dark", next);
+        document.documentElement.dataset.mode = next ? "dark" : "light";
         setDark(next);
         window.dispatchEvent(new Event("themechange"));
       }}

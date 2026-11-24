@@ -167,7 +167,7 @@ function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
         <PopoverTrigger asChild>
           <button
             className={cn(
-              "flex w-full items-center gap-2 rounded-xl border bg-background px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "flex w-full items-center gap-2 rounded-[var(--od-app-radius)] border border-[var(--od-border)] bg-background px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               compact && "justify-center px-0",
             )}
             aria-label={phrase("Switch project")}
@@ -306,9 +306,9 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
                         title={compact ? phrase(label) : undefined}
                         className={({ isActive }) =>
                           cn(
-                            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                            "flex items-center gap-3 rounded-[var(--od-app-radius)] px-3 py-2 text-sm font-medium transition",
                             isActive
-                              ? "bg-primary/15 text-primary"
+                              ? "bg-secondary text-secondary-foreground"
                               : "text-muted-foreground hover:bg-muted hover:text-foreground",
                             compact && "justify-center px-0",
                           )
@@ -657,13 +657,17 @@ function Shell() {
         </a>
         <aside
           className={cn(
-            "fixed inset-y-0 left-0 z-20 hidden overflow-y-auto border-r bg-card p-3 transition-all md:block",
+            "fixed inset-y-0 left-0 z-20 hidden overflow-y-auto border-r bg-[var(--od-app-sidebar)] p-3 transition-all md:block",
             compact ? "w-20" : "w-64",
           )}
         >
           <Link to={to("dashboard")} className="mb-4 flex h-10 items-center gap-2.5 px-2 font-bold">
             <BrandIcon size={32} />
-            {!compact && <span className="tracking-tight">Njiwa-Mail</span>}
+            {!compact && (
+              <span className="font-[family-name:var(--od-font-wordmark)] tracking-tight">
+                Njiwa-Mail
+              </span>
+            )}
           </Link>
           <Sidebar compact={compact} />
         </aside>
@@ -679,7 +683,10 @@ function Shell() {
               >
                 <Menu />
               </Button>
-              <SheetContent side="left" className="w-72 overflow-y-auto p-3">
+              <SheetContent
+                side="left"
+                className="w-72 overflow-y-auto bg-[var(--od-app-sidebar)] p-3"
+              >
                 <SheetTitle className="mb-3 flex items-center gap-2">
                   <BrandIcon size={28} /> Njiwa-Mail
                 </SheetTitle>
@@ -731,8 +738,8 @@ function NotFoundProject({ project }: { project: string }) {
   const phrase = usePhrase();
   return (
     <div className="grid min-h-screen place-items-center bg-background p-6 text-foreground">
-      <div className="max-w-md rounded-2xl border bg-card p-8 text-center">
-        <h1 className="text-2xl font-bold">{phrase("Project not found")}</h1>
+      <div className="od-card max-w-md text-center">
+        <h1 className="od-page-title">{phrase("Project not found")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           {phrase("There is no project named")} <strong>{project}</strong>{" "}
           {phrase("or you cannot open it. Check the link, or pick a project you can use.")}
@@ -799,7 +806,7 @@ export function FirstRunShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-background text-foreground">
       <header className="flex h-14 items-center gap-2 border-b px-4">
         <BrandIcon size={28} />
-        <span className="font-bold">Njiwa-Mail</span>
+        <span className="font-[family-name:var(--od-font-wordmark)] font-bold">Njiwa-Mail</span>
         <div className="ml-auto flex items-center gap-1">
           <LanguageSwitcher />
           <ThemeToggle />

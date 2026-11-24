@@ -7,7 +7,7 @@ import { usePhrase } from "@/features/i18n/i18n";
 export function AuthLayout({ children }: { children: ReactNode }) {
   const phrase = usePhrase();
   return (
-    <main className="grid min-h-screen place-items-center p-4">
+    <main className="grid min-h-screen place-items-center bg-background p-4 text-foreground">
       <div className="w-full max-w-md">
         <Link
           to="/"
@@ -16,8 +16,11 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           <ArrowLeft size={16} aria-hidden="true" />
           {phrase("Back to home")}
         </Link>
-        <section className="w-full rounded-2xl border bg-card p-8 shadow-xl">
-          <Link to="/" className="mb-7 inline-flex items-center gap-2.5 font-bold text-primary">
+        <section className="od-card w-full p-8">
+          <Link
+            to="/"
+            className="mb-7 inline-flex items-center gap-2.5 font-[family-name:var(--od-font-wordmark)] font-bold"
+          >
             <BrandIcon size={40} />
             <span>Njiwa-Mail</span>
           </Link>

@@ -22,15 +22,15 @@ export function StatCard({
   trend?: string;
 }) {
   return (
-    <section className="rounded-2xl border bg-card p-5">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-4 text-3xl font-semibold">{value}</p>
+    <section className="od-card">
+      <p className="od-kpi-label">{label}</p>
+      <p className="od-kpi-value">{value}</p>
       {trend && <TrendIndicator value={trend} />}
     </section>
   );
 }
 export function TrendIndicator({ value }: { value: string }) {
-  return <p className="mt-2 text-xs text-primary">{value}</p>;
+  return <p className="od-delta od-delta-neutral">{value}</p>;
 }
 export function ChartCard({
   title,
@@ -42,9 +42,9 @@ export function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border bg-card p-6">
-      <h2 className="font-semibold">{title}</h2>
-      {description && <p className="text-sm text-muted-foreground">{description}</p>}
+    <section className="od-card">
+      <h2 className="od-card-title">{title}</h2>
+      {description && <p className="od-card-subtitle">{description}</p>}
       <div className="mt-6">{children}</div>
     </section>
   );
