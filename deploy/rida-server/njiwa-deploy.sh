@@ -64,6 +64,12 @@ log "deploying $short (previous ${prev:-none}): api=$api frontend=$frontend docs
 
 # --- sync files (server-only .env, .env.docs, secrets and data are never tracked, never touched) ---
 git -C "$SRC" ls-files -z | rsync -a --from0 --files-from=- "$SRC/" "$APP/"
+# Files deleted (or renamed away) in git since the last deploy are removed too; only paths
+# git tracked are ever touched, so server-only files stay.
+if [ "$changed" != ALL ]; then
+  git -C "$SRC" diff -z --no-renames --name-only --diff-filter=D "$prev" "$sha" |
+    while IFS= read -r -d '' f; do rm -f -- "$APP/$f"; done
+fi
 cd "$APP"
 
 # --- back up what a rollback needs --------------------------------------------
