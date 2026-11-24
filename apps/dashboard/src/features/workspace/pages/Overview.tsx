@@ -10,6 +10,7 @@ import {
   FolderKanban,
   HelpCircle,
   Inbox,
+  Info,
   Layers,
   MessageSquareWarning,
   Plus,
@@ -327,139 +328,220 @@ function KpiGroup({ title, cards }: { title: string; cards: Kpi[] }) {
 }
 
 // Message states grouped by what they mean for the sender. Colours match StateBadge.
-const stateGroups: { title: string; states: { key: string; color: string }[] }[] = [
+type StateGroup = {
+  title: string;
+  tone: "good" | "progress" | "bad" | "muted";
+  states: { key: string; label: string; color: string }[];
+};
+const stateGroups: StateGroup[] = [
   {
     title: "Accepted",
+    tone: "good",
     states: [
-      { key: "submitted", color: "var(--od-good-mark)" },
-      { key: "captured", color: "var(--od-series-5)" },
+      { key: "submitted", label: "Submitted", color: "var(--od-good-mark)" },
+      { key: "captured", label: "Captured", color: "var(--od-series-5)" },
     ],
   },
   {
     title: "In progress",
+    tone: "progress",
     states: [
-      { key: "queued", color: "var(--od-muted-mark)" },
-      { key: "submitting", color: "var(--od-series-8)" },
-      { key: "scheduled", color: "var(--od-series-3)" },
-      { key: "retry_wait", color: "var(--od-warning-mark)" },
+      { key: "queued", label: "Queued", color: "var(--od-muted-mark)" },
+      { key: "submitting", label: "Submitting", color: "var(--od-series-8)" },
+      { key: "scheduled", label: "Scheduled", color: "var(--od-series-3)" },
+      { key: "retry_wait", label: "Retrying", color: "var(--od-warning-mark)" },
     ],
   },
   {
     title: "Problems",
+    tone: "bad",
     states: [
-      { key: "failed", color: "var(--od-bad-mark)" },
-      { key: "expired", color: "var(--od-series-4)" },
-      { key: "unknown", color: "var(--od-series-6)" },
+      { key: "failed", label: "Failed", color: "var(--od-bad-mark)" },
+      { key: "expired", label: "Expired", color: "var(--od-series-4)" },
+      { key: "unknown", label: "Unknown", color: "var(--od-series-6)" },
     ],
   },
   {
     title: "Stopped",
-    states: [{ key: "cancelled", color: "var(--od-muted-mark)" }],
+    tone: "muted",
+    states: [{ key: "cancelled", label: "Cancelled", color: "var(--od-muted-mark)" }],
   },
 ];
+
+const groupInk: Record<StateGroup["tone"], string> = {
+  good: "od-delta-good",
+  progress: "od-delta-neutral",
+  bad: "od-delta-bad",
+  muted: "od-delta-neutral",
+};
 
 function MessagesByState({ counts }: { counts: Record<string, number> }) {
   const phrase = usePhrase();
   const { to } = useWorkspace();
   const known = new Set(stateGroups.flatMap((g) => g.states.map((s) => s.key)));
   // Any state the backend adds later still shows up instead of disappearing.
-  const groups = [
+  const extra = Object.keys(counts).filter((k) => !known.has(k));
+  const groups: StateGroup[] = [
     ...stateGroups,
-    ...(Object.keys(counts).some((k) => !known.has(k))
+    ...(extra.length
       ? [
           {
             title: "Other",
-            states: Object.keys(counts)
-              .filter((k) => !known.has(k))
-              .map((key) => ({ key, color: "var(--od-series-7)" })),
+            tone: "muted" as const,
+            states: extra.map((key) => ({
+              key,
+              label: key.replace(/_/g, " "),
+              color: "var(--od-series-7)",
+            })),
           },
         ]
       : []),
   ];
   const all = groups.flatMap((g) => g.states);
-  const total = all.reduce((n, s) => n + (counts[s.key] ?? 0), 0);
-  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+  const n = (key: string) => counts[key] ?? 0;
+  const total = all.reduce((sum, st) => sum + n(st.key), 0);
+  const pct = (v: number) => (total ? Math.round((v / total) * 100) : 0);
+  const sumOf = (g: StateGroup) => g.states.reduce((sum, st) => sum + n(st.key), 0);
+
   return (
-    <Section
-      title={phrase("Messages by state")}
-      action={
-        <Link to={to("messages")} className="text-sm font-medium text-primary hover:underline">
-          {phrase("All messages")} →
-        </Link>
-      }
-    >
-      <div className="mb-4 flex items-baseline gap-2">
-        <span className="od-kpi-value">{total.toLocaleString()}</span>
-        <span className="text-sm text-muted-foreground">{phrase("messages in total")}</span>
-      </div>
-      <div
-        className="mb-5 flex h-3 w-full overflow-hidden rounded-full bg-muted"
-        role="img"
-        aria-label={phrase("Share of messages in each state")}
-      >
-        {all.map(({ key, color }) =>
-          counts[key] ? (
-            <div
-              key={key}
-              className="h-full"
-              style={{ width: `${(counts[key] / total) * 100}%`, background: color }}
-              title={`${key.replace(/_/g, " ")}: ${counts[key]}`}
-            />
-          ) : null,
-        )}
-      </div>
-      <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-4">
-        {groups.map((g) => {
-          const sum = g.states.reduce((n, s) => n + (counts[s.key] ?? 0), 0);
-          return (
-            <div key={g.title}>
-              <div className="mb-1.5 flex items-center justify-between border-b pb-1.5">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {phrase(g.title)}
-                </h3>
-                <span className="text-xs font-semibold tabular-nums text-muted-foreground">
-                  {sum.toLocaleString()}
-                </span>
+    <article className="od-card" aria-labelledby="messages-by-state-title">
+      <div className="flex flex-col gap-5">
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="messages-by-state-title" className="od-card-title">
+              {phrase("Messages by state")}
+            </h2>
+            <p className="od-card-subtitle">
+              {phrase("Where every message in this project is now.")}
+            </p>
+          </div>
+          <Link
+            to={to("messages")}
+            className="inline-flex items-center gap-1 rounded-[var(--od-radius-sm)] px-2 py-1 text-sm font-medium text-[var(--od-ink-secondary)] transition hover:bg-[var(--od-neutral-soft)] hover:text-[var(--od-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {phrase("All messages")}
+            <ArrowUpRight size={14} aria-hidden />
+          </Link>
+        </header>
+
+        {/* Headline: the total, then one figure per group. */}
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
+          <div>
+            <dt className="od-kpi-label">{phrase("Total")}</dt>
+            <dd className="od-kpi-value">{total.toLocaleString()}</dd>
+          </div>
+          {groups.map((g) => {
+            const sum = sumOf(g);
+            return (
+              <div key={g.title} className="border-l border-[var(--od-border)] pl-4">
+                <dt className="od-kpi-label">{phrase(g.title)}</dt>
+                <dd className="flex items-baseline gap-2">
+                  <span className="od-kpi-value">{sum.toLocaleString()}</span>
+                  {sum > 0 && <span className={cn("od-delta", groupInk[g.tone])}>{pct(sum)}%</span>}
+                </dd>
               </div>
-              <ul>
-                {g.states.map(({ key, color }) => {
-                  const n = counts[key] ?? 0;
-                  return (
-                    <li key={key}>
-                      <Link
-                        to={to(`messages?state=${key}`)}
-                        className={cn(
-                          "-mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition hover:bg-muted",
-                          n === 0 && "text-muted-foreground",
-                        )}
-                      >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ background: color }}
-                          aria-hidden
-                        />
-                        <span className="flex-1 capitalize">{key.replace(/_/g, " ")}</span>
-                        {n > 0 && (
-                          <span className="text-xs tabular-nums text-muted-foreground">
-                            {pct(n)}%
+            );
+          })}
+        </dl>
+
+        {/* Share of every state; segments are separated so small ones stay visible. */}
+        <div
+          className="flex h-2.5 w-full gap-[3px] overflow-hidden rounded-full bg-[var(--od-neutral-soft)]"
+          role="img"
+          aria-label={phrase("Share of messages in each state")}
+        >
+          {all.map(({ key, label, color }) =>
+            n(key) ? (
+              <div
+                key={key}
+                className="h-full min-w-1.5 rounded-full"
+                style={{ width: `${(n(key) / total) * 100}%`, background: color }}
+                title={`${phrase(label)}: ${n(key)} (${pct(n(key))}%)`}
+              />
+            ) : null,
+          )}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {groups.map((g) => {
+            const active = g.states.filter((st) => n(st.key) > 0);
+            const idle = g.states.filter((st) => n(st.key) === 0);
+            return (
+              <section
+                key={g.title}
+                aria-label={phrase(g.title)}
+                className={cn(
+                  "flex flex-col gap-2 rounded-[var(--od-radius-md)] border border-[var(--od-border)] bg-[var(--od-surface-subtle)] p-3",
+                  g.tone === "bad" && active.length > 0 && "border-[var(--od-bad-mark)]/40",
+                )}
+              >
+                <h3 className="od-kpi-label">{phrase(g.title)}</h3>
+                {active.length > 0 ? (
+                  <ul className="flex flex-col gap-1">
+                    {active.map(({ key, label, color }) => (
+                      <li key={key}>
+                        <Link
+                          to={to(`messages?state=${key}`)}
+                          className="-mx-1.5 block rounded-[var(--od-radius-sm)] px-1.5 py-1 transition hover:bg-[var(--od-neutral-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <span className="flex items-center gap-2 text-sm">
+                            <span
+                              className="size-2 shrink-0 rounded-full"
+                              style={{ background: color }}
+                              aria-hidden
+                            />
+                            <span className="flex-1 font-medium text-[var(--od-ink)]">
+                              {phrase(label)}
+                            </span>
+                            <span className="text-xs tabular-nums text-[var(--od-ink-muted)]">
+                              {pct(n(key))}%
+                            </span>
+                            <span className="min-w-8 text-right font-semibold tabular-nums text-[var(--od-ink)]">
+                              {n(key).toLocaleString()}
+                            </span>
                           </span>
-                        )}
-                        <span className="w-8 text-right font-semibold tabular-nums">{n}</span>
+                          <span
+                            className="mt-1.5 block h-1 overflow-hidden rounded-full bg-[var(--od-neutral-soft)]"
+                            aria-hidden
+                          >
+                            <span
+                              className="block h-full rounded-full"
+                              style={{ width: `${pct(n(key))}%`, background: color }}
+                            />
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="od-caption">{phrase("Nothing here right now.")}</p>
+                )}
+                {idle.length > 0 && (
+                  <div className="mt-auto flex flex-wrap gap-1 pt-1">
+                    {idle.map(({ key, label }) => (
+                      <Link
+                        key={key}
+                        to={to(`messages?state=${key}`)}
+                        className="rounded-full border border-[var(--od-border)] px-2 py-0.5 text-xs text-[var(--od-ink-muted)] transition hover:border-[var(--od-border-strong)] hover:text-[var(--od-ink-secondary)]"
+                      >
+                        {phrase(label)} · 0
                       </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          );
-        })}
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+
+        <p className="od-caption flex items-start gap-2">
+          <Info size={14} className="mt-0.5 shrink-0" aria-hidden />
+          {phrase(
+            "“submitted” means the mail server accepted the message. Njiwa-Mail does not claim delivery to the inbox.",
+          )}
+        </p>
       </div>
-      <p className="mt-4 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
-        {phrase(
-          "“submitted” means the mail server accepted the message. Njiwa-Mail does not claim delivery to the inbox.",
-        )}
-      </p>
-    </Section>
+    </article>
   );
 }
 

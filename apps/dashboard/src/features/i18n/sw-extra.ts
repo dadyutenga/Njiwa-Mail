@@ -1228,6 +1228,10 @@ export const swExtra: Record<string, string> = {
   "All messages": "Ujumbe wote",
   "messages in total": "ujumbe kwa jumla",
   "Share of messages in each state": "Mgawanyo wa ujumbe kwa kila hali",
+  "Where every message in this project is now.": "Mahali kila ujumbe wa mradi huu ulipo sasa.",
+  "Nothing here right now.": "Hakuna kitu hapa kwa sasa.",
+  Submitting: "Inatumwa",
+  Total: "Jumla",
   // Existing mail server setup and follow-ups
   "Adds the sending domain and generates a DKIM key only if missing. No service restart or inbound transport change. You will review DNS changes before Cloudflare publishing.":
     "Huongeza kikoa cha kutuma na kutengeneza ufunguo wa DKIM ikiwa tu haupo. Hakuna huduma itakayowashwa upya wala mabadiliko ya usafirishaji wa barua zinazoingia. Utakagua mabadiliko ya DNS kabla ya kuchapisha kwenye Cloudflare.",
