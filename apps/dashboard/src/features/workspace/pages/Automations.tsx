@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useWorkspace, useWsKey } from "../context";
+import posthog from "@/lib/posthog";
 import {
   ConfirmButton,
   DataState,
@@ -368,6 +369,10 @@ function RuleDialog({ rule, onClose }: { rule: Row | null; onClose: () => void }
               const body = { ...f, template_id: f.action === "auto_reply" ? f.template_id : "" };
               if (rule) await api.send(`/automations/${s(rule.id)}`, "PATCH", body);
               else await api.send("/automations", "POST", body);
+              posthog.capture("automation_saved", {
+                operation: rule ? "updated" : "created",
+                automation_action: f.action,
+              });
               client.invalidateQueries({ queryKey: key("automations") });
               onClose();
             } catch (err) {

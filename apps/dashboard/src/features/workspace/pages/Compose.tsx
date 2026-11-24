@@ -10,6 +10,7 @@ import { useWorkspace, useSendingEnvironment, type Env } from "../context";
 import { SendingMode } from "../SendingMode";
 import { variableValue, type VarType } from "../variables";
 import { cn } from "@/lib/utils";
+import posthog from "@/lib/posthog";
 import {
   emailOk,
   errorMessage,
@@ -393,6 +394,20 @@ export function ComposePanel({
       if (sendAt) body.send_at = new Date(sendAt).toISOString();
       if (webView && !template) body.web_view = true;
       const r = await api.sendWithKey<{ id: string; status: string }>("/compose", idemKey, body);
+      posthog.capture("message_queued", {
+        sending_environment: env,
+        delivery_status: r.status,
+        content_source: template ? "template" : "composer",
+        is_reply: Boolean(prefill?.inReplyTo),
+        attachment_count: attachments.length,
+      });
+      posthog.logger.info("message queued for delivery", {
+        sending_environment: env,
+        delivery_status: r.status,
+        content_source: template ? "template" : "composer",
+        is_reply: Boolean(prefill?.inReplyTo),
+        attachment_count: attachments.length,
+      });
       toast.success(
         r.status === "scheduled"
           ? phrase("Scheduled.")

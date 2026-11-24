@@ -6,6 +6,7 @@ import { admin } from "@/lib/admin-api";
 import { useWorkspace } from "@/features/workspace/context";
 import { usePhrase } from "@/features/i18n/i18n";
 import { inputClass } from "@/features/workspace/ui";
+import posthog from "@/lib/posthog";
 
 const access = [
   {
@@ -132,6 +133,7 @@ export default function Settings() {
     setSaved(false);
     try {
       await admin.send("/settings", "PUT", values);
+      posthog.capture("installation_settings_updated");
       setSaved(true);
       client.invalidateQueries({ queryKey: ["settings"] });
     } catch (e) {

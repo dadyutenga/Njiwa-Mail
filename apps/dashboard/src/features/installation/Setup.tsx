@@ -5,6 +5,7 @@ import { CheckCircle2, Circle, CircleDashed, MinusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
+import posthog from "@/lib/posthog";
 import { useWorkspace } from "@/features/workspace/context";
 import { Section } from "@/features/workspace/ui";
 import { DeliveryModeCard } from "./DeliveryModeCard";
@@ -87,6 +88,7 @@ function DiscoveryScanButton() {
     mutationKey: ["installation", "discovery", "scan"],
     mutationFn: () => admin.send("/installation/discovery", "POST"),
     onSuccess: async (data) => {
+      posthog.capture("installation_scan_completed");
       client.setQueryData(["installation", "discovery"], data);
       await client.invalidateQueries({ queryKey: ["installation", "setup"] });
     },
@@ -119,6 +121,7 @@ function ChooseDeliveryStep() {
     mutationFn: (selected_mode: DeliveryMode) =>
       admin.send<InstallationState>("/installation/wizard", "PUT", { selected_mode }),
     onSuccess: async (state) => {
+      posthog.capture("delivery_mode_selected", { delivery_mode: mode });
       client.setQueryData(["installation"], state);
       await client.invalidateQueries({ queryKey: ["installation", "setup"] });
       void client.invalidateQueries({ queryKey: ["ws"] });
