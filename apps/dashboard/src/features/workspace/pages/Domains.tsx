@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
+import posthog from "@/lib/posthog";
 import { DnsSetup } from "./DnsSetup";
 import { useWorkspace, useWsKey } from "../context";
 import {
@@ -105,6 +106,9 @@ function AddDomainDialog({
                     purpose,
                     bulk,
                   });
+              if (!editing) {
+                posthog.capture("domain_created", { domain_purpose: purpose, is_bulk: bulk });
+              }
               client.invalidateQueries({ queryKey: key("domains") });
               client.invalidateQueries({ queryKey: key("domain", r.id) });
               client.invalidateQueries({ queryKey: key("checklist") });
@@ -460,10 +464,11 @@ export function DomainDetail() {
     : false;
   const check = async (quiet = false) => {
     setChecking(true);
-    await run(
+    const result = await run(
       () => api.send(`/domains/${id}/check`, "POST"),
       quiet ? "" : phrase("Records checked."),
     );
+    if (result && !quiet) posthog.capture("domain_dns_checked");
     setChecking(false);
     client.invalidateQueries({ queryKey: key("domain", id) });
     client.invalidateQueries({ queryKey: key("domains") });

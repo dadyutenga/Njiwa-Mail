@@ -6,6 +6,7 @@ import { PasswordInput } from "@/components/ui/extra-inputs";
 import { admin, AdminError } from "@/lib/admin-api";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useAuth } from "./auth";
+import posthog from "@/lib/posthog";
 
 export function AuthForm({ mode }: { mode: string }) {
   const [email, setEmail] = useState("");
@@ -51,6 +52,10 @@ export function AuthForm({ mode }: { mode: string }) {
     try {
       await admin.ssoComplete(ssoPending, code);
       await refresh();
+      posthog.capture("authentication_signed_in", { authentication_method: "sso" });
+      posthog.logger.info("administrator authentication completed", {
+        authentication_method: "sso",
+      });
       navigate("/app", { replace: true });
     } catch (err) {
       setFeedback(
@@ -92,9 +97,17 @@ export function AuthForm({ mode }: { mode: string }) {
         const token = params.get("token") || "";
         if (!token) throw new Error(phrase("Reset token is missing."));
         await admin.reset(token, password);
+        posthog.capture("password_reset_completed");
         setFeedback(phrase("Password updated. You can sign in now."));
       } else {
         await login(email, password, needCode ? code : undefined);
+        const authenticationMethod = needCode ? "password_with_two_step" : "password";
+        posthog.capture("authentication_signed_in", {
+          authentication_method: authenticationMethod,
+        });
+        posthog.logger.info("administrator authentication completed", {
+          authentication_method: authenticationMethod,
+        });
         const state = location.state as { from?: string } | null;
         navigate(state?.from || "/app", { replace: true });
       }
