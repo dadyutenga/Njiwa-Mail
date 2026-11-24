@@ -2,12 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { Navigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { admin, setCsrf, type AdminUser } from "@/lib/admin-api";
-import posthog from "@/lib/posthog";
 import { TwoStep } from "@/features/mail/TwoStep";
-
-function identifyUser(user: AdminUser) {
-  posthog.identify(user.id, { email: user.email, role: user.role });
-}
 type Auth = {
   user: AdminUser | null;
   loading: boolean;
@@ -29,7 +24,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         /* storage unavailable: the page still works */
       }
-      posthog.reset();
       setCsrf("");
       setUser(null);
       queries.clear();
@@ -39,7 +33,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .me()
       .then((u) => {
         if (active) {
-          identifyUser(u);
           setCsrf(u.csrf_token);
           setUser(u);
         }
@@ -61,7 +54,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string, code?: string) => {
     const next = await admin.login(email, password, code);
     queries.clear();
-    identifyUser(next);
     setCsrf(next.csrf_token);
     setUser(next);
   };
@@ -69,7 +61,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await admin.logout();
     } finally {
-      posthog.reset();
       queries.clear();
       setCsrf("");
       setUser(null);
@@ -77,7 +68,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
   const refresh = async () => {
     const next = await admin.me();
-    identifyUser(next);
     setCsrf(next.csrf_token);
     setUser(next);
   };

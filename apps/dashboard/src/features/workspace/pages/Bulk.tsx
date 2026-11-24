@@ -5,7 +5,6 @@ import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useAuth } from "@/features/auth/auth";
-import posthog from "@/lib/posthog";
 import { useWorkspace, useSendingEnvironment } from "../context";
 import { SendingMode, useSendingModeParam, withSendingMode } from "../SendingMode";
 import {
@@ -217,12 +216,6 @@ export function NewCampaign() {
           : { template_id: f.template_id }),
       };
       const r = await api.send<{ id: string }>("/campaigns", "POST", body);
-      posthog.capture("campaign_created", {
-        sending_environment: env,
-        content_source: mode,
-        audience_source: audience,
-        is_scheduled: Boolean(f.send_at),
-      });
       client.invalidateQueries({ queryKey: key("campaigns") });
       navigate(to(`bulk/${r.id}`), { state: { created: true } });
     } catch (err) {
@@ -562,17 +555,8 @@ export function CampaignDetail() {
     queryFn: () => api.get<Row>(`/campaigns/${id}`),
     refetchInterval: 10_000,
   });
-  const act = async (action: "start" | "pause" | "resume" | "cancel", msg: string) => {
-    const result = await run(() => api.send(`/campaigns/${id}/${action}`, "POST"), msg);
-    if (result) {
-      const event = {
-        start: "campaign_started",
-        pause: "campaign_paused",
-        resume: "campaign_resumed",
-        cancel: "campaign_cancelled",
-      }[action];
-      posthog.capture(event, { sending_environment: env });
-    }
+  const act = async (action: string, msg: string) => {
+    await run(() => api.send(`/campaigns/${id}/${action}`, "POST"), msg);
     client.invalidateQueries({ queryKey: key("campaign", id) });
     client.invalidateQueries({ queryKey: key("campaigns") });
   };

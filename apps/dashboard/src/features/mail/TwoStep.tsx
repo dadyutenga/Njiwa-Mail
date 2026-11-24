@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { admin } from "@/lib/admin-api";
 import { usePhrase } from "@/features/i18n/i18n";
-import posthog from "@/lib/posthog";
 
 type Enrol = { secret: string; otpauth_uri: string };
 
@@ -46,7 +45,6 @@ export function TwoStep({
         code,
       });
       setRecovery(r.recovery_codes);
-      posthog.capture("two_step_sign_in_enabled");
       setEnrol(null);
       setCode("");
       await onChanged();
