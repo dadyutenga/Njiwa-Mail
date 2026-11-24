@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: docker build -f apps/docs/Dockerfile --build-arg DOCS_COMMIT=${{ github.sha }} --build-arg DOCS_BASE_URL=${{ inputs.base_url }} -t njiwa-mail-docs:${{ github.sha }} .
         env: { DOCKER_BUILDKIT: "1" }
       - run: |
@@ -25,5 +25,5 @@ jobs:
           sh apps/docs/scripts/smoke.sh http://127.0.0.1:8088 "${{ github.sha }}"
           docker rm -f docs
       - run: docker save njiwa-mail-docs:${{ github.sha }} | gzip > njiwa-mail-docs.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: { name: "njiwa-mail-docs-${{ github.sha }}", path: njiwa-mail-docs.tar.gz, retention-days: 30 }

@@ -5,9 +5,29 @@ on:
 
 permissions: { contents: read }
 
+# A newer push to the same branch or PR cancels the run it replaces.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  lint-go:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod }
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+
+  # The integration package (./test) is most of the time, so its tests are split across
+  # three runners by name; shard 0 also runs every other package.
+  test:
+    name: test (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: { shard: [0, 1, 2] }
     services:
       postgres:
         image: postgres:16.4-alpine
@@ -18,19 +38,27 @@ jobs:
     env:
       # Throwaway database: the suite resets its public schema.
       TEST_DATABASE_URL: postgres://mail:test@localhost:5432/mail_test?sslmode=disable
+      SHARD: ${{ matrix.shard }}
+      SHARDS: 3
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
         with: { go-version-file: go.mod }
-      - run: test -z "$(gofmt -l .)"
-      - run: go vet ./...
-      - run: go test ./... -race -count=1 -timeout 600s
+      - name: Integration tests, this shard
+        run: |
+          all=$(grep -ho '^func Test[A-Za-z0-9_]*(t \*testing.T)' test/*_test.go | sed 's/^func \(Test[A-Za-z0-9_]*\).*/\1/' | sort -u)
+          mine=$(echo "$all" | awk -v n="$SHARDS" -v i="$SHARD" '(NR-1) % n == i')
+          echo "shard $SHARD: $(echo "$mine" | wc -l) of $(echo "$all" | wc -l) tests"
+          go test ./test -race -count=1 -timeout 600s -run "^($(echo $mine | tr ' ' '|'))\$"
+      - name: Unit tests (every other package)
+        if: matrix.shard == 0
+        run: go test $(go list ./... | grep -v '/test$') -race -count=1 -timeout 600s
 
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with: { node-version: "22" }
       - run: npm ci
         working-directory: apps/dashboard
@@ -45,9 +73,8 @@ jobs:
 
   image:
     runs-on: ubuntu-latest
-    needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build image (verifies the Dockerfile)
         run: docker build -t njiwa-mail:ci .
       - name: Binary runs and refuses to start without required config
@@ -66,8 +93,8 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
         with: { go-version-file: go.mod }
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
@@ -77,8 +104,8 @@ jobs:
   managed-mta:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
         with: { go-version-file: go.mod }
       - name: Install Postfix and OpenDKIM (no Postfix configuration)
         run: |
@@ -104,14 +131,14 @@ jobs:
   installer-binaries:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
         with: { go-version-file: go.mod }
       - run: |
           mkdir out
           CGO_ENABLED=0 go build -o out/njiwa-mail .
           CGO_ENABLED=0 go test -c -tags managed_e2e -o out/managed-e2e.test ./internal/installer/managed
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: { name: installer-binaries, path: out/, retention-days: 3 }
 
   managed-mta-rhel:
@@ -125,7 +152,7 @@ jobs:
       image: ${{ matrix.image }}
       options: --cap-add NET_ADMIN
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with: { name: installer-binaries, path: bin }
       - name: Postfix from the distribution, with its package-default configuration
         run: |
@@ -161,9 +188,8 @@ jobs:
   # migration, healthcheck or Compose file that unit tests cannot see.
   smoke:
     runs-on: ubuntu-latest
-    needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Start the stack
         run: |
           {
@@ -218,10 +244,9 @@ jobs:
   # sign-in, the delivery-mode wizard, adding a domain.
   e2e:
     runs-on: ubuntu-latest
-    needs: [test, frontend]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with: { node-version: "22" }
       - name: Start the stack
         run: |
@@ -244,7 +269,7 @@ jobs:
       - run: npm run e2e
         working-directory: apps/dashboard
         env: { CI: "1", E2E_BASE_URL: "http://127.0.0.1:3000" }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with: { name: playwright-report, path: "apps/dashboard/playwright-report\napps/dashboard/test-results", retention-days: 7 }
       - if: always()
@@ -255,8 +280,8 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with: { node-version: "24" }
       - run: npm ci --ignore-scripts
         working-directory: apps/docs
@@ -289,7 +314,7 @@ jobs:
         working-directory: apps/docs
       - run: npx playwright test
         working-directory: apps/docs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with: { name: docs-playwright, path: "apps/docs/test-results", retention-days: 7 }
 
@@ -299,7 +324,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: docs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: docker build -f apps/docs/Dockerfile --build-arg DOCS_COMMIT=${{ github.sha }} -t njiwa-mail-docs:ci .
         env: { DOCKER_BUILDKIT: "1" }
       - run: |
@@ -314,10 +339,10 @@ jobs:
   supply-chain:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
         with: { go-version-file: go.mod }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: "22" }
       - name: Reproducible build
         run: |
@@ -332,5 +357,5 @@ jobs:
           go list -m -json all > sbom/go-modules.json
           go version -m /tmp/a > sbom/binary-build-info.txt
           (cd apps/dashboard && npm ci --ignore-scripts --no-audit --no-fund && npm ls --all --json > ../../sbom/npm-packages.json || true)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: { name: sbom, path: sbom, retention-days: 90 }
