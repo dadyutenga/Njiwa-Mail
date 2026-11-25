@@ -19,6 +19,7 @@ var tableDocs = map[string]string{
 	"alert_channels":        "Where operator alerts are sent (webhook or email), per alert kind.",
 	"alerts":                "Operator alerts (policy bounces, disabled webhooks, failing checks) with acknowledgement.",
 	"api_keys":              "API keys per project environment: prefix, secret hash, scopes, IP allowlist, expiry, revocation.",
+	"audit_chain_head":      "The audit hash chain's newest sequence and hash, and the anchor retention moved it to.",
 	"audit_log":             "Append-only record of every change made by a person, an API key or the CLI.",
 	"automation_rules":      "Rules that act on inbound mail (auto-reply, forward, webhook, archive), ordered.",
 	"automation_runs":       "One row per rule evaluation, with the outcome.",

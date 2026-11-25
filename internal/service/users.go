@@ -506,7 +506,7 @@ func (s *Service) Audit(ctx context.Context, a Actor, action, targetType, target
 	if err != nil {
 		return unavailable("audit", err)
 	}
-	return nil
+	return s.SealAudit(ctx)
 }
 
 func (s *Service) ListAudit(ctx context.Context, actor, action, query string, pg Page) ([]map[string]any, bool, error) {
