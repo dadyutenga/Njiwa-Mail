@@ -97,6 +97,11 @@ const groups: { title: string; keys: { key: string; label: string; hint: string 
         label: "Installer receipts (days)",
         hint: "How long installer receipts are kept.",
       },
+      {
+        key: "audit_retention_days",
+        label: "Audit log (days)",
+        hint: "How long audit entries are kept, at least 90. Older entries are removed oldest first and the integrity chain stays verifiable.",
+      },
     ],
   },
   {

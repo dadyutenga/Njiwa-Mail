@@ -327,6 +327,7 @@ type RetentionResult struct {
 	// F10
 	DeliveryEvents, Receipts, AttachmentsSealed  int64
 	WebViews, FormSubmissions, ChatConversations int64
+	AuditEntries                                 int64
 }
 
 // RunRetention deletes expired captures, stale rate buckets, old terminal
@@ -401,6 +402,9 @@ func (s *Service) RunRetention(ctx context.Context) (RetentionResult, error) {
 		return r, err
 	}
 	var err error
+	if r.AuditEntries, err = s.purgeAudit(ctx, s.settingInt(ctx, "audit_retention_days")); err != nil {
+		return r, err
+	}
 	if r.Inbound, r.Spool, err = s.inboundRetention(ctx); err != nil {
 		return r, err
 	}

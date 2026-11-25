@@ -28,7 +28,8 @@ var settingDefaults = map[string]struct{ def, min, max int }{
 	"default_send_per_day":              {500, 1, 10000000},
 	"delivery_events_retention_days":    {90, 1, 3650},
 	"installer_receipts_retention_days": {365, 30, 3650},
-	"require_mfa":                       {0, 0, 1}, // 1 = every admin must use a second factor (enrol on next sign-in)
+	"audit_retention_days":              {365, 90, 3650}, // audit entries are kept at least 90 days
+	"require_mfa":                       {0, 0, 1},       // 1 = every admin must use a second factor (enrol on next sign-in)
 }
 
 func (s *Service) settingInt(ctx context.Context, key string) int {

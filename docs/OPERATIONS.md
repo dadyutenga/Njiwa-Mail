@@ -69,6 +69,13 @@ other sessions. The dashboard then shows the sign-in page with a note saying why
 The last enabled user cannot be disabled. Logins are limited per account and per IP (15-minute windows; see Settings).
 Every write from the UI, the CLI or an API key is recorded in `audit_log` (UI: Audit log). The admin API uses password sessions with optional TOTP; keep `/admin/v1` behind HTTPS and an IP allowlist (`deploy/nginx.conf`).
 
+### Audit log management
+
+- **Append-only.** Database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` on `audit_log`, from the application and from `psql` alike. The only deletion is the retention job.
+- **Tamper-evident.** Each entry has a sequence number and `hash = SHA-256(previous hash || canonical fields)` (migration `0040_audit_integrity.sql`). `audit_chain_head` keeps the newest sequence and hash. **Verify integrity** (UI) or `GET /admin/v1/audit/verify` recomputes the whole chain and names the first entry that was changed, inserted or removed, including removal of the newest entries. Someone with superuser access who disables the triggers can still rewrite the whole chain consistently, so keep the chain head hash from an export outside the server: a later check that no longer reaches that hash proves the change.
+- **Retention.** `audit_retention_days` (Settings, default 365, minimum 90) removes the oldest entries during the retention run. It moves the chain anchor so the remaining entries still verify, and records itself as `audit.retention_purge`.
+- **Export.** Audit log → Download, or `GET /admin/v1/audit/export?format=pdf|csv|jsonl` with the same filters as the list (`q`, `action` prefix, `actor`, `from`, `to` in RFC 3339). The PDF is a report with the filters, the integrity result and the chain head hash. CSV is formula-safe for spreadsheets. JSON Lines (one entry per line, with `seq`, `hash` and `prev_hash`) is for a SIEM or log pipeline. One export holds at most 50,000 entries; narrow the dates for more. Each export and each integrity check is itself audited (`audit.export`, `audit.verify`).
+
 ## Alerts
 
 Alerts are rows in the `alerts` table, shown on the Overview page, counted in `/metrics` and logged as `ALERT`. Njiwa-Mail does not

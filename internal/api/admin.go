@@ -783,8 +783,23 @@ func (s *Server) adminRoutes(app *fiber.App) {
 		return nil, nil
 	}))
 	h("GET /audit", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
-		items, more, err := svc.ListAudit(reqCtx(c), q(c, "actor"), q(c, "action"), q(c, "q"), pageOf(c))
+		f, err := auditFilter(c)
+		if err != nil {
+			return nil, err
+		}
+		items, more, err := svc.ListAuditFiltered(reqCtx(c), f, pageOf(c))
 		return list(c, items, more, err)
+	})
+	h("GET /audit/verify", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		r, err := svc.VerifyAudit(reqCtx(c))
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "audit.verify", "audit_log", "", map[string]any{"ok": r.OK, "entries": r.Entries, "broken_seq": r.BrokenSeq})
+		return r, nil
+	})
+	h("GET /audit/export", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return s.exportAudit(c, u)
 	})
 
 	// ---- settings

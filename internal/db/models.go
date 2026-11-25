@@ -187,6 +187,9 @@ type AuditLog struct {
 	TargetType string
 	TargetID   string
 	Details    []byte `gorm:"type:jsonb"`
+	Seq        int64
+	PrevHash   []byte
+	Hash       []byte
 }
 
 func (AuditLog) TableName() string { return "audit_log" }

@@ -10,6 +10,7 @@ description: What is protected, what is not, and how to report a problem.
 - **Operator API:** `/admin/v1` is for the dashboard and operators with a session and CSRF protection. Do not publish it, and do not route this documentation site to it.
 - **Mail:** managed submission uses mutual TLS and fails closed without the DKIM signer; there is no open relay.
 - **Delivery:** the system cannot prove delivery and says so everywhere.
+- **Audit log:** every change is recorded append-only and hash-chained; the dashboard can verify the chain and export it as PDF, CSV or JSON Lines. Retention is configurable (default 365 days, at least 90).
 
 ## Reporting a vulnerability
 

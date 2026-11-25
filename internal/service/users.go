@@ -510,15 +510,7 @@ func (s *Service) Audit(ctx context.Context, a Actor, action, targetType, target
 }
 
 func (s *Service) ListAudit(ctx context.Context, actor, action, query string, pg Page) ([]map[string]any, bool, error) {
-	pattern := ""
-	if query != "" {
-		pattern = "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
-	}
-	return s.page(ctx, pg, `SELECT id, at, user_id::text AS user_id, api_key_id::text AS api_key_id, actor, action, target_type, target_id, details FROM audit_log
-WHERE ($1='' OR actor=$1)
-  AND ($2='' OR action LIKE replace(replace(replace($2, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')
-  AND ($3='' OR actor ILIKE $3 ESCAPE '\' OR action ILIKE $3 ESCAPE '\' OR target_type ILIKE $3 ESCAPE '\' OR target_id ILIKE $3 ESCAPE '\')
-ORDER BY id DESC`, actor, action, pattern)
+	return s.ListAuditFiltered(ctx, AuditFilter{Actor: actor, Action: action, Query: query}, pg)
 }
 
 // UserIDByEmail finds a user for the operator CLI.

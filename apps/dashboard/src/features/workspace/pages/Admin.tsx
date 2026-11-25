@@ -1,7 +1,26 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, LogIn, MinusCircle, Plus, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  Download,
+  FileText,
+  LogIn,
+  MinusCircle,
+  Plus,
+  ShieldAlert,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
@@ -9,6 +28,7 @@ import { Sessions } from "@/features/mail/Sessions";
 import { Platform } from "./Platform";
 import { useAuth } from "@/features/auth/auth";
 import { admin, getCsrf } from "@/lib/admin-api";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   DeliveryInfrastructure,
@@ -1557,60 +1577,275 @@ export function System() {
   );
 }
 
+type AuditIntegrity = {
+  ok: boolean;
+  entries: number;
+  first_seq: number;
+  last_seq: number;
+  head_hash: string;
+  anchor_seq: number;
+  checked_at: string;
+  broken_seq?: number;
+  problem?: string;
+};
+
+// Action prefixes an operator usually filters by.
+const AUDIT_CATEGORIES: [string, string][] = [
+  ["", "All activity"],
+  ["auth.", "Sign-in and sessions"],
+  ["user.", "Users"],
+  ["project.", "Projects"],
+  ["api_key.", "API keys"],
+  ["domain.", "Domains"],
+  ["dns.", "DNS"],
+  ["settings.", "Settings"],
+  ["audit.", "Audit log"],
+];
+
+const AUDIT_FORMATS: { format: string; label: string; hint: string }[] = [
+  { format: "pdf", label: "PDF report", hint: "To read, print or file" },
+  { format: "csv", label: "CSV", hint: "For a spreadsheet" },
+  { format: "jsonl", label: "JSON Lines", hint: "For a SIEM or log pipeline" },
+];
+
+/** A date input value (YYYY-MM-DD) as the start of that day, local time, in RFC 3339. */
+function dayStart(day: string, plusDays = 0) {
+  if (!day) return "";
+  const d = new Date(`${day}T00:00:00`);
+  d.setDate(d.getDate() + plusDays);
+  return d.toISOString();
+}
+
 export function Audit() {
   const phrase = usePhrase();
   const [query, setQuery] = useParam("q");
+  const [action, setAction] = useParam("action");
+  const [from, setFrom] = useParam("from");
+  const [to, setTo] = useParam("to");
   const [draft, setDraft] = useState(query);
+  const [busy, setBusy] = useState("");
+  const [integrity, setIntegrity] = useState<AuditIntegrity | null>(null);
   const offset = useOffset();
   useEffect(() => setDraft(query), [query]);
+
+  const filters = new URLSearchParams();
+  if (query) filters.set("q", query);
+  if (action) filters.set("action", action);
+  if (from) filters.set("from", dayStart(from));
+  if (to) filters.set("to", dayStart(to, 1)); // inclusive of the whole "to" day
+  const filtered = !!(query || action || from || to);
+
   const q = useQuery({
-    queryKey: ["audit", query, offset],
-    queryFn: () =>
-      admin.get<Page>(`/audit?limit=50&offset=${offset}&q=${encodeURIComponent(query)}`),
+    queryKey: ["audit", query, action, from, to, offset],
+    queryFn: () => admin.get<Page>(`/audit?limit=50&offset=${offset}&${filters}`),
   });
+
+  const verify = async () => {
+    setBusy("verify");
+    try {
+      setIntegrity(await admin.get<AuditIntegrity>("/audit/verify"));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const download = async (format: string) => {
+    setBusy(format);
+    try {
+      const res = await fetch(`/admin/v1/audit/export?format=${format}&${filters}`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message || phrase("Request failed"));
+      }
+      const name =
+        /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ??
+        `njiwa-mail-audit.${format}`;
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+      const entries = res.headers.get("X-Audit-Entries") ?? "";
+      if (res.headers.get("X-Audit-Truncated") === "true")
+        toast.warning(
+          `${phrase("Downloaded the first")} ${entries} ${phrase("entries. Narrow the filters to export the rest.")}`,
+        );
+      else toast.success(`${phrase("Downloaded")} ${entries} ${phrase("entries")}`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const clearAll = () => {
+    setDraft("");
+    setQuery("");
+    setAction("");
+    setFrom("");
+    setTo("");
+  };
+
   return (
     <>
       <PageHeader
         title={phrase("Audit log")}
-        description={phrase("Every change made by a person or an API key.")}
+        description={phrase(
+          "Every change made by a person or an API key. Entries are append-only and hash-chained, so any later change is detectable.",
+        )}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" disabled={!!busy} onClick={verify}>
+              <ShieldCheck size={16} aria-hidden />
+              {busy === "verify" ? phrase("Checking…") : phrase("Verify integrity")}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button disabled={!!busy}>
+                  <Download size={16} aria-hidden />
+                  {busy && busy !== "verify" ? phrase("Preparing…") : phrase("Download")}
+                  <ChevronDown size={14} aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  {filtered
+                    ? phrase("Entries matching the current filters")
+                    : phrase("Every entry in the log")}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {AUDIT_FORMATS.map((f) => (
+                  <DropdownMenuItem key={f.format} onSelect={() => download(f.format)}>
+                    <FileText size={16} aria-hidden />
+                    <span className="flex flex-col">
+                      <span className="font-medium">{phrase(f.label)}</span>
+                      <span className="text-xs text-muted-foreground">{phrase(f.hint)}</span>
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        }
       />
+
+      {integrity && (
+        <div
+          role="status"
+          className={cn(
+            "od-card mb-4 flex-row flex-wrap items-start gap-4",
+            integrity.ok ? "border-success/40" : "border-destructive/50",
+          )}
+        >
+          <span
+            className={cn(
+              "grid size-10 shrink-0 place-items-center rounded-[var(--od-radius-sm)]",
+              integrity.ok ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
+            )}
+          >
+            {integrity.ok ? (
+              <ShieldCheck size={20} aria-hidden />
+            ) : (
+              <ShieldAlert size={20} aria-hidden />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="od-card-title">
+              {integrity.ok
+                ? phrase("The audit log is intact")
+                : `${phrase("Tampering detected at entry")} #${integrity.broken_seq}`}
+            </p>
+            <p className="od-card-subtitle">
+              {integrity.ok
+                ? `${integrity.entries.toLocaleString()} ${phrase("entries checked against the hash chain.")}`
+                : integrity.problem}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span className="flex min-w-0 items-center gap-1">
+                {phrase("Chain head")}:
+                <code className="truncate font-mono">{integrity.head_hash.slice(0, 24)}…</code>
+                <CopyButton text={integrity.head_hash} label={phrase("chain head hash")} />
+              </span>
+              {integrity.anchor_seq > 0 && (
+                <span>
+                  {phrase("Entries before")} #{integrity.anchor_seq + 1}{" "}
+                  {phrase("were removed by the retention policy.")}
+                </span>
+              )}
+              <span>
+                {phrase("Checked")} <Time value={integrity.checked_at} relative />
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <form
-        className="relative mb-4"
+        className="mb-4"
         onSubmit={(e) => {
           e.preventDefault();
           setQuery(draft.trim());
         }}
       >
-        <div className="od-card flex-row flex-wrap items-end">
-          <Field label={phrase("Search the log")} className="min-w-64 flex-1">
-            <input
-              className={inputClass}
-              type="search"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={phrase("Actor, action, or target")}
-            />
-          </Field>
-          <Button type="submit">{phrase("Search")}</Button>
-          {query && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setDraft("");
-                setQuery("");
-              }}
-            >
-              {phrase("Clear")}
-            </Button>
-          )}
-          {query && (
-            <p className="w-full text-xs text-muted-foreground">
-              {phrase("Showing events that match")} <strong>{query}</strong>
-            </p>
-          )}
+        <div className="od-card">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_auto_auto_auto] md:items-end">
+            <Field label={phrase("Search the log")}>
+              <input
+                className={inputClass}
+                type="search"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={phrase("Actor, action, or target")}
+              />
+            </Field>
+            <Field label={phrase("Activity")}>
+              <select
+                className={selectClass}
+                value={action}
+                onChange={(e) => setAction(e.target.value)}
+              >
+                {AUDIT_CATEGORIES.map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {phrase(l)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label={phrase("From")}>
+              <input
+                className={inputClass}
+                type="date"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </Field>
+            <Field label={phrase("To")}>
+              <input
+                className={inputClass}
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="submit">{phrase("Search")}</Button>
+              {filtered && (
+                <Button type="button" variant="outline" onClick={clearAll}>
+                  {phrase("Clear")}
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </form>
+
       <DataState
         q={q}
         isEmpty={(d) => d.items.length === 0}
@@ -1622,29 +1857,54 @@ export function Audit() {
       >
         {(d) => (
           <>
-            <ol className="space-y-2">
-              {d.items.map((r) => (
-                <li key={s(r.id)} className="rounded-xl border bg-card p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <code className="text-sm font-semibold">{s(r.action)}</code>
-                      <p className="mt-1 text-sm text-muted-foreground">{s(r.actor) || "—"}</p>
+            <ol className="overflow-hidden rounded-xl border bg-card">
+              {d.items.map((r, i) => {
+                const details =
+                  r.details != null && typeof r.details === "object"
+                    ? Object.entries(r.details as Record<string, unknown>)
+                    : [];
+                return (
+                  <li key={s(r.id)} className={cn("px-4 py-3", i > 0 && "border-t")}>
+                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                      <div className="flex min-w-0 items-baseline gap-3">
+                        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                          #{s(r.seq)}
+                        </span>
+                        <code className="text-sm font-semibold">{s(r.action)}</code>
+                        {(s(r.target_type) || s(r.target_id)) && (
+                          <span className="truncate text-sm text-muted-foreground">
+                            {s(r.target_type)} {s(r.target_id)}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        <Time value={r.at} />
+                      </span>
                     </div>
-                    <Time value={r.at} />
-                  </div>
-                  <p className="mt-3 text-sm">
-                    <span className="text-muted-foreground">{phrase("Target")}: </span>
-                    {s(r.target_type)} {s(r.target_id)}
-                  </p>
-                  {r.details != null &&
-                    typeof r.details === "object" &&
-                    Object.keys(r.details as object).length > 0 && (
-                      <pre className="mt-2 overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                        {JSON.stringify(r.details)}
-                      </pre>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 pl-0 text-xs text-muted-foreground sm:pl-10">
+                      <span>{s(r.actor) || "—"}</span>
+                      <span className="font-mono" title={s(r.hash)}>
+                        {phrase("hash")} {s(r.hash).slice(0, 12)}
+                      </span>
+                    </div>
+                    {details.length > 0 && (
+                      <dl className="mt-2 flex flex-wrap gap-1.5 sm:pl-10">
+                        {details.map(([k, v]) => (
+                          <div
+                            key={k}
+                            className="flex max-w-full items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs"
+                          >
+                            <dt className="text-muted-foreground">{k}</dt>
+                            <dd className="truncate font-mono">
+                              {typeof v === "string" ? v : JSON.stringify(v)}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
                     )}
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ol>
             <Pager page={d} />
           </>
