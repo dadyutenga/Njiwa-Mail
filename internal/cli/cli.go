@@ -578,7 +578,7 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 		if err != nil {
 			return err
 		}
-		_, err = svc.EmailDailyReport(ctx)
+		_, err = svc.RunReportSchedules(ctx) // each schedule checks its own send hour
 		return err
 	})
 	every(time.Minute, "chat_emails", func() error {

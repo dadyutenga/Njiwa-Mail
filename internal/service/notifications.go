@@ -63,7 +63,7 @@ func (s *Service) RetractAnnouncement(ctx context.Context, id string) error {
 func (s *Service) GenerateDailyReport(ctx context.Context, day time.Time) (bool, error) {
 	start := day.UTC().Truncate(24 * time.Hour)
 	end := start.Add(24 * time.Hour)
-	rows, err := s.maps(ctx, `SELECT p.name AS project, e.mode,
+	rows, err := s.maps(ctx, `SELECT p.id::text AS project_id, p.name AS project, e.mode,
   count(m.id) AS messages,
   count(m.id) FILTER (WHERE m.state='submitted') AS submitted,
   count(m.id) FILTER (WHERE m.state IN ('failed','expired')) AS failed,
@@ -73,7 +73,7 @@ func (s *Service) GenerateDailyReport(ctx context.Context, day time.Time) (bool,
   (SELECT count(*) FROM inbound_messages i WHERE i.environment_id=e.id AND i.received_at >= $1 AND i.received_at < $2) AS inbound
 FROM environments e JOIN projects p ON p.id=e.project_id
 LEFT JOIN messages m ON m.environment_id=e.id AND m.created_at >= $1 AND m.created_at < $2
-GROUP BY p.name, e.mode, e.id ORDER BY p.name, e.mode`, start, end)
+GROUP BY p.id, p.name, e.mode, e.id ORDER BY p.name, e.mode`, start, end)
 	if err != nil {
 		return false, err
 	}

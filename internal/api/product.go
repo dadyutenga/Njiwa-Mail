@@ -64,20 +64,50 @@ func (s *Server) productRoutes(app *fiber.App) {
 		s.audit(c, u, "announcement.retract", "announcement", c.Params("id"), nil)
 		return nil, nil
 	})
-	// ---- the daily report by email (operators)
-	op(fiber.MethodGet, "/admin/v1/report-email", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
-		return svc.ReportEmailSettings(reqCtx(c))
+	// ---- report schedules: reports mailed on a schedule (operators)
+	op(fiber.MethodGet, "/admin/v1/report-schedules", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.ReportSchedules(reqCtx(c))
 	})
-	op(fiber.MethodPut, "/admin/v1/report-email", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
-		var in service.ReportEmailInput
+	op(fiber.MethodPost, "/admin/v1/report-schedules", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in service.ReportScheduleInput
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		if err := svc.SetReportEmailSettings(reqCtx(c), u.Email, in); err != nil {
+		id, err := svc.CreateReportSchedule(reqCtx(c), u.Email, in)
+		if err != nil {
 			return nil, err
 		}
-		s.audit(c, u, "report_email.update", "report_email", "1", map[string]any{"enabled": in.Enabled, "recipients": len(in.Recipients)})
+		s.audit(c, u, "report_schedule.create", "report_schedule", id, reportAuditDetails(in))
+		return map[string]string{"id": id}, nil
+	})
+	op(fiber.MethodGet, "/admin/v1/report-schedules/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		return svc.ReportSchedule(reqCtx(c), c.Params("id"))
+	})
+	op(fiber.MethodPut, "/admin/v1/report-schedules/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		var in service.ReportScheduleInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.UpdateReportSchedule(reqCtx(c), u.Email, c.Params("id"), in); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "report_schedule.update", "report_schedule", c.Params("id"), reportAuditDetails(in))
 		return nil, nil
+	})
+	op(fiber.MethodDelete, "/admin/v1/report-schedules/:id", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		if err := svc.DeleteReportSchedule(reqCtx(c), c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "report_schedule.delete", "report_schedule", c.Params("id"), nil)
+		return nil, nil
+	})
+	op(fiber.MethodPost, "/admin/v1/report-schedules/:id/send", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
+		r, err := svc.SendReportScheduleNow(reqCtx(c), c.Params("id"))
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "report_schedule.send", "report_schedule", c.Params("id"), r)
+		return r, nil
 	})
 	// ---- usage plans (operators)
 	op(fiber.MethodGet, "/admin/v1/plans", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
@@ -286,4 +316,16 @@ var v1Operations = []map[string]string{
 	{"method": "GET", "path": "/v1/suppressions", "purpose": "List suppressions"},
 	{"method": "POST", "path": "/v1/suppressions", "purpose": "Add a suppression"},
 	{"method": "DELETE", "path": "/v1/suppressions/{id}", "purpose": "Remove a suppression"},
+}
+
+// reportAuditDetails keeps recipient addresses out of the audit log: only how many.
+func reportAuditDetails(in service.ReportScheduleInput) map[string]any {
+	d := map[string]any{"name": in.Name, "report": in.Report, "recipients": len(in.Recipients), "project_id": in.ProjectID}
+	if in.Enabled != nil {
+		d["enabled"] = *in.Enabled
+	}
+	if in.SendHour != nil {
+		d["send_hour"] = *in.SendHour
+	}
+	return d
 }

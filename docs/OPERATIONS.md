@@ -331,14 +331,28 @@ Users dismiss them for themselves only.
 
 **The daily report.** Once a day (checked hourly, made once per UTC day so a restart never repeats it) the scheduler records
 the report for yesterday for every project and environment: messages by outcome, hard bounces, complaints, inbound mail and
-open alerts. It shows in every user's notifications. It can also be **emailed**: open *Daily report* in the dashboard, tick
-"Send the daily report by email", list up to 20 recipients and, if you want, choose the sender.
+open alerts. It shows in every user's notifications.
 
+**Report schedules** mail reports to chosen addresses. Open *Report schedules* in the dashboard: the page lists the
+**available reports** and every **schedule** with its recipients, scope, send time, next send, last period sent and last
+error. Add, edit, pause, *Send now* and delete from there (API: `/admin/v1/report-schedules`, operators only; every change
+is audited without the recipient addresses).
+
+| Report | Covers | Sent |
+| --- | --- | --- |
+| Daily summary (`daily_summary`) | yesterday (UTC) | every day at the schedule's hour (UTC) |
+| Weekly summary (`weekly_summary`) | last Monday to Sunday (UTC), the recorded days added up | Mondays at the schedule's hour (UTC) |
+
+- A schedule has a name, a report, 1 to 20 recipients, an optional sender identity, all projects or one project, and a send
+  hour (0 to 23, UTC). At most 50 schedules.
 - The mail is queued like any other message (source `automation`) from the chosen sender identity. With none chosen, the
-  default sender of a Live environment is used. If no sender exists at all, nothing is sent and the next hourly run tries
-  again, so add one first (Domains and senders).
-- It goes out at most once per day: the last day mailed is kept in `report_email_settings.last_emailed_day`. Turning the
-  setting off stops it; turning it on again mails the newest report from the last two days that has not been mailed.
+  default sender of a Live environment is used (in the schedule's project first). If no sender exists at all, nothing is
+  sent, the reason is shown as the schedule's last error and the next hourly run tries again.
+- Each period goes out once (`report_schedules.last_sent_period`), and only once its day has been recorded. A new
+  schedule, or one whose report was changed or that was turned on again, waits for its next send time instead of mailing
+  an old report at once. *Send now* mails the newest recorded period straight away and leaves the schedule as it was.
+- Migration `0041` copied the former single setting (`report_email_settings`) into a schedule called "Daily report" that
+  sends at 00:00 UTC, as before.
 - The text says "submitted" means the mail server accepted the message, not that it reached an inbox. Whether the report
   itself was delivered is shown in the Mail queue / delivery evidence like any other message.
 

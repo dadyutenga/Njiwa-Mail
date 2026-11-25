@@ -2485,125 +2485,437 @@ export function SingleSignOn() {
   );
 }
 
+type ReportForm = {
+  id?: string;
+  name: string;
+  report: string;
+  enabled: boolean;
+  recipients: string;
+  sender: string;
+  project: string;
+  hour: number;
+};
+
+const newReportForm = (report = "daily_summary"): ReportForm => ({
+  name: "",
+  report,
+  enabled: true,
+  recipients: "",
+  sender: "",
+  project: "",
+  hour: 6,
+});
+
+const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00 UTC`;
+
+/** Report schedules: the reports that can be mailed, and every schedule that mails one. */
 export function DailyReportEmail() {
   const phrase = usePhrase();
   const client = useQueryClient();
-  const q = useQuery({
-    queryKey: ["report-email"],
-    queryFn: () => admin.get<Row>("/report-email"),
-  });
-  const [f, setF] = useState<{ enabled: boolean; recipients: string; sender: string } | null>(null);
+  const [edit, setEdit] = useState<ReportForm | null>(null);
   const [error, setError] = useState("");
-  useEffect(() => {
-    if (q.data && !f) {
-      setF({
-        enabled: !!q.data.enabled,
-        recipients: ((q.data.recipients as string[]) ?? []).join("\n"),
-        sender: s(q.data.sender_identity_id),
-      });
-    }
-  }, [q.data, f]);
-  const save = async () => {
-    if (!f) return;
+  const [saving, setSaving] = useState(false);
+  const q = useQuery({
+    queryKey: ["report-schedules"],
+    queryFn: () => admin.get<Row>("/report-schedules"),
+  });
+  const refresh = () => client.invalidateQueries({ queryKey: ["report-schedules"] });
+  const items = (q.data?.items as Row[]) ?? [];
+  const reports = (q.data?.reports as Row[]) ?? [];
+  const senders = (q.data?.senders as Row[]) ?? [];
+  const projects = (q.data?.projects as Row[]) ?? [];
+  const full = items.length >= Number(q.data?.limit ?? 50);
+  const reportName = (id: unknown) => {
+    const r = reports.find((x) => x.id === id);
+    return r ? phrase(s(r.name)) : s(id);
+  };
+  const body = (f: ReportForm) => ({
+    name: f.name.trim(),
+    report: f.report,
+    enabled: f.enabled,
+    recipients: f.recipients
+      .split(/[\s,;]+/)
+      .map((x) => x.trim())
+      .filter(Boolean),
+    sender_identity_id: f.sender,
+    project_id: f.project,
+    send_hour: f.hour,
+  });
+  const fromRow = (r: Row): ReportForm => ({
+    id: s(r.id),
+    name: s(r.name),
+    report: s(r.report),
+    enabled: r.enabled === true,
+    recipients: ((r.recipients as string[]) ?? []).join("\n"),
+    sender: s(r.sender_identity_id),
+    project: s(r.project_id),
+    hour: Number(r.send_hour ?? 6),
+  });
+  const openNew = (report?: string) => {
     setError("");
+    setEdit(newReportForm(report));
+  };
+  const save = async () => {
+    if (!edit) return;
+    setError("");
+    setSaving(true);
     try {
-      await admin.send("/report-email", "PUT", {
-        enabled: f.enabled,
-        recipients: f.recipients
-          .split(/[\n,;]/)
-          .map((x) => x.trim())
-          .filter(Boolean),
-        sender_identity_id: f.sender,
-      });
-      toast.success(phrase("Saved."));
-      client.invalidateQueries({ queryKey: ["report-email"] });
+      if (edit.id) await admin.send(`/report-schedules/${edit.id}`, "PUT", body(edit));
+      else await admin.send("/report-schedules", "POST", body(edit));
+      toast.success(edit.id ? phrase("Schedule saved.") : phrase("Schedule added."));
+      setEdit(null);
+      refresh();
     } catch (e) {
       setError(errorMessage(e));
+    } finally {
+      setSaving(false);
     }
   };
-  const senders = (q.data?.senders as Row[]) ?? [];
+  const recipientCount = edit ? body(edit).recipients.length : 0;
+  const addButton = (
+    <Button onClick={() => openNew()} disabled={full}>
+      <Plus size={16} /> {phrase("New schedule")}
+    </Button>
+  );
   return (
     <>
       <PageHeader
-        title={phrase("Daily report by email")}
+        title={phrase("Report schedules")}
         description={phrase(
-          "Once a day, the report for yesterday (UTC) is also sent to these addresses. It is the same report as in the notifications.",
+          "Mail a report to chosen addresses every day or every week. The same report is in everyone's notifications.",
         )}
+        action={addButton}
       />
       <DataState q={q}>
-        {() =>
-          f && (
-            <Section>
-              <div className="grid max-w-xl gap-3">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={f.enabled}
-                    onChange={(e) => setF({ ...f, enabled: e.target.checked })}
-                  />
-                  {phrase("Send the daily report by email")}
-                </label>
-                <Field
-                  label={phrase("Recipients")}
-                  hint={phrase("One address per line. Up to 20.")}
+        {() => (
+          <>
+            {!q.data?.effective_sender && (
+              <p
+                role="status"
+                className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+              >
+                {phrase(
+                  "No sender address exists yet. Add a sender to a project first, otherwise nothing can be sent.",
+                )}
+              </p>
+            )}
+            <Section title={phrase("Available reports")}>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {reports.map((r) => {
+                  const used = items.filter((x) => x.report === r.id).length;
+                  return (
+                    <li key={s(r.id)} className="flex flex-col rounded-lg border p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <FileText size={16} aria-hidden className="text-primary" />
+                        <h3 className="font-semibold">{phrase(s(r.name))}</h3>
+                        <span className="text-xs text-muted-foreground">
+                          {r.cadence === "weekly" ? phrase("Weekly") : phrase("Daily")}
+                        </span>
+                      </div>
+                      <p className="mt-1 flex-1 text-sm text-muted-foreground">
+                        {phrase(s(r.description))}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {used} {phrase("schedules use it")}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={full}
+                          onClick={() => openNew(s(r.id))}
+                        >
+                          <Plus size={14} /> {phrase("Schedule this report")}
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Section>
+            <Section className="mt-4" title={phrase("Schedules")}>
+              {items.length === 0 ? (
+                <div className="py-6 text-center">
+                  <p className="font-semibold">{phrase("No schedules yet")}</p>
+                  <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                    {phrase(
+                      "Choose a report above, or add a schedule, to start mailing it to your team.",
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <ul className="grid gap-3">
+                  {items.map((r) => {
+                    const rec = (r.recipients as string[]) ?? [];
+                    return (
+                      <li key={s(r.id)} className="rounded-lg border p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="font-semibold">{s(r.name)}</h3>
+                              <StateBadge
+                                state={r.enabled ? "active" : "cancelled"}
+                                label={r.enabled ? phrase("active") : phrase("paused")}
+                              />
+                              {s(r.last_error) && (
+                                <StateBadge state="fail" label={phrase("last run failed")} />
+                              )}
+                            </div>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {reportName(r.report)} · {s(r.project) || phrase("All projects")} ·{" "}
+                              {hourLabel(Number(r.send_hour))}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button size="sm" variant="outline" onClick={() => setEdit(fromRow(r))}>
+                              {phrase("Edit")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                await run(
+                                  () =>
+                                    admin.send(`/report-schedules/${s(r.id)}`, "PUT", {
+                                      ...body(fromRow(r)),
+                                      enabled: !r.enabled,
+                                    }),
+                                  r.enabled
+                                    ? phrase("Schedule paused.")
+                                    : phrase("Schedule resumed."),
+                                );
+                                refresh();
+                              }}
+                            >
+                              {r.enabled ? phrase("Pause") : phrase("Resume")}
+                            </Button>
+                            <ConfirmButton
+                              title={`${phrase("Send now")}: ${s(r.name)}?`}
+                              description={phrase(
+                                "The newest recorded report is mailed to every recipient now. The schedule does not change.",
+                              )}
+                              confirm="Send now"
+                              destructive={false}
+                              onConfirm={async () => {
+                                await run(
+                                  () => admin.send(`/report-schedules/${s(r.id)}/send`, "POST"),
+                                  phrase("Report queued."),
+                                );
+                                refresh();
+                              }}
+                            >
+                              {phrase("Send now")}
+                            </ConfirmButton>
+                            <ConfirmButton
+                              title={`${phrase("Delete")} ${s(r.name)}?`}
+                              description={phrase(
+                                "The schedule stops and is removed. Reports already sent are not affected.",
+                              )}
+                              confirm="Delete schedule"
+                              onConfirm={async () => {
+                                await run(
+                                  () => admin.send(`/report-schedules/${s(r.id)}`, "DELETE"),
+                                  phrase("Schedule deleted."),
+                                );
+                                refresh();
+                              }}
+                            >
+                              {phrase("Delete")}
+                            </ConfirmButton>
+                          </div>
+                        </div>
+                        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+                          <div className="min-w-0">
+                            <dt className="text-xs text-muted-foreground">
+                              {phrase("Recipients")}
+                            </dt>
+                            <dd className="mt-1 break-words" title={rec.join(", ")}>
+                              {rec.slice(0, 2).join(", ")}
+                              {rec.length > 2 ? ` +${rec.length - 2}` : ""}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-muted-foreground">{phrase("Send from")}</dt>
+                            <dd className="mt-1 break-all">
+                              {s(r.sender_email) || phrase("Automatic")}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-muted-foreground">{phrase("Next send")}</dt>
+                            <dd className="mt-1">
+                              {r.enabled ? <Time value={r.next_send_at} /> : phrase("paused")}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-muted-foreground">{phrase("Last sent")}</dt>
+                            <dd className="mt-1">
+                              {r.last_sent_at ? (
+                                <>
+                                  <Time value={r.last_sent_at} relative />
+                                  <span className="block text-xs text-muted-foreground">
+                                    {phrase("for")} {s(r.last_sent_period).slice(0, 10)}
+                                  </span>
+                                </>
+                              ) : (
+                                phrase("Not yet")
+                              )}
+                            </dd>
+                          </div>
+                        </dl>
+                        {s(r.last_error) && (
+                          <p role="alert" className="mt-3 text-sm text-destructive">
+                            {phrase("Last error")}: {s(r.last_error)}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Section>
+            <p className="mt-3 text-xs text-muted-foreground">
+              {phrase(
+                "The email says how many messages were accepted by the mail server. That does not mean they reached an inbox.",
+              )}
+            </p>
+          </>
+        )}
+      </DataState>
+      <Dialog open={!!edit} onOpenChange={(open) => !open && setEdit(null)}>
+        <DialogContent>
+          <DialogTitle>{edit?.id ? phrase("Edit schedule") : phrase("New schedule")}</DialogTitle>
+          <DialogDescription>
+            {phrase("Times are in UTC. Each period is mailed once.")}
+          </DialogDescription>
+          {edit && (
+            <form
+              className="grid max-h-[70vh] gap-3 overflow-y-auto pr-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void save();
+              }}
+            >
+              <Field label={phrase("Name")}>
+                <input
+                  className={inputClass}
+                  maxLength={100}
+                  required
+                  value={edit.name}
+                  onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                  placeholder={phrase("e.g. Operations team")}
+                />
+              </Field>
+              <Field label={phrase("Report")}>
+                <select
+                  className={selectClass}
+                  value={edit.report}
+                  onChange={(e) => setEdit({ ...edit, report: e.target.value })}
                 >
-                  <textarea
-                    className={textareaClass}
-                    rows={4}
-                    value={f.recipients}
-                    onChange={(e) => setF({ ...f, recipients: e.target.value })}
-                  />
-                </Field>
-                <Field
-                  label={phrase("Send from")}
-                  hint={phrase(
-                    "A sender address that already exists in a project. If you choose none, the default sender of a Live environment is used.",
-                  )}
-                >
+                  {reports.map((r) => (
+                    <option key={s(r.id)} value={s(r.id)}>
+                      {phrase(s(r.name))}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field
+                label={phrase("Recipients")}
+                hint={`${phrase("One address per line. Up to 20.")} (${recipientCount}/20)`}
+              >
+                <textarea
+                  className={textareaClass}
+                  rows={4}
+                  value={edit.recipients}
+                  onChange={(e) => setEdit({ ...edit, recipients: e.target.value })}
+                  placeholder="ops@example.com"
+                />
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={phrase("Projects")}>
                   <select
                     className={selectClass}
-                    value={f.sender}
-                    onChange={(e) => setF({ ...f, sender: e.target.value })}
+                    value={edit.project}
+                    onChange={(e) => setEdit({ ...edit, project: e.target.value })}
                   >
-                    <option value="">
-                      {phrase("Automatic")}
-                      {q.data?.effective_sender ? ` (${s(q.data.effective_sender)})` : ""}
-                    </option>
-                    {senders.map((x) => (
-                      <option key={s(x.id)} value={s(x.id)}>
-                        {s(x.email)} · {s(x.project)} · {s(x.mode)}
+                    <option value="">{phrase("All projects")}</option>
+                    {projects.map((p) => (
+                      <option key={s(p.id)} value={s(p.id)}>
+                        {s(p.name)}
                       </option>
                     ))}
                   </select>
                 </Field>
-                {!q.data?.effective_sender && (
-                  <p className="text-sm text-muted-foreground">
-                    {phrase(
-                      "No sender address exists yet. Add a sender to a project first, otherwise nothing can be sent.",
-                    )}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {phrase(
-                    "The email says how many messages were accepted by the mail server. That does not mean they reached an inbox.",
-                  )}
-                  {q.data?.last_emailed_day
-                    ? ` ${phrase("Last sent for")} ${s(q.data.last_emailed_day).slice(0, 10)}.`
-                    : ""}
-                </p>
-                {error && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-                <div>
-                  <Button onClick={save}>{phrase("Save")}</Button>
-                </div>
+                <Field
+                  label={phrase("Send at")}
+                  hint={
+                    reports.find((r) => r.id === edit.report)?.cadence === "weekly"
+                      ? phrase("On Mondays.")
+                      : phrase("Every day.")
+                  }
+                >
+                  <select
+                    className={selectClass}
+                    value={edit.hour}
+                    onChange={(e) => setEdit({ ...edit, hour: Number(e.target.value) })}
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h}>
+                        {hourLabel(h)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
               </div>
-            </Section>
-          )
-        }
-      </DataState>
+              <Field
+                label={phrase("Send from")}
+                hint={phrase(
+                  "A sender address that already exists in a project. If you choose none, the default sender of a Live environment is used.",
+                )}
+              >
+                <select
+                  className={selectClass}
+                  value={edit.sender}
+                  onChange={(e) => setEdit({ ...edit, sender: e.target.value })}
+                >
+                  <option value="">
+                    {phrase("Automatic")}
+                    {q.data?.effective_sender ? ` (${s(q.data.effective_sender)})` : ""}
+                  </option>
+                  {senders.map((x) => (
+                    <option key={s(x.id)} value={s(x.id)}>
+                      {s(x.email)} · {s(x.project)} · {s(x.mode)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={edit.enabled}
+                  onChange={(e) => setEdit({ ...edit, enabled: e.target.checked })}
+                />
+                {phrase("Active")}
+              </label>
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  disabled={saving || !edit.name.trim() || recipientCount === 0}
+                >
+                  {edit.id ? phrase("Save") : phrase("Add schedule")}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setEdit(null)}>
+                  {phrase("Cancel")}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

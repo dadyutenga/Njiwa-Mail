@@ -6,6 +6,7 @@ import { swForms } from "./sw-forms";
 import { swMembers } from "./sw-members";
 import { swSetup } from "./sw-setup";
 import { swTools } from "./sw-tools";
+import { swReports } from "./sw-reports";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
   "Every browser except this one is signed out and must sign in again.":
@@ -1354,3 +1355,4 @@ Object.assign(swExtra, swChat);
 Object.assign(swExtra, swMembers);
 Object.assign(swExtra, swChatExtras);
 Object.assign(swExtra, swFollowups);
+Object.assign(swExtra, swReports);
