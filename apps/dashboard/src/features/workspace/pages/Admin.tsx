@@ -26,6 +26,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { usePhrase } from "@/features/i18n/i18n";
 import { Sessions } from "@/features/mail/Sessions";
 import { Platform } from "./Platform";
+import { DailyCharts, fillDays } from "./AnalyticsCharts";
 import { useAuth } from "@/features/auth/auth";
 import { admin, getCsrf } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
@@ -1094,6 +1095,7 @@ export function Analytics() {
   const [env, setEnv] = useSendingModeParam();
   const { api, key } = useSendingEnvironment(env);
   const [days, setDays] = useParam("days", "30");
+  const [dailyView, setDailyView] = useParam("daily", "chart");
   const end = new Date();
   end.setUTCHours(0, 0, 0, 0);
   end.setUTCDate(end.getUTCDate() + 1);
@@ -1299,18 +1301,46 @@ export function Analytics() {
                 {daily.length === 0 ? (
                   <Empty title={phrase("No activity in this period")} />
                 ) : (
-                  <Table
-                    rows={daily}
-                    rowKey={(x) => s(x.day)}
-                    columns={[
-                      { key: "day", label: phrase("Day") },
-                      { key: "messages", label: phrase("Messages") },
-                      { key: "submitted", label: phrase("Submitted") },
-                      { key: "failed", label: phrase("Failed") },
-                      { key: "hard_bounces", label: phrase("Hard bounces") },
-                      { key: "soft_bounces", label: phrase("Soft bounces") },
-                    ]}
-                  />
+                  <>
+                    <div
+                      className="od-chips mb-4"
+                      role="group"
+                      aria-label={phrase("Show per day as")}
+                    >
+                      {(
+                        [
+                          ["chart", phrase("Chart")],
+                          ["table", phrase("Table")],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-checked={dailyView === value}
+                          className="od-chip"
+                          onClick={() => setDailyView(value)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {dailyView === "chart" ? (
+                      <DailyCharts rows={fillDays(daily, start, shownEnd)} />
+                    ) : (
+                      <Table
+                        rows={daily}
+                        rowKey={(x) => s(x.day)}
+                        columns={[
+                          { key: "day", label: phrase("Day") },
+                          { key: "messages", label: phrase("Messages") },
+                          { key: "submitted", label: phrase("Submitted") },
+                          { key: "failed", label: phrase("Failed") },
+                          { key: "hard_bounces", label: phrase("Hard bounces") },
+                          { key: "soft_bounces", label: phrase("Soft bounces") },
+                        ]}
+                      />
+                    )}
+                  </>
                 )}
               </Section>
               {((r.notes as string[]) ?? []).length > 0 && (

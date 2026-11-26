@@ -1,4 +1,4 @@
-// Kiswahili for the report schedules page. Keys are the exact English text passed to
+// Kiswahili for the report schedules page and the Analytics per-day charts. Keys are the exact English text passed to
 // phrase(), including the report names and descriptions the API returns. Needs a
 // native-speaker review.
 export const swReports: Record<string, string> = {
@@ -47,4 +47,9 @@ export const swReports: Record<string, string> = {
   "last run failed": "utekelezaji wa mwisho ulishindwa",
   paused: "imesitishwa",
   "schedules use it": "ratiba zinaitumia",
+  "Bounces per day": "Bounces kwa siku",
+  Chart: "Chati",
+  "Other states": "Hali nyingine",
+  "Show per day as": "Onyesha kwa siku kama",
+  Table: "Jedwali",
 };
