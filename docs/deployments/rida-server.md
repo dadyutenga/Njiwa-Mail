@@ -130,3 +130,16 @@ as `.md`. No DNS or certificate change was needed.
 Rollback: restore the nginx backup over `/etc/nginx/sites-available/njiwamail.qarmalab.dev`,
 `nginx -t && systemctl reload nginx`, then `docker compose -p njiwa-mail-docs -f compose.docs.yaml down`.
 Dashboard link: restore `env.before-docs-url` and retag `njiwa-mail-frontend:before-docs-link`.
+
+## Live chat, Mailcow queue and delivery results — 2026-11-26
+
+- Live chat enabled: `CHAT_ENABLED=true` in `/opt/njiwa-mail/.env` (api, worker and scheduler recreated).
+  Backup: `/opt/njiwa-mail-backups/env.before-chat`.
+- Nginx: chat event streams (`/v1/chat/*/conversations/*/stream`, `/admin/v1/chat/conversations/stream`)
+  get `proxy_buffering off` and a 1800 s read timeout, instead of the 30 s / 60 s of their parent blocks.
+  Backup: `/opt/njiwa-mail-backups/nginx-njiwamail.before-chat-stream`.
+- Host agent updated to 8f0188f with `-postfix-container mailcowdockerized-postfix-mailcow-1` and
+  `-signer-container mailcowdockerized-rspamd-mailcow-1` (unit from `deploy/rida-server/njiwa-mail-host-agent.service`);
+  the queue page works and the API records Mailcow's delivery results (11 "remote accepted" events backfilled at once).
+  `/usr/local/sbin/njiwa-deploy` reinstalled so later deploys refresh the agent. Backups: `*.before-8f0188f` in
+  `/opt/njiwa-mail-backups`.
