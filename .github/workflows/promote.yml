@@ -1,0 +1,52 @@
+# Continuous delivery from dev: when CI passes on a push to dev, main is fast-forwarded to that
+# exact commit and it is deployed (deploy.yml). The commit was already tested by that CI run, and
+# a push made with GITHUB_TOKEN does not start CI on main again, so it deploys once.
+#
+# main only ever moves forward: if main has commits dev does not, the fast-forward is refused
+# and nothing is deployed (merge main into dev and push again).
+name: Promote dev
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [dev]
+
+permissions: { contents: read }
+
+concurrency: { group: promote-dev, cancel-in-progress: false }
+
+jobs:
+  promote:
+    # Only a green CI run of a push to dev in this repository, never a pull request or a fork.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'dev' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    outputs:
+      sha: ${{ steps.ff.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with: { ref: main, fetch-depth: 0 }
+      - name: Fast-forward main to the tested dev commit
+        id: ff
+        env: { SHA: "${{ github.event.workflow_run.head_sha }}" }
+        run: |
+          git fetch --quiet origin dev
+          # A newer push to dev may have landed already; its own CI run will promote it.
+          git merge-base --is-ancestor "$SHA" origin/dev || { echo "$SHA is no longer on dev"; exit 1; }
+          if git merge-base --is-ancestor "$SHA" HEAD; then
+            echo "main already contains $SHA"
+          else
+            git merge-base --is-ancestor HEAD "$SHA" || { echo "::error::main has commits dev does not; merge main into dev"; exit 1; }
+            git push origin "$SHA:refs/heads/main"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: promote
+    uses: ./.github/workflows/deploy.yml
+    with: { sha: "${{ needs.promote.outputs.sha }}" }
+    secrets: inherit

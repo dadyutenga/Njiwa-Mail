@@ -1,4 +1,5 @@
-# Deploys main to rida-server after CI passes on it (or on demand).
+# Deploys main to rida-server after CI passes on it, when promote.yml moves main up to a
+# green dev commit (it calls this workflow with that SHA), or on demand.
 #
 # The runner only sends a commit SHA over SSH. The server key is restricted to
 # a forced command (deploy/rida-server/njiwa-deploy.sh), which fetches that
@@ -16,27 +17,32 @@ on:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  workflow_call:
+    inputs:
+      sha: { description: Commit on main to deploy, type: string, required: true }
   workflow_dispatch:
 
 permissions: { contents: read }
 
-concurrency: { group: deploy-production, cancel-in-progress: false }
-
 jobs:
   deploy:
-    # Only a green CI run of a push to main in this repository, never a pull request or a fork.
+    # Only a green CI run of a push to main in this repository, never a pull request or a fork;
+    # or a call from promote.yml, which has already checked the same for dev.
     if: >-
+      inputs.sha != '' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
+    # Job level, so it also holds when promote.yml calls this workflow.
+    concurrency: { group: deploy-production, cancel-in-progress: false }
     environment: { name: production, url: https://njiwamail.qarmalab.dev }
     timeout-minutes: 30
     steps:
       - name: Deploy over SSH
         env:
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SHA: ${{ inputs.sha || github.event.workflow_run.head_sha || github.sha }}
           KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           HOST: ${{ secrets.DEPLOY_HOST }}
           KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}

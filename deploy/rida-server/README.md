@@ -1,8 +1,13 @@
 # Automatic deploys to rida-server
 
-Every push to `main` runs CI. When CI passes, `.github/workflows/deploy.yml`
-deploys that commit to production. It can also be started by hand from
-GitHub → Actions → Deploy → Run workflow.
+Push to `dev` and it reaches production by itself: CI runs on the push and, when
+it passes, `.github/workflows/promote.yml` fast-forwards `main` to that exact
+commit and runs `.github/workflows/deploy.yml` for it. `main` only moves
+forward: if it has commits `dev` lacks, the promote fails and nothing deploys
+(merge `main` into `dev` and push again).
+
+A push straight to `main` still works the old way (CI on `main`, then Deploy).
+A deploy can also be started by hand from GitHub → Actions → Deploy → Run workflow.
 
 ## How it works
 
@@ -41,7 +46,8 @@ by hand: the pipeline never replaces its own entrypoint.
 
 ## Turning it off or rolling back
 
-- Pause: GitHub → Actions → Deploy → Disable workflow. Revoke: delete the
+- Pause: GitHub → Actions → Deploy → Disable workflow (or disable only
+  "Promote dev" to keep `dev` pushes off production). Revoke: delete the
   `njiwa-mail-cd` line from `/root/.ssh/authorized_keys`.
 - Roll back a release: `ssh rida-server /usr/local/sbin/njiwa-deploy <older-main-sha>`
   (forward-only migrations stay applied; restore the dump if one is needed).
