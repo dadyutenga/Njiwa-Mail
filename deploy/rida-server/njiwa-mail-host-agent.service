@@ -1,0 +1,30 @@
+# Host agent on rida-server: discovery and the dashboard's mail queue controls.
+# Postfix here is Mailcow's (inside postfix-mailcow), so the agent reaches it
+# with docker exec / docker logs; the API reads the queue and, every 30 s, the
+# delivery results (sent / deferred / bounced) that move a message past
+# "submitted". njiwa-deploy installs this file and the binary on each deploy.
+[Unit]
+Description=Njiwa Mail host agent (discovery, Mailcow mail queue, delivery results)
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStart=/opt/njiwa-mail/bin/njiwa-mail mta-agent -socket /run/njiwa-mail/mta-agent.sock -token-file /opt/njiwa-mail/secrets/mta-agent.token -group 10001 -postfix-container mailcowdockerized-postfix-mailcow-1 -signer-container mailcowdockerized-rspamd-mailcow-1
+# ProtectHome hides /root/.docker; without this the docker CLI warns into the command output.
+Environment=DOCKER_CONFIG=/run/njiwa-mail/.docker
+Restart=always
+RestartSec=5
+RuntimeDirectory=njiwa-mail
+RuntimeDirectoryPreserve=yes
+RuntimeDirectoryMode=0755
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+ReadWritePaths=/run/njiwa-mail
+
+[Install]
+WantedBy=multi-user.target

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -117,6 +118,14 @@ type Agent struct {
 	Signer string
 	// Postfix is the unit checked for Status (default postfix).
 	Postfix string
+	// Container, when set, is the Docker container Postfix runs in (Mailcow:
+	// mailcowdockerized-postfix-mailcow-1). Queue commands then run inside it
+	// with docker exec, its health is the container's, and delivery lines come
+	// from docker logs instead of the journal.
+	Container string
+	// SignerContainer is the DKIM signer's container for Status (Mailcow:
+	// mailcowdockerized-rspamd-mailcow-1). Without it Signer is checked as a unit.
+	SignerContainer string
 	// DiscoveryEnv overrides the host environment in tests.
 	DiscoveryEnv *discover.Env
 
@@ -143,6 +152,7 @@ func (a *Agent) Handler() http.Handler {
 	mux.HandleFunc("GET /status", a.guard(a.status))
 	mux.HandleFunc("POST /queue/{id}/{action}", a.guard(a.act))
 	mux.HandleFunc("POST /flush", a.guard(a.flush))
+	mux.HandleFunc("GET /log", a.guard(a.log))
 	mux.HandleFunc("POST /domains/plan", a.guard(a.domains))
 	mux.HandleFunc("POST /domains/apply", a.guard(a.domains))
 	mux.HandleFunc("POST /discovery", a.guard(func(w http.ResponseWriter, r *http.Request) {
@@ -175,7 +185,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func (a *Agent) queue(ctx context.Context) ([]QueueEntry, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	out, err := a.Runner.Run(ctx, "postqueue", "-j")
+	out, err := a.postfixCmd(ctx, "postqueue", "-j")
 	if err != nil {
 		return nil, err
 	}
@@ -207,9 +217,8 @@ func (a *Agent) status(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	_, perr := a.Runner.Run(r.Context(), "systemctl", "is-active", "--quiet", a.postfix())
-	_, serr := a.Runner.Run(r.Context(), "systemctl", "is-active", "--quiet", a.signer())
-	st.PostfixActive, st.SignerActive = perr == nil, serr == nil
+	st.PostfixActive = a.running(r.Context(), a.postfix(), a.Container)
+	st.SignerActive = a.running(r.Context(), a.signer(), a.SignerContainer)
 	writeJSON(w, 200, st)
 }
 
@@ -225,7 +234,7 @@ func (a *Agent) act(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mu.Lock()
-	_, err := a.Runner.Run(r.Context(), "postsuper", flag, id)
+	_, err := a.postfixCmd(r.Context(), "postsuper", flag, id)
 	a.mu.Unlock()
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": "postsuper_failed"})
@@ -237,13 +246,76 @@ func (a *Agent) act(w http.ResponseWriter, r *http.Request) {
 // flush asks Postfix to retry every deferred message now (postqueue -f).
 func (a *Agent) flush(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
-	_, err := a.Runner.Run(r.Context(), "postqueue", "-f")
+	_, err := a.postfixCmd(r.Context(), "postqueue", "-f")
 	a.mu.Unlock()
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": "postqueue_failed"})
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// postfixCmd runs a Postfix command on the host, or inside Container.
+func (a *Agent) postfixCmd(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if a.Container != "" {
+		return a.Runner.Run(ctx, "docker", append([]string{"exec", a.Container, name}, args...)...)
+	}
+	return a.Runner.Run(ctx, name, args...)
+}
+
+// running reports whether a container (when named) or else a systemd unit is up.
+func (a *Agent) running(ctx context.Context, unit, container string) bool {
+	if container != "" {
+		out, err := a.Runner.Run(ctx, "docker", "inspect", "-f", "{{.State.Running}}", container)
+		return err == nil && strings.TrimSpace(string(out)) == "true"
+	}
+	_, err := a.Runner.Run(ctx, "systemctl", "is-active", "--quiet", unit)
+	return err == nil
+}
+
+// MaxLogLines bounds one /log answer; the newest lines are kept.
+const MaxLogLines = 20000
+
+// DeliveryLines keeps only Postfix lines that carry a delivery status
+// (sent, deferred, bounced, expired), newest max.
+func DeliveryLines(out []byte, max int) []string {
+	lines := []string{}
+	for _, l := range strings.Split(string(out), "\n") {
+		if strings.Contains(l, "postfix/") && strings.Contains(l, "status=") {
+			lines = append(lines, strings.TrimRight(l, "\r"))
+		}
+	}
+	if len(lines) > max {
+		lines = lines[len(lines)-max:]
+	}
+	return lines
+}
+
+// log returns Postfix delivery-status lines logged since the given Unix
+// time (at most 7 days back), and the time the read started, which is the
+// caller's next "since". The API turns them into delivery evidence.
+func (a *Agent) log(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	since, err := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+	if err != nil || since <= 0 || since > now.Unix() {
+		writeJSON(w, 400, map[string]string{"error": "invalid_since"})
+		return
+	}
+	if oldest := now.Add(-7 * 24 * time.Hour).Unix(); since < oldest {
+		since = oldest
+	}
+	var out []byte
+	if a.Container != "" {
+		out, err = a.Runner.Run(r.Context(), "docker", "logs", "--since", strconv.FormatInt(since, 10), a.Container)
+	} else {
+		out, err = a.Runner.Run(r.Context(), "journalctl", "--since", "@"+strconv.FormatInt(since, 10), "--output=short", "--no-pager",
+			"-u", a.postfix()+".service", "-u", a.postfix()+"@*")
+	}
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": "log_failed"})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"lines": DeliveryLines(out, MaxLogLines), "until": now.Unix()})
 }
 
 // Listen serves on a Unix socket owned by root, group-readable by gid when

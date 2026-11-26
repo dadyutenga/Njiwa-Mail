@@ -2,11 +2,13 @@ package mtaagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -197,5 +199,87 @@ func TestAgentStatusAndSocketClient(t *testing.T) {
 	// Refuses a short token and a non-socket path.
 	if err := (&Agent{Runner: f, Token: "short"}).Listen(context.Background(), t.TempDir()+"/b.sock", 0o600, -1); err == nil {
 		t.Fatal("short token accepted")
+	}
+}
+
+func TestAgentInsideAContainer(t *testing.T) {
+	const c = "mailcowdockerized-postfix-mailcow-1"
+	f := &fakeRunner{out: map[string]string{
+		"docker exec " + c + " postqueue -j":                                      sampleQueue,
+		"docker inspect -f {{.State.Running}} " + c:                               "true\n",
+		"docker inspect -f {{.State.Running}} mailcowdockerized-rspamd-mailcow-1": "false\n",
+	}}
+	a := &Agent{Runner: f, Token: "0123456789abcdef-token", Container: c, SignerContainer: "mailcowdockerized-rspamd-mailcow-1"}
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	tok := "0123456789abcdef-token"
+	for path, want := range map[string]string{
+		"/queue/4C1D2E3F4A/hold": "docker exec " + c + " postsuper -h 4C1D2E3F4A",
+		"/flush":                 "docker exec " + c + " postqueue -f",
+	} {
+		f.calls = nil
+		if resp := do(t, srv, "POST", path, tok); resp.StatusCode != 200 {
+			t.Fatalf("%s: %d", path, resp.StatusCode)
+		}
+		if len(f.calls) != 1 || strings.Join(f.calls[0], " ") != want {
+			t.Fatalf("%s ran %v, want %q", path, f.calls, want)
+		}
+	}
+	resp := do(t, srv, "GET", "/status", tok)
+	var st Status
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Total != 2 || !st.PostfixActive || st.SignerActive {
+		t.Fatalf("%+v", st)
+	}
+}
+
+const mailcowLog = `Nov 26 11:09:16 cf1d0c9a4915 postfix/submission/smtpd[49140]: connect from unknown[172.22.1.1]
+Nov 26 11:09:17 cf1d0c9a4915 postfix/smtp[49143]: 9370C28ADCB: to=<user@example.org>, relay=gmail-smtp-in.l.google.com[2a00:1450:4001:c21::1b]:25, delay=3.1, delays=1.9/0.15/0.3/0.74, dsn=2.0.0, status=sent (250 2.0.0 OK  1795680557 - gsmtp)
+Nov 26 11:09:18 cf1d0c9a4915 postfix/qmgr[350]: 9370C28ADCB: removed
+Nov 26 11:10:00 cf1d0c9a4915 postfix/smtp[49150]: 1234ABCDEF: to=<x@example.net>, relay=none, delay=30, delays=0/0/30/0, dsn=4.4.1, status=deferred (connect to mx.example.net[192.0.2.9]:25: Connection timed out)
+`
+
+func TestAgentLogReturnsOnlyDeliveryLines(t *testing.T) {
+	since := time.Now().Add(-time.Hour).Unix()
+	const c = "mailcowdockerized-postfix-mailcow-1"
+	f := &fakeRunner{out: map[string]string{"docker logs --since " + strconv.FormatInt(since, 10) + " " + c: mailcowLog}}
+	a := &Agent{Runner: f, Token: "0123456789abcdef-token", Container: c}
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	tok := "0123456789abcdef-token"
+	resp := do(t, srv, "GET", "/log?since="+strconv.FormatInt(since, 10), tok)
+	var out struct {
+		Lines []string
+		Until int64
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("%d %v", resp.StatusCode, err)
+	}
+	if len(out.Lines) != 2 || !strings.Contains(out.Lines[0], "status=sent") || !strings.Contains(out.Lines[1], "status=deferred") {
+		t.Fatalf("%q", out.Lines)
+	}
+	if out.Until < since || out.Until > time.Now().Unix() {
+		t.Fatalf("until %d", out.Until)
+	}
+	// Without a container it reads the journal; bad or future times run nothing.
+	f.calls = nil
+	a.Container = ""
+	do(t, srv, "GET", "/log?since="+strconv.FormatInt(since, 10), tok)
+	if len(f.calls) != 1 || f.calls[0][0] != "journalctl" || f.calls[0][2] != "@"+strconv.FormatInt(since, 10) {
+		t.Fatalf("%v", f.calls)
+	}
+	f.calls = nil
+	for _, q := range []string{"", "abc", "-5", "0", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10), "1;rm"} {
+		if resp := do(t, srv, "GET", "/log?since="+q, tok); resp.StatusCode != 400 {
+			t.Errorf("since=%q: %d", q, resp.StatusCode)
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("a refused request ran a command: %v", f.calls)
+	}
+	if got := DeliveryLines([]byte(mailcowLog+mailcowLog), 1); len(got) != 1 || !strings.Contains(got[0], "deferred") {
+		t.Fatalf("cap keeps the newest: %q", got)
 	}
 }

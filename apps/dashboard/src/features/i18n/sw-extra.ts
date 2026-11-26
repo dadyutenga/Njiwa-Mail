@@ -1010,6 +1010,8 @@ export const swExtra: Record<string, string> = {
   "The old secret stops working at once. Update your receiver with the new one.":
     "Siri ya zamani inaacha kufanya kazi mara moja. Sasisha kipokeaji chako kwa mpya.",
   "The project can send again.": "Mradi unaweza kutuma tena.",
+  "The queue agent answered but could not read the mail queue. If Postfix runs in a container (Mailcow), start the agent with -postfix-container.":
+    "Queue agent imejibu lakini haikuweza kusoma foleni ya barua. Ikiwa Postfix inaendeshwa ndani ya kontena (Mailcow), anzisha agent kwa -postfix-container.",
   "The queue agent cannot be reached. Check that njiwa-mail-mta-agent is running.":
     "Queue agent haifikiwi. Hakikisha njiwa-mail-mta-agent inafanya kazi.",
   "The queue agent is not set up": "Queue agent haijasanidiwa",

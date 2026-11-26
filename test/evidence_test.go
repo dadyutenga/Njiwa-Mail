@@ -20,9 +20,11 @@ func TestParseMTALines(t *testing.T) {
 	if ev, ok := service.ParseMTALine(def); !ok || ev.Status != "deferred" || ev.DSN != "4.4.1" {
 		t.Fatalf("%+v", ev)
 	}
-	// The same line as journalctl --output=short (the mta-log unit) and as
-	// rsyslog's RFC 3339 timestamps (Ubuntu 24.04 default) prints it.
+	// The same line as journalctl --output=short (the mta-log unit), as
+	// rsyslog's RFC 3339 timestamps (Ubuntu 24.04 default) and as Mailcow's
+	// postfix-mailcow container (docker logs, read by the queue agent) print it.
 	for _, line := range []string{
+		`Nov 12 08:01:02 cf1d0c9a4915 postfix/smtp[2211]: 4C1D2E3F4A: to=<user@example.org>, relay=gmail-smtp-in.l.google.com[2a00:1450:4001:c21::1b]:25, delay=3.1, delays=1.9/0.15/0.3/0.74, dsn=2.0.0, status=sent (250 2.0.0 OK  1795680557 ffacd0b85a97d - gsmtp)`,
 		`Nov 12 08:01:02 mailout postfix/smtp[2211]: 4C1D2E3F4A: to=<user@example.org>, relay=mx.example.org[192.0.2.5]:25, delay=1.2, delays=0.1/0/0.5/0.6, dsn=2.0.0, status=sent (250 2.0.0 OK)`,
 		`2026-11-12T08:01:02.123456+03:00 mailout postfix/smtp[2211]: 4C1D2E3F4A: to=<user@example.org>, relay=mx.example.org[192.0.2.5]:25, delay=1.2, delays=0.1/0/0.5/0.6, dsn=2.0.0, status=sent (250 2.0.0 OK)`,
 	} {

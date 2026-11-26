@@ -26,6 +26,7 @@ import {
 type Status = {
   configured: boolean;
   reachable?: boolean;
+  error?: string;
   status?: {
     queue: Record<string, number>;
     total: number;
@@ -128,7 +129,7 @@ export function MtaQueue() {
           "Messages your mail server has accepted but not yet handed to the recipient's server. Addresses are hidden here.",
         )}
         action={
-          configured && status.data?.reachable ? (
+          configured && status.data?.reachable && !status.data.error ? (
             <ConfirmButton
               size="default"
               destructive={false}
@@ -156,6 +157,14 @@ export function MtaQueue() {
       {status.data?.configured && status.data.reachable === false && (
         <p role="alert" className="rounded-lg border p-3 text-sm">
           {phrase("The queue agent cannot be reached. Check that njiwa-mail-mta-agent is running.")}
+        </p>
+      )}
+      {status.data?.configured && status.data.reachable && status.data.error && (
+        <p role="alert" className="rounded-lg border p-3 text-sm">
+          {phrase(
+            "The queue agent answered but could not read the mail queue. If Postfix runs in a container (Mailcow), start the agent with -postfix-container.",
+          )}{" "}
+          <code>{status.data.error}</code>
         </p>
       )}
       {st && (
@@ -186,7 +195,7 @@ export function MtaQueue() {
           </dl>
         </Section>
       )}
-      {configured && status.data?.reachable && (
+      {configured && status.data?.reachable && !status.data.error && (
         <DataState q={queue}>
           {(d) =>
             d.items.length === 0 ? (

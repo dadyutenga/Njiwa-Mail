@@ -55,7 +55,7 @@ Runtime:
   dns-check                   run the read-only DNS health check now and print the results
   dkim-verify [-file message.eml|-]
                               verify every DKIM signature on a received message (needs DNS, not the database)
-  mta-agent [-socket P] [-token-file F] [-group G]   host service behind the dashboard's mail queue controls (run as root on the mail host)
+  mta-agent [-socket P] [-token-file F] [-group G] [-postfix-container C] [-signer-container C]   host service behind the dashboard's mail queue controls (run as root on the mail host)
   mta-log [-file /var/log/mail.log|-] [-follow]
                               record delivery evidence (sent, deferred, bounced) from Postfix log lines,
                               correlated to messages by queue ID; "-" reads stdin (journalctl -fu postfix | ...)
@@ -391,7 +391,9 @@ func smtpTransport(cfg *config.Config) *mailer.SMTP {
 func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	var agent api.MTAAgent
 	if cfg.MTAAgentSocket != "" {
-		agent = mtaagent.NewClient(cfg.MTAAgentSocket, cfg.MTAAgentToken)
+		c := mtaagent.NewClient(cfg.MTAAgentSocket, cfg.MTAAgentToken)
+		agent = c
+		go followAgentLog(ctx, svc, c, 30*time.Second)
 	}
 	var scanHost func(context.Context) (*discover.Report, error)
 	if os.Getenv("NJIWA_LOCAL_DISCOVERY") == "true" {
@@ -999,6 +1001,42 @@ func runInstaller(ctx context.Context, deps *installerDeps, args []string) {
 	}
 }
 
+// followAgentLog turns the mail server's delivery results into delivery
+// evidence by asking the queue agent for new Postfix status lines every
+// interval. It is how a message moves past "submitted" when Njiwa cannot read
+// the log itself (Postfix on the host, or inside Mailcow's container). It
+// starts 7 days back (as far as evidence is matched to messages) and re-reads a
+// little overlap each time; evidence is de-duplicated by line, so nothing is
+// counted twice across polls or restarts.
+func followAgentLog(ctx context.Context, svc *service.Service, c *mtaagent.Client, every time.Duration) {
+	const overlap = 2 * time.Minute
+	since := time.Now().Add(-7 * 24 * time.Hour)
+	lastErr := ""
+	for {
+		lines, until, err := c.Log(ctx, since)
+		if err == nil && len(lines) > 0 {
+			_, err = svc.IngestMTALog(ctx, strings.NewReader(strings.Join(lines, "\n")+"\n"))
+		}
+		switch {
+		case err != nil && ctx.Err() == nil:
+			if msg := err.Error(); msg != lastErr { // log each new problem once, not every poll
+				slog.Warn("cannot read delivery results from the mta agent", "err", err)
+				lastErr = msg
+			}
+		case err == nil:
+			if lastErr != "" {
+				slog.Info("reading delivery results from the mta agent again")
+			}
+			lastErr, since = "", until.Add(-overlap)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(every):
+		}
+	}
+}
+
 // runMTALog feeds Postfix log lines to the delivery-evidence collector. With
 // -follow it keeps reading new lines and reopens the file after rotation.
 func runMTALog(ctx context.Context, svc *service.Service, args []string) {
@@ -1245,6 +1283,8 @@ func runMTAAgent(args []string) {
 	socket := fs.String("socket", "/run/njiwa-mail/mta-agent.sock", "Unix socket to listen on")
 	tokenFile := fs.String("token-file", "", "file holding the shared token (or set MTA_AGENT_TOKEN)")
 	group := fs.String("group", "", "group allowed to use the socket (name or numeric id); default root only")
+	container := fs.String("postfix-container", "", "Docker container that runs Postfix (Mailcow: mailcowdockerized-postfix-mailcow-1); default: Postfix on the host")
+	signerContainer := fs.String("signer-container", "", "Docker container of the DKIM signer, for the health view (Mailcow: mailcowdockerized-rspamd-mailcow-1)")
 	fs.Parse(args)
 	token := strings.TrimSpace(os.Getenv("MTA_AGENT_TOKEN"))
 	if *tokenFile != "" {
@@ -1270,8 +1310,9 @@ func runMTAAgent(args []string) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	a := &mtaagent.Agent{Runner: mtaagent.ExecRunner{}, Token: token, Domains: &managed.DomainManager{Runner: execRunner{}}}
-	slog.Info("mta agent listening", "socket", *socket)
+	a := &mtaagent.Agent{Runner: mtaagent.ExecRunner{}, Token: token, Domains: &managed.DomainManager{Runner: execRunner{}},
+		Container: *container, SignerContainer: *signerContainer}
+	slog.Info("mta agent listening", "socket", *socket, "postfix_container", *container)
 	if err := a.Listen(ctx, *socket, mode, gid); err != nil {
 		die(err)
 	}

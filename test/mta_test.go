@@ -134,5 +134,11 @@ func TestMTAQueueControls(t *testing.T) {
 	if s := e.admOK(op, "GET", "/admin/v1/mta/status", nil); s.JSON["reachable"] != false {
 		t.Fatalf("status when unreachable: %s", s.Raw)
 	}
+	// An agent that answers but cannot run postqueue (no Postfix on the host) is
+	// not "unreachable": status says what failed.
+	agent.err = &mtaagent.AgentError{Status: 502, Code: "postqueue_failed"}
+	if s := e.admOK(op, "GET", "/admin/v1/mta/status", nil); s.JSON["reachable"] != true || s.JSON["error"] != "mta_agent_failed" {
+		t.Fatalf("status when the agent fails: %s", s.Raw)
+	}
 	_ = ctx
 }

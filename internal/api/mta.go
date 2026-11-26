@@ -55,7 +55,12 @@ func (s *Server) mtaRoutes(app *fiber.App) {
 		}
 		st, err := s.MTA.Status(reqCtx(c))
 		if err != nil {
-			return map[string]any{"configured": true, "reachable": false}, nil
+			// reachable is false only when the socket cannot be reached; an agent
+			// that answers but cannot read the queue says so with its error code.
+			if errors.Is(err, mtaagent.ErrUnreachable) {
+				return map[string]any{"configured": true, "reachable": false}, nil
+			}
+			return map[string]any{"configured": true, "reachable": true, "error": mtaErr(err).(*service.Error).Code}, nil
 		}
 		return map[string]any{"configured": true, "reachable": true, "status": st}, nil
 	})

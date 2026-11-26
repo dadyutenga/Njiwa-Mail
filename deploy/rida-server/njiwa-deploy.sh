@@ -122,5 +122,29 @@ if [ "$docs" = 1 ]; then
 fi
 
 echo "$sha" > .deployed-commit
+
+# --- host agent (queue controls and delivery results) -------------------------
+# It runs on the host from bin/njiwa-mail, outside compose, so refresh the binary
+# from the image just built and the unit from the repository. A failure here is
+# reported but does not undo the deploy: the app itself is healthy.
+agent_unit=/etc/systemd/system/njiwa-mail-host-agent.service
+restart_agent=0
+if [ "$api" = 1 ] && cid=$(docker create njiwa-mail:local 2>/dev/null); then
+  if docker cp "$cid:/usr/local/bin/njiwa-mail" bin/njiwa-mail.new >/dev/null 2>&1 && ! cmp -s bin/njiwa-mail.new bin/njiwa-mail; then
+    chmod 755 bin/njiwa-mail.new && mv -f bin/njiwa-mail.new bin/njiwa-mail && restart_agent=1
+  fi
+  rm -f bin/njiwa-mail.new
+  docker rm "$cid" >/dev/null 2>&1 || true
+fi
+if ! cmp -s deploy/rida-server/njiwa-mail-host-agent.service "$agent_unit"; then
+  install -m 644 deploy/rida-server/njiwa-mail-host-agent.service "$agent_unit" && systemctl daemon-reload && restart_agent=1
+fi
+if [ "$restart_agent" = 1 ]; then
+  if systemctl restart njiwa-mail-host-agent && sleep 2 && systemctl is-active --quiet njiwa-mail-host-agent; then
+    log "host agent updated"
+  else
+    log "WARNING: the host agent did not restart (systemctl status njiwa-mail-host-agent)"
+  fi
+fi
 docker image prune -f --filter "until=168h" >/dev/null 2>&1 || true
 log "deployed $short"

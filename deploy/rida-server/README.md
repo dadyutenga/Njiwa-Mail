@@ -23,7 +23,20 @@ A deploy can also be started by hand from GitHub → Actions → Deploy → Run 
    - waits for health checks and, for docs, the public smoke test;
    - on failure, puts the previous images back (`njiwa-mail:rollback`,
      `njiwa-mail-frontend:rollback`) and fails the workflow;
-   - records the deployed commit in `/opt/njiwa-mail/.deployed-commit`.
+   - records the deployed commit in `/opt/njiwa-mail/.deployed-commit`;
+   - refreshes the host agent (`njiwa-mail-host-agent`, run from
+     `/opt/njiwa-mail/bin/njiwa-mail`) from the new image and installs its unit
+     from `njiwa-mail-host-agent.service`, restarting it when either changed.
+
+## Mail queue and delivery results (Mailcow)
+
+Postfix on this server is Mailcow's, inside `mailcowdockerized-postfix-mailcow-1`.
+The host agent runs `postqueue`/`postsuper` there with `docker exec`
+(`-postfix-container`) and reads its delivery lines with `docker logs`. The API
+asks the agent every 30 s for new `status=sent|deferred|bounced` lines and stores
+them as delivery evidence, so a message shows "the recipient's mail server
+accepted it" (or deferred / bounced) instead of only "submitted". Check:
+`curl -s --unix-socket /run/njiwa-mail/mta-agent.sock -H "Authorization: Bearer $(cat /opt/njiwa-mail/secrets/mta-agent.token)" "http://agent/log?since=$(date -d -1hour +%s)"`.
 3. One deploy runs at a time (GitHub concurrency group and a server lock).
 
 Build logs: `/opt/njiwa-mail-backups/deploy-<sha>.log`.

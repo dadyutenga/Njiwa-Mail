@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/njiwa-tz/mail/internal/installer/discover"
@@ -102,3 +103,16 @@ func (c *Client) Act(ctx context.Context, id string, a Action) error {
 }
 
 func (c *Client) Flush(ctx context.Context) error { return c.do(ctx, "POST", "/flush", nil) }
+
+// Log returns the Postfix delivery-status lines logged since the given time
+// and the time to pass as since on the next call.
+func (c *Client) Log(ctx context.Context, since time.Time) ([]string, time.Time, error) {
+	var r struct {
+		Lines []string
+		Until int64
+	}
+	if err := c.do(ctx, "GET", "/log?since="+strconv.FormatInt(since.Unix(), 10), &r); err != nil {
+		return nil, since, err
+	}
+	return r.Lines, time.Unix(r.Until, 0), nil
+}
