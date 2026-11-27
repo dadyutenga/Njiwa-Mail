@@ -78,7 +78,7 @@
   --destructive: var(--od-app-destructive);
   --destructive-foreground: oklch(0.985 0 0);
   --border: var(--od-border);
-  --input: var(--od-app-border);
+  --input: var(--od-app-input, var(--od-app-border));
   --ring: var(--od-app-ring);
   --sidebar: var(--od-app-sidebar);
   --chart-1: var(--od-series-1);
