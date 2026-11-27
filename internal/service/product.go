@@ -214,7 +214,7 @@ LIMIT 1`).Scan(&from, &name, &pid, &eid)
 		return nil
 	}
 	mid := secure.NewUUID()
-	body, _ := json.Marshal(Payload{From: from, FromName: name, To: e, Template: "raw", Raw: true, Confidential: true, Subject: "Password reset", Text: "Reset your Njiwa Mail password: " + link})
+	body, _ := json.Marshal(Payload{From: from, FromName: name, To: e, Template: "raw", Raw: true, Confidential: true, Subject: "Password reset", Text: "Reset your Njiwa Mail password: " + link + s.organizationFooter(ctx)})
 	sealed, err := s.Box.Seal(body, []byte(mid))
 	if err != nil {
 		return nil

@@ -16,6 +16,7 @@ import (
 // rewrites it; without the variable the test fails when the file is stale.
 
 var tableDocs = map[string]string{
+	"organization":          "The installation's organization, created by the first-run setup.",
 	"alert_channels":        "Where operator alerts are sent (webhook or email), per alert kind.",
 	"alerts":                "Operator alerts (policy bounces, disabled webhooks, failing checks) with acknowledgement.",
 	"api_keys":              "API keys per project environment: prefix, secret hash, scopes, IP allowlist, expiry, revocation.",

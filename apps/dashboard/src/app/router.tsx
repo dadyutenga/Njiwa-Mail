@@ -1,5 +1,5 @@
 import { Suspense, type ReactNode } from "react";
-import { createBrowserRouter, Link, Navigate } from "react-router-dom";
+import { createBrowserRouter, Link, Navigate, type RouteObject } from "react-router-dom";
 import Welcome from "@/features/welcome/Welcome";
 import { ProtectedRoute } from "@/features/auth/auth";
 import AuthPage from "@/pages/Auth";
@@ -55,6 +55,7 @@ import { Empty } from "@/features/workspace/ui";
 import { DomainClaims } from "@/features/installation/Claims";
 import { MtaQueue } from "@/features/installation/MtaQueue";
 import { MailHost } from "@/features/installation/MailHost";
+import { Setup, SetupGate } from "@/features/setup/Setup";
 
 const page = (el: ReactNode) => <Suspense fallback={<PageLoader />}>{el}</Suspense>;
 
@@ -163,7 +164,8 @@ const legacy = [
   "users",
 ];
 
-export const router = createBrowserRouter([
+const routes: RouteObject[] = [
+  { path: "/setup", element: <Setup /> },
   { path: "/", element: <Welcome /> },
   {
     path: "/app",
@@ -208,4 +210,7 @@ export const router = createBrowserRouter([
   { path: "404", element: <Status code="404" title="Page Not Found" /> },
   { path: "500", element: <Status code="500" title="Server Error" /> },
   { path: "*", element: <NotFound /> },
-]);
+];
+
+// Every visit to an installation with no user goes to the first-run setup.
+export const router = createBrowserRouter([{ element: <SetupGate />, children: routes }]);

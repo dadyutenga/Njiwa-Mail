@@ -62,7 +62,22 @@ export async function adminRequest<T>(path: string, options: RequestInit = {}): 
   const body = await response.text();
   return (body ? JSON.parse(body) : undefined) as T;
 }
+export type SetupStatus = { needs_setup: boolean; token_required: boolean };
+export type SetupInput = {
+  organization: string;
+  name: string;
+  email: string;
+  password: string;
+  token?: string;
+};
 export const admin = {
+  setupStatus: () => adminRequest<SetupStatus>("/setup/status"),
+  setup: (input: SetupInput) =>
+    adminRequest<AdminUser>("/setup", {
+      method: "POST",
+      headers: { "X-Njiwa-Setup": "1" },
+      body: JSON.stringify(input),
+    }),
   login: (email: string, password: string, code?: string) =>
     adminRequest<AdminUser>("/auth/login", {
       method: "POST",

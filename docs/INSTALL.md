@@ -107,6 +107,10 @@ any point and continue later from any device, because every step is read from th
    docker compose --profile inbound up -d
    ```
 
+   Open the dashboard: a new installation starts with the **setup wizard** (organization name and first account) and
+   closes it for good afterwards. Until then anyone who reaches the dashboard could create that account: set `SETUP_TOKEN`
+   in `.env` (12+ characters) if the server is reachable by others. To create the account from a shell instead:
+
    ```bash
    docker compose exec api njiwa-mail user create -email you@example.com
    ```

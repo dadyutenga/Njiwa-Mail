@@ -108,6 +108,9 @@ type Options struct {
 	RelayProbeAddr  string
 	RelayTestRoots  *x509.CertPool
 
+	// SetupToken, when set, must be given to complete the first-run setup.
+	SetupToken string
+
 	// AllowUnregisteredLiveDomains: see config. Temporary upgrade escape hatch.
 	AllowUnregisteredLiveDomains bool
 

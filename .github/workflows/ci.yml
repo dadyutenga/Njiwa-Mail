@@ -203,7 +203,9 @@ jobs:
           [ -n "$ok" ] || { docker compose logs; exit 1; }
       - name: Sign in, protected routes, operator commands
         run: |
+          curl -fsS http://127.0.0.1:8080/admin/v1/setup/status | grep -q '"needs_setup":true'
           printf 'ci-password-12345\n' | docker compose exec -T api njiwa-mail user create -email ci@example.com
+          curl -fsS http://127.0.0.1:8080/admin/v1/setup/status | grep -q '"needs_setup":false'
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/admin/v1/auth/login -H 'Content-Type: application/json' -d '{"email":"ci@example.com","password":"ci-password-12345"}')
           [ "$code" = 200 ] || { echo "login answered $code"; exit 1; }
           code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/admin/v1/installation)
@@ -260,7 +262,7 @@ jobs:
           ok=""
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8080/health/ready && ok=1 && break; sleep 2; done
           [ -n "$ok" ] || { docker compose logs; exit 1; }
-          printf 'ci-password-12345\n' | docker compose exec -T api njiwa-mail user create -email ci@example.com
+          # No user is created here: the first spec runs the first-run setup in the browser.
           curl -fsS -o /dev/null http://127.0.0.1:3000/login
       - run: npm ci
         working-directory: apps/dashboard

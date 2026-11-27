@@ -22,7 +22,7 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	// These routes look across every project, so they are for installation operators. What a
 	// project's own members may do is under /admin/v1/w/{project}/{mode}. The few below are open
 	// to every signed-in user: their own account, and the projects they belong to.
-	userRoutes := map[string]bool{"GET /projects": true, "POST /projects": true,
+	userRoutes := map[string]bool{"GET /projects": true, "POST /projects": true, "GET /organization": true,
 		"PATCH /projects/{name}/environments/{mode}": true, "GET /template-meta": true}
 	h := func(pattern string, fn adminFn) {
 		method, path, _ := strings.Cut(pattern, " ")
@@ -35,6 +35,8 @@ func (s *Server) adminRoutes(app *fiber.App) {
 
 	// ---- auth
 	app.Post("/admin/v1/auth/login", s.adminLogin)
+	s.setupRoutes(app)
+	h("GET /organization", func(c fiber.Ctx, u *service.AdminUser) (any, error) { return svc.Organization(reqCtx(c)) })
 	h("POST /auth/logout", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		tok, _ := cookieVal(c, adminCookie)
 		if err := svc.Logout(reqCtx(c), tok); err != nil {

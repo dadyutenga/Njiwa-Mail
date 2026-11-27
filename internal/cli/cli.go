@@ -191,7 +191,7 @@ func Run(args []string) {
 		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
 		LocalMailcowFactsFile: cfg.LocalMailcowFactsFile, MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
 		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, UpdateCheckURL: cfg.UpdateCheckURL, SSOAllowedNetworks: cfg.SSOAllowedNetworks, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS,
-		RelayEnabled: cfg.RelayEnabled, RelayPublicHost: cfg.RelayPublicHost, RelayPublicPort: cfg.RelayPublicPort, RelayProbeAddr: cfg.RelayProbeAddr, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		SetupToken: cfg.SetupToken, RelayEnabled: cfg.RelayEnabled, RelayPublicHost: cfg.RelayPublicHost, RelayPublicPort: cfg.RelayPublicPort, RelayProbeAddr: cfg.RelayProbeAddr, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
 			TokenURL: cfg.CloudflareOAuthTokenURL, RevokeURL: cfg.CloudflareOAuthRevokeURL, Scope: cfg.CloudflareOAuthScope},
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
@@ -389,6 +389,9 @@ func smtpTransport(cfg *config.Config) *mailer.SMTP {
 }
 
 func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
+	if needs, token, err := svc.NeedsSetup(ctx); err == nil && needs {
+		slog.Warn("first-run setup is open: open the dashboard to create the first account", "setup_token_required", token)
+	}
 	var agent api.MTAAgent
 	if cfg.MTAAgentSocket != "" {
 		c := mtaagent.NewClient(cfg.MTAAgentSocket, cfg.MTAAgentToken)

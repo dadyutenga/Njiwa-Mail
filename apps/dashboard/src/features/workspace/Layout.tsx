@@ -622,6 +622,24 @@ function Breadcrumbs() {
 
 // ---------------------------------------------------------------- shell
 
+/** The installation's organization, as named in the first-run setup. */
+export function OrganizationName() {
+  const q = useQuery({
+    queryKey: ["organization"],
+    queryFn: () => admin.get<{ name?: string }>("/organization"),
+    retry: false,
+  });
+  if (!q.data?.name) return null;
+  return (
+    <span
+      className="mr-2 hidden max-w-48 truncate text-sm text-muted-foreground lg:inline"
+      data-testid="organization-name"
+    >
+      {q.data.name}
+    </span>
+  );
+}
+
 function Shell() {
   const phrase = usePhrase();
   const { project, to } = useWorkspace();
@@ -708,6 +726,7 @@ function Shell() {
             </Button>
             <Breadcrumbs />
             <div className="ml-auto flex items-center gap-1">
+              <OrganizationName />
               <GlobalSearch />
               <LanguageSwitcher />
               <ThemeToggle />

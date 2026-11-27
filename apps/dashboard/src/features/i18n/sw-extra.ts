@@ -9,6 +9,47 @@ import { swTools } from "./sw-tools";
 import { swReports } from "./sw-reports";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  Organization: "Shirika",
+  "Your account": "Akaunti yako",
+  "Setup progress": "Maendeleo ya usanidi",
+  "Welcome to Njiwa-Mail": "Karibu Njiwa-Mail",
+  "This installation is new. You will name your organization and create the first account. It takes about two minutes, and nothing is sent to anyone.":
+    "Usakinishaji huu ni mpya. Utalipa shirika lako jina na kufungua akaunti ya kwanza. Inachukua takriban dakika mbili, na hakuna kitu kinachotumwa kwa mtu yeyote.",
+  "The name of your company or team. It appears in the dashboard and in the emails this installation sends to its own users.":
+    "Jina la kampuni au timu yako. Linaonekana kwenye dashibodi na kwenye barua pepe ambazo usakinishaji huu huwatumia watumiaji wake.",
+  "Name your organization": "Lipe shirika lako jina",
+  "Organization name": "Jina la shirika",
+  "Use at least 2 characters.": "Tumia angalau herufi 2.",
+  "This is the first administrator. It can manage everything, including delivery settings and other users.":
+    "Huyu ndiye msimamizi wa kwanza. Anaweza kusimamia kila kitu, pamoja na mipangilio ya utumaji na watumiaji wengine.",
+  "Create your account": "Fungua akaunti yako",
+  "Your name": "Jina lako",
+  "Enter the setup token.": "Ingiza tokeni ya usanidi.",
+  "Setup token": "Tokeni ya usanidi",
+  "The value of SETUP_TOKEN in the server's .env file.":
+    "Thamani ya SETUP_TOKEN kwenye faili ya .env ya seva.",
+  "Set up two-step sign-in after the account is created (recommended)":
+    "Weka uingiaji wa hatua mbili baada ya akaunti kufunguliwa (inapendekezwa)",
+  "Too short: use at least 12 characters.": "Fupi mno: tumia angalau herufi 12.",
+  "Fair. A longer password is stronger.": "Wastani. Nenosiri refu ni imara zaidi.",
+  "Good password.": "Nenosiri zuri.",
+  "Strong password.": "Nenosiri imara.",
+  "Check the details. Go back to change anything.":
+    "Kagua maelezo. Rudi nyuma kubadilisha chochote.",
+  "Set up next": "Itawekwa baadaye kidogo",
+  "Not now": "Si sasa",
+  "Create account": "Fungua akaunti",
+  "You are signed in. This setup is now closed for good.":
+    "Umeingia. Usanidi huu sasa umefungwa kabisa.",
+  "Your account is ready": "Akaunti yako iko tayari",
+  "Project created": "Mradi umeundwa",
+  "Continue to Getting started": "Endelea kwenye Kuanza",
+  "Add your team": "Ongeza timu yako",
+  "Add a user for each colleague, then give them a role in the project under Members.":
+    "Ongeza mtumiaji kwa kila mwenzako, kisha mpe jukumu katika mradi chini ya Wanachama.",
+  "A project holds one application's domains, senders, keys and messages. You can add your team after this.":
+    "Mradi huhifadhi vikoa, watumaji, funguo na ujumbe wa programu moja. Unaweza kuongeza timu yako baada ya hapa.",
+  "Skip for now": "Ruka kwa sasa",
   "Not enabled": "Haijawashwa",
   "Set COMPOSE_PROFILES=relay and RELAY_PUBLIC_HOST in .env, put fullchain.pem and privkey.pem in the relay-tls directory, then run: docker compose up -d":
     "Weka COMPOSE_PROFILES=relay na RELAY_PUBLIC_HOST kwenye .env, weka fullchain.pem na privkey.pem kwenye saraka ya relay-tls, kisha endesha: docker compose up -d",

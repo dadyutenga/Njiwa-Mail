@@ -16,6 +16,8 @@ import (
 // publicRoutes are reachable without a session or key by design.
 var publicRoutes = map[string]string{
 	"POST /admin/v1/auth/login":                     "login",
+	"GET /admin/v1/setup/status":                    "whether first-run setup is open, nothing else",
+	"POST /admin/v1/setup":                          "first-run setup, only while there are no users (TestFirstRunSetup)",
 	"POST /admin/v1/auth/forgot":                    "password reset request (always answers the same)",
 	"GET /admin/v1/auth/sso/providers":              "names of enabled sign-in providers, nothing else",
 	"GET /admin/v1/auth/sso/:id/start":              "redirects to the provider (TestSSOSignIn)",

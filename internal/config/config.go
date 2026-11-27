@@ -101,6 +101,8 @@ type Config struct {
 	// RELAY_PUBLIC_PORT and RELAY_PROBE_ADDR: what the dashboard shows and tests.
 	RelayEnabled                                     bool
 	RelayPublicHost, RelayPublicPort, RelayProbeAddr string
+	// SETUP_TOKEN (or SETUP_TOKEN_FILE): asked by the first-run setup.
+	SetupToken string
 
 	// FormsEnabled (FORMS_ENABLED) turns on contact forms; off by default.
 	FormsEnabled bool
@@ -409,6 +411,12 @@ func Load() (*Config, error) {
 	c.CloudflareOAuthTokenURL = get("CLOUDFLARE_OAUTH_TOKEN_URL", "")
 	c.CloudflareOAuthRevokeURL = get("CLOUDFLARE_OAUTH_REVOKE_URL", "")
 	c.CloudflareOAuthScope = get("CLOUDFLARE_OAUTH_SCOPE", "")
+	if c.SetupToken, err = secret("SETUP_TOKEN"); err != nil {
+		return nil, err
+	}
+	if c.SetupToken != "" && len(c.SetupToken) < 12 {
+		return nil, fmt.Errorf("SETUP_TOKEN must be at least 12 characters")
+	}
 	c.IngressAddr = get("INGRESS_ADDR", "")
 	if c.MetricsToken, err = secret("METRICS_TOKEN"); err != nil {
 		return nil, err
