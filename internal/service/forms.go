@@ -239,7 +239,7 @@ func (s *Service) formOrigins(ctx context.Context, formID string) ([]string, err
 		return nil, errFormFound
 	}
 	var origins []string
-	err := s.Pool.QueryRow(ctx, `SELECT allowed_origins FROM forms WHERE id=$1 AND enabled`, formID).Scan(&origins)
+	err := s.Pool.QueryRow(ctx, `SELECT allowed_origins FROM forms WHERE id=$1 AND enabled AND NOT EXISTS (SELECT 1 FROM projects ap WHERE ap.id=forms.project_id AND ap.archived_at IS NOT NULL)`, formID).Scan(&origins)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, errFormFound
 	}
@@ -297,7 +297,7 @@ func (s *Service) SubmitForm(ctx context.Context, p FormPost) (*FormResult, erro
 		Origins                          []string
 		RequireNonce                     bool
 	}
-	err := s.Pool.QueryRow(ctx, `SELECT name, environment_id::text, project_id::text, redirect_url, allowed_origins, require_nonce FROM forms WHERE id=$1 AND enabled`, p.FormID).
+	err := s.Pool.QueryRow(ctx, `SELECT name, environment_id::text, project_id::text, redirect_url, allowed_origins, require_nonce FROM forms WHERE id=$1 AND enabled AND NOT EXISTS (SELECT 1 FROM projects ap WHERE ap.id=forms.project_id AND ap.archived_at IS NOT NULL)`, p.FormID).
 		Scan(&f.Name, &f.EnvID, &f.ProjectID, &f.Redirect, &f.Origins, &f.RequireNonce)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, errFormFound

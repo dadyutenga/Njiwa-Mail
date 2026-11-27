@@ -45,14 +45,27 @@ func (s *Service) ProjectRole(ctx context.Context, u *AdminUser, projectID strin
 }
 
 // ProjectsOf lists the projects a user may open (all of them for operators) with their role.
-func (s *Service) ProjectsOf(ctx context.Context, u *AdminUser, pg Page) ([]map[string]any, bool, error) {
+// archived selects the archived projects instead of the working ones. One
+// query counts what each project holds.
+func (s *Service) ProjectsOf(ctx context.Context, u *AdminUser, archived bool, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT p.id::text AS id, p.name, p.enabled, p.send_per_minute, p.send_per_day, p.recipient_per_minute, p.recipient_per_hour, p.created_at,
   CASE WHEN $1 THEN 'owner' ELSE m.role END AS role,
+  p.name AS slug, p.archived_at, p.purge_after,
+  (SELECT jsonb_build_object(
+     'live_active', count(*) FILTER (WHERE e.mode='live' AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now())),
+     'live_revoked', count(*) FILTER (WHERE e.mode='live' AND NOT (k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()))),
+     'sandbox_active', count(*) FILTER (WHERE e.mode='sandbox' AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now())),
+     'sandbox_revoked', count(*) FILTER (WHERE e.mode='sandbox' AND NOT (k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()))))
+   FROM api_keys k JOIN environments e ON e.id=k.environment_id WHERE k.project_id=p.id) AS keys,
+  (SELECT count(DISTINCT si.email) FROM sender_identities si WHERE si.project_id=p.id) AS senders,
+  (SELECT count(DISTINCT d.name) FROM domains d WHERE d.project_id=p.id) AS domains,
+  (SELECT count(*) FROM project_members pm WHERE pm.project_id=p.id) AS members,
+  (SELECT count(*) FROM messages mm WHERE mm.project_id=p.id AND mm.created_at > now() - interval '30 days') AS messages_30d,
   (SELECT jsonb_agg(jsonb_build_object('mode', e.mode, 'enabled', e.enabled, 'approved_origins', to_jsonb(e.approved_origins),
      'restrict_recipients', e.restrict_recipients, 'recipient_allowlist', to_jsonb(e.recipient_allowlist)) ORDER BY e.mode)
    FROM environments e WHERE e.project_id=p.id) AS environments
 FROM projects p LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=NULLIF($2,'')::uuid
-WHERE $1 OR m.user_id IS NOT NULL ORDER BY p.name`, u.Operator, u.ID)
+WHERE ($1 OR m.user_id IS NOT NULL) AND (p.archived_at IS NOT NULL) = $3 ORDER BY p.name`, u.Operator, u.ID, archived)
 }
 
 // CanManageProject is true for operators and for owners and admins of the project.

@@ -23,6 +23,9 @@ func (s *Server) adminRoutes(app *fiber.App) {
 	// project's own members may do is under /admin/v1/w/{project}/{mode}. The few below are open
 	// to every signed-in user: their own account, and the projects they belong to.
 	userRoutes := map[string]bool{"GET /projects": true, "POST /projects": true, "GET /organization": true,
+		// Owners only; each handler checks (projectOwner).
+		"GET /projects/{name}/removal": true, "POST /projects/{name}/rename": true, "POST /projects/{name}/revoke-keys": true,
+		"POST /projects/{name}/archive": true, "POST /projects/{name}/restore": true, "DELETE /projects/{name}": true,
 		"PATCH /projects/{name}/environments/{mode}": true, "GET /template-meta": true}
 	h := func(pattern string, fn adminFn) {
 		method, path, _ := strings.Cut(pattern, " ")
@@ -260,9 +263,10 @@ func (s *Server) adminRoutes(app *fiber.App) {
 
 	// ---- projects and environments
 	h("GET /projects", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
-		items, more, err := svc.ProjectsOf(reqCtx(c), u, pageOf(c))
+		items, more, err := svc.ProjectsOf(reqCtx(c), u, q(c, "archived") == "true", pageOf(c))
 		return list(c, items, more, err)
 	})
+	s.projectLifecycleRoutes(h)
 	h("POST /projects", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		var in struct {
 			Name string `json:"name"`

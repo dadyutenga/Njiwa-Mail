@@ -561,6 +561,13 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 		_, err := svc.PumpCampaigns(ctx)
 		return err
 	})
+	every(time.Hour, "archived_projects", func() error {
+		n, err := svc.PurgeArchivedProjects(ctx)
+		if n > 0 {
+			slog.Info("archived projects deleted after their grace period", "count", n)
+		}
+		return err
+	})
 	every(time.Hour, "removed_inbound_files", func() error {
 		_, err := svc.PurgeRemovedInboundFiles(ctx)
 		return err

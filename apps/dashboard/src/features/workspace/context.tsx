@@ -37,6 +37,12 @@ export type ProjectRow = {
   recipient_per_hour: number;
   created_at: string;
   role?: string;
+  keys?: {
+    live_active: number;
+    live_revoked: number;
+    sandbox_active: number;
+    sandbox_revoked: number;
+  };
 };
 
 const LAST_KEY = "njiwa.workspace";

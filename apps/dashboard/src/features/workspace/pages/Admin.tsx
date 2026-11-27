@@ -43,6 +43,7 @@ import { TransportProfiles } from "@/features/installation/Profiles";
 import { useSendingEnvironment, useWorkspace, useWsKey, type ProjectRow } from "../context";
 import { SendingMode, useSendingModeParam } from "../SendingMode";
 import { NewProjectDialog } from "../Layout";
+import { ArchivedProjects, KeyCounts, ProjectActions } from "./ProjectLifecycle";
 import {
   ConfirmButton,
   CopyButton,
@@ -129,6 +130,19 @@ export function Projects() {
                   ),
                 },
                 {
+                  key: "keys",
+                  label: phrase("API keys"),
+                  render: (r) => <KeyCounts keys={(r as unknown as ProjectRow).keys} />,
+                },
+                { key: "senders", label: phrase("Senders"), render: (r) => s(r.senders) },
+                { key: "domains", label: phrase("Domains"), render: (r) => s(r.domains) },
+                { key: "members", label: phrase("Members"), render: (r) => s(r.members) },
+                {
+                  key: "messages_30d",
+                  label: phrase("Messages, 30 days"),
+                  render: (r) => s(r.messages_30d),
+                },
+                {
                   key: "limits",
                   label: phrase("Send limits"),
                   render: (r) =>
@@ -143,7 +157,7 @@ export function Projects() {
                   key: "x",
                   label: <span className="sr-only">{phrase("Actions")}</span>,
                   render: (r) => (
-                    <span className="flex gap-1">
+                    <span className="flex flex-wrap gap-1">
                       <Button
                         size="sm"
                         variant="outline"
@@ -188,6 +202,7 @@ export function Projects() {
                       >
                         {r.enabled ? phrase("Disable") : phrase("Enable")}
                       </ConfirmButton>
+                      {r.role === "owner" && <ProjectActions name={s(r.name)} />}
                     </span>
                   ),
                 },
@@ -197,6 +212,7 @@ export function Projects() {
           </>
         )}
       </DataState>
+      <ArchivedProjects />
       <NewProjectDialog open={creating} onOpenChange={setCreating} />
       {editing && <LimitsDialog project={editing} onClose={() => setEditing(null)} />}
     </>

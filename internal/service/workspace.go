@@ -32,7 +32,7 @@ func (s *Service) ResolveScope(ctx context.Context, project, mode string) (*Scop
 		return nil, newErr(404, "project_not_found")
 	}
 	sc := &Scope{Project: project, Mode: mode}
-	err := s.Pool.QueryRow(ctx, `SELECT p.id::text, e.id::text FROM projects p JOIN environments e ON e.project_id=p.id WHERE p.name=$1 AND e.mode=$2`,
+	err := s.Pool.QueryRow(ctx, `SELECT p.id::text, e.id::text FROM projects p JOIN environments e ON e.project_id=p.id WHERE p.name=$1 AND e.mode=$2 AND p.archived_at IS NULL`,
 		project, mode).Scan(&sc.ProjectID, &sc.EnvID)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(404, "project_not_found")

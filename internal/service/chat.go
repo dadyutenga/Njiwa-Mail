@@ -212,7 +212,7 @@ func (s *Service) chatWidget(ctx context.Context, id string) (*chatWidget, error
 		return nil, errChatFound
 	}
 	w := chatWidget{ID: id}
-	err := s.Pool.QueryRow(ctx, `SELECT environment_id::text, project_id::text, allowed_origins, require_identity FROM chat_widgets WHERE id=$1 AND enabled`, id).
+	err := s.Pool.QueryRow(ctx, `SELECT environment_id::text, project_id::text, allowed_origins, require_identity FROM chat_widgets WHERE id=$1 AND enabled AND NOT EXISTS (SELECT 1 FROM projects ap WHERE ap.id=chat_widgets.project_id AND ap.archived_at IS NOT NULL)`, id).
 		Scan(&w.EnvID, &w.ProjectID, &w.Origins, &w.RequireIdentity)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, errChatFound
@@ -265,7 +265,7 @@ func (s *Service) ChatConfig(ctx context.Context, id string) (map[string]any, er
 	var title, welcome, offline, announcement string
 	var links []byte
 	var requireID bool
-	err := s.Pool.QueryRow(ctx, `SELECT title, welcome, offline_message, announcement, links, require_identity FROM chat_widgets WHERE id=$1 AND enabled`, id).
+	err := s.Pool.QueryRow(ctx, `SELECT title, welcome, offline_message, announcement, links, require_identity FROM chat_widgets WHERE id=$1 AND enabled AND NOT EXISTS (SELECT 1 FROM projects ap WHERE ap.id=chat_widgets.project_id AND ap.archived_at IS NOT NULL)`, id).
 		Scan(&title, &welcome, &offline, &announcement, &links, &requireID)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, errChatFound

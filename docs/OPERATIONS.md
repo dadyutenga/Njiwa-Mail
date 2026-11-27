@@ -342,6 +342,14 @@ that state and can send one Sandbox message through it with a two-minute key (`R
 "Running" is evidence that it listens, not proof that applications can reach the port. Never publish it beyond `127.0.0.1`
 without a firewall rule for exactly that port; AUTH is only offered over TLS.
 
+## Managing projects
+
+The Projects page shows what each project holds. Its owners (and operators) can rename it (the name is its dashboard
+address; keys stay), revoke every API key, and archive it. An archived project is hidden, cannot send or receive, and can be
+restored for 30 days; then the scheduler job `archived_projects` deletes it, or an owner deletes it at once. Archiving and
+deleting are refused while its Live mail is waiting. Deleting removes every row of the project, releases its domain claims and
+deletes its attachment files; the audit log keeps its history. A database backup taken before is the only way back.
+
 ## Announcements, the daily report and usage plans
 
 All three are operator pages in the dashboard (they are hidden from other users).

@@ -53,7 +53,7 @@ func (s *Service) CreateProject(ctx context.Context, name string) error {
 }
 
 func (s *Service) SetProjectEnabled(ctx context.Context, name string, enabled bool) error {
-	tag, err := s.Pool.Exec(ctx, `UPDATE projects SET enabled=$2 WHERE name=$1`, name, enabled)
+	tag, err := s.Pool.Exec(ctx, `UPDATE projects SET enabled=$2 WHERE name=$1 AND archived_at IS NULL`, name, enabled)
 	if err == nil && tag.RowsAffected() == 0 {
 		err = errors.New("project not found")
 	}

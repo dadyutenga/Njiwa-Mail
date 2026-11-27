@@ -9,6 +9,32 @@ import { swTools } from "./sw-tools";
 import { swReports } from "./sw-reports";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  revoked: "zimebatilishwa",
+  "Domain claims (released)": "Umiliki wa vikoa (unaachiliwa)",
+  "Received messages": "Ujumbe uliopokelewa",
+  Chats: "Mazungumzo",
+  "Messages, 30 days": "Ujumbe, siku 30",
+  "Delete permanently": "Futa kabisa",
+  "Archive project": "Hifadhi mradi kwenye kumbukumbu",
+  "Everything below is removed for good and its domain claims are released. The audit log keeps its history. This cannot be undone.":
+    "Kila kitu hapa chini kinaondolewa kabisa na umiliki wa vikoa unaachiliwa. Kumbukumbu ya ukaguzi inabaki na historia yake. Hili haliwezi kutenduliwa.",
+  "The project is hidden and cannot send or receive. You can restore it for 30 days; after that it and everything below are deleted for good.":
+    "Mradi unafichwa na hauwezi kutuma wala kupokea. Unaweza kuurejesha ndani ya siku 30; baada ya hapo mradi na kila kitu hapa chini vinafutwa kabisa.",
+  "Live messages still waiting to be sent": "Ujumbe wa Live unaosubiri kutumwa",
+  "Let them go out or cancel them first.": "Acha utumwe au ughairi kwanza.",
+  "Type the project name to confirm": "Andika jina la mradi kuthibitisha",
+  "Rename project": "Badilisha jina la mradi",
+  "The name is also the project's address in the dashboard. API keys, domains and mail stay with the project.":
+    "Jina pia ni anwani ya mradi kwenye dashibodi. Funguo za API, vikoa na barua vinabaki na mradi.",
+  "New name": "Jina jipya",
+  Rename: "Badilisha jina",
+  "Revoke all keys": "Batilisha funguo zote",
+  "Every API key of this project stops working at once, in Live and Sandbox. This cannot be undone.":
+    "Kila ufunguo wa API wa mradi huu unaacha kufanya kazi mara moja, katika Live na Sandbox. Hili haliwezi kutenduliwa.",
+  "All keys revoked.": "Funguo zote zimebatilishwa.",
+  "Archived projects": "Miradi iliyohifadhiwa",
+  "Deleted for good on": "Inafutwa kabisa tarehe",
+  "Project restored.": "Mradi umerejeshwa.",
   Organization: "Shirika",
   "Your account": "Akaunti yako",
   "Setup progress": "Maendeleo ya usanidi",
