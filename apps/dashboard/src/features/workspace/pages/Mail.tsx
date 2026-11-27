@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { problemFixes } from "@/features/installation/Installation";
 import { usePhrase } from "@/features/i18n/i18n";
 import { Sessions } from "@/features/mail/Sessions";
 import { useWorkspace, useWsKey, useSendingEnvironment } from "../context";
@@ -1279,6 +1280,7 @@ const evidenceLabel: Record<string, string> = {
   complaint: "Reported as spam",
   expired_in_queue: "Mail server gave up retrying",
   operator_resolved: "Outcome recorded by an operator",
+  rejected: "Refused by your mail server",
 };
 
 const evidenceSource: Record<string, string> = {
@@ -1527,6 +1529,22 @@ export function MessageDetail() {
                 </dl>
               </Section>
               <Section title={phrase("Timeline")}>
+                {Boolean(m.smtp_reject_code) && (
+                  <div
+                    className="mb-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
+                    data-testid="smtp-rejection"
+                  >
+                    <p className="font-medium">
+                      {phrase("Your mail server answered")} <code>{s(m.smtp_reject_code)}</code>
+                    </p>
+                    {Boolean(m.smtp_reject_reason) && (
+                      <p className="mt-1 break-words text-xs">{s(m.smtp_reject_reason)}</p>
+                    )}
+                    <p className="mt-1 text-xs">
+                      {phrase(problemFixes[s(m.smtp_reject_problem)] ?? s(m.smtp_reject_problem))}
+                    </p>
+                  </div>
+                )}
                 <ol className="space-y-2 text-sm">
                   {((m.events as Row[]) ?? []).map((e, i) => (
                     <li key={i} className="border-l-2 border-primary/40 pl-3">
@@ -1567,6 +1585,11 @@ export function MessageDetail() {
                       ) : null}
                       {ev.reason ? (
                         <span className="block text-xs text-muted-foreground">{s(ev.reason)}</span>
+                      ) : null}
+                      {ev.problem_code ? (
+                        <span className="block text-xs">
+                          {phrase(problemFixes[s(ev.problem_code)] ?? s(ev.problem_code))}
+                        </span>
                       ) : null}
                       <span className="block text-xs text-muted-foreground">
                         {phrase(evidenceSource[s(ev.source)] ?? s(ev.source))} ·{" "}

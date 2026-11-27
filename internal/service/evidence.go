@@ -150,7 +150,7 @@ VALUES ($1,'mta_log',$2,$3,$4,$5,$6,$7) ON CONFLICT (dedupe_key) DO NOTHING`, id
 // DeliveryEvidence lists the evidence for one message and a plain summary.
 // The summary never claims inbox delivery.
 func (s *Service) DeliveryEvidence(ctx context.Context, messageID string) ([]map[string]any, string, error) {
-	rows, err := s.maps(ctx, `SELECT source, event, smtp_status, remote_host, safe_reason AS reason, mta_queue_id, observed_at
+	rows, err := s.maps(ctx, `SELECT source, event, smtp_status, remote_host, safe_reason AS reason, problem_code, mta_queue_id, observed_at
 FROM delivery_events WHERE message_id=$1 ORDER BY observed_at, id`, messageID)
 	if err != nil {
 		return nil, "", err
@@ -167,6 +167,8 @@ FROM delivery_events WHERE message_id=$1 ORDER BY observed_at, id`, messageID)
 			summary = "The recipient's server has not accepted it yet; the mail server keeps retrying."
 		case "remote_accepted":
 			summary = "The recipient's mail server accepted it. This does not show whether it reached the inbox."
+		case "rejected":
+			summary = "Your mail server refused it. The reply is shown below."
 		case "bounced":
 			summary = "The message bounced."
 		case "complaint":

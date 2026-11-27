@@ -18,7 +18,13 @@ import {
   StateBadge,
   Time,
 } from "@/features/workspace/ui";
-import { installationKey, statusLabels, useInstallation, type StepStatus } from "./Installation";
+import {
+  installationKey,
+  statusLabels,
+  useInstallation,
+  type StepStatus,
+  problemFixes,
+} from "./Installation";
 
 // Delivery profiles and the planned mode switch (backlog B08). Every number
 // and blocker comes from the backend switch planner; a switch with pending
@@ -496,6 +502,16 @@ export function DeliveryHealthCard() {
         {phrase("Last handed to the mail server")}:{" "}
         <Time value={st.data?.last_submitted_at} relative />
       </p>
+      {inst.data?.rejections?.[0] && (
+        <p className="mt-2 text-xs" data-testid="last-rejection">
+          <span className="font-medium">{phrase("Latest refusal by the mail server")}:</span>{" "}
+          <code>{inst.data.rejections[0].smtp_status}</code>{" "}
+          {phrase(
+            problemFixes[inst.data.rejections[0].problem_code] ??
+              inst.data.rejections[0].problem_code,
+          )}
+        </p>
+      )}
       {managed && hs && (
         <p className="mt-1 text-xs" data-testid="host-health">
           {phrase("Mail host")}: Postfix {hs.postfix_active ? phrase("running") : phrase("stopped")}{" "}

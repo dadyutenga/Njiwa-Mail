@@ -53,6 +53,7 @@ type Receipt struct {
 	TransportID  string // server reply (queue id etc.) when accepted
 	MTAQueueID   string
 	Acknowledged *time.Time
+	Rejection    *mailer.Rejection // the server's own 4xx/5xx answer, if any
 }
 
 type Transport interface {
@@ -64,7 +65,7 @@ type Transport interface {
 
 // FromMailer maps the existing, well-tested mailer result onto a Receipt.
 func FromMailer(r mailer.Result, now time.Time) Receipt {
-	rc := Receipt{SafeReason: r.Reason, TransportID: r.Reply}
+	rc := Receipt{SafeReason: r.Reason, TransportID: r.Reply, Rejection: r.Rejection}
 	switch r.Outcome {
 	case mailer.Accepted:
 		rc.Outcome = Accepted

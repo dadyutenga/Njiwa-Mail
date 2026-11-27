@@ -34,6 +34,9 @@ export type ReadinessStep = {
   checked_at?: string;
   problem_code?: string;
   message?: string;
+  stale_reason?: "settings_changed" | "expired";
+  changed_at?: string;
+  confirmed_at?: string;
 };
 
 export type Readiness = {
@@ -42,6 +45,16 @@ export type Readiness = {
   status: StepStatus;
   progress: { complete: number; required: number };
   steps: ReadinessStep[];
+  live_handover_at?: string;
+};
+
+/** One kind of refusal by the mail server in the last 24 hours. */
+export type Rejection = {
+  problem_code: string;
+  smtp_status: string;
+  reason: string;
+  count: number;
+  last_at: string;
 };
 
 export type InstallationState = {
@@ -61,6 +74,7 @@ export type InstallationState = {
   } | null;
   profile: { id: string; mode: DeliveryMode; config_revision: number } | null;
   environment_override?: boolean;
+  rejections?: Rejection[] | null;
 };
 
 export type SendingFacts = {
@@ -260,6 +274,24 @@ export const problemFixes: Record<string, string> = {
   PREFLIGHT_PARAMETERS_MISSING: "Set MAIL_HOSTNAME and OUTBOUND_IP, then run the preflight again.",
   SMTP_TLS_VERIFICATION_FAILED:
     "The server's certificate is not trusted or does not match its host name. Use the host name on the certificate.",
+  SMTP_REJECT_CONNECTION:
+    "The mail server refused the connection or is temporarily unavailable. Check that it is running and accepts this server.",
+  SMTP_REJECT_AUTH:
+    "The mail server refused the username or password. Enter them again in the mail server settings, then run the connection test.",
+  SMTP_REJECT_RELAY:
+    "The mail server will not relay for this login. Allow the account to send to outside addresses on the mail server.",
+  SMTP_REJECT_SENDER:
+    "The mail server refused the sender address. Allow this login to send as it, or use another sender.",
+  SMTP_REJECT_RECIPIENT:
+    "The mail server refused this recipient. Check the address. Other messages are not affected.",
+  SMTP_REJECT_POLICY:
+    "The mail server refused the message under its spam or policy rules. Read the reply, then check SPF, DKIM, DMARC and the content.",
+  SMTP_REJECT_RATE_LIMIT:
+    "The mail server is limiting how fast you send. Raise the limit on the server or send more slowly.",
+  SMTP_REJECT_TEMPORARY:
+    "The mail server refused it for now. Njiwa-Mail retries temporary refusals automatically.",
+  SMTP_REJECT_OTHER:
+    "The mail server refused the message. Read the reply and check the server's log.",
 };
 
 function StatusIcon({ status }: { status: StepStatus }) {
@@ -275,15 +307,67 @@ function StatusIcon({ status }: { status: StepStatus }) {
   return <Circle size={18} className={cls + " text-muted-foreground"} aria-hidden />;
 }
 
+/** What refreshes a stale step the automatic connection check cannot. */
+function StaleAction({ step }: { step: string }) {
+  const phrase = usePhrase();
+  if (step === "verify_sender")
+    return (
+      <p className="mt-1 text-xs">
+        {phrase("The automatic check never sends mail.")}{" "}
+        <a className="font-medium text-primary underline" href="#send-test-email">
+          {phrase("Send a test message")}
+        </a>
+      </p>
+    );
+  if (step === "preflight")
+    return (
+      <p className="mt-1 text-xs">
+        {phrase("Run this on the mail host:")} <code>njiwa-mail preflight -record</code>
+      </p>
+    );
+  return null;
+}
+
+/** What the mail server refused lately, with the fix for each kind. */
+export function Rejections({ items }: { items: Rejection[] }) {
+  const phrase = usePhrase();
+  return (
+    <div className="mt-4" data-testid="rejections">
+      <h3 className="mb-2 text-sm font-medium">
+        {phrase("Refused by your mail server in the last 24 hours")}
+      </h3>
+      <ul className="space-y-2">
+        {items.map((r) => (
+          <li key={r.problem_code} className="rounded-lg border p-3 text-sm">
+            <p>{phrase(problemFixes[r.problem_code] ?? r.problem_code)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              <code>{r.smtp_status}</code> {r.reason}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {phrase("Code")}: <code>{r.problem_code}</code> · {phrase("Times")}: {r.count} ·{" "}
+              <Time value={r.last_at} relative />
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Steps with plain status text, the fix for each problem and when it was checked. */
 export function ReadinessSteps({
   readiness,
   onRecheck,
   rechecking,
+  onCheckStep,
+  checking,
 }: {
   readiness: Readiness;
   onRecheck?: () => void;
   rechecking?: boolean;
+  /** Runs the connection check of the profile, offered on a stale step. */
+  onCheckStep?: () => void;
+  checking?: boolean;
 }) {
   const phrase = usePhrase();
   const { complete, required } = readiness.progress;
@@ -346,8 +430,48 @@ export function ReadinessSteps({
                 )}
                 {st.status !== "ready" &&
                   st.status !== "skipped_optional" &&
+                  !st.stale_reason &&
                   (fix || st.message) && (
                     <p className="mt-1 text-xs">{phrase(fix ?? st.message ?? "")}</p>
+                  )}
+                {st.stale_reason === "settings_changed" && (
+                  <p className="mt-1 text-xs">
+                    {phrase("The settings changed after this check.")}{" "}
+                    {st.changed_at && (
+                      <>
+                        {phrase("Changed")}: <Time value={st.changed_at} />
+                      </>
+                    )}
+                  </p>
+                )}
+                {st.stale_reason === "expired" && (
+                  <p className="mt-1 text-xs">
+                    {phrase("This check is old and no recent live mail confirms it.")}
+                  </p>
+                )}
+                {st.confirmed_at && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {phrase(
+                      st.id === "preflight"
+                        ? "Confirmed by live mail accepted by a recipient's mail server at"
+                        : "Confirmed by live mail handed over at",
+                    )}{" "}
+                    <Time value={st.confirmed_at} />
+                  </p>
+                )}
+                {st.status === "stale" && <StaleAction step={st.id} />}
+                {st.status === "stale" &&
+                  onCheckStep &&
+                  (st.id === "verify_connection" || st.id === "verify_transport") && (
+                    <Button
+                      className="mt-2"
+                      variant="outline"
+                      size="sm"
+                      disabled={checking}
+                      onClick={onCheckStep}
+                    >
+                      {checking ? phrase("Checking…") : phrase("Run checks again")}
+                    </Button>
                   )}
                 {st.problem_code && st.status !== "ready" && (
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -410,6 +534,17 @@ export function DeliveryInfrastructure({
   const rec = disc.data?.report?.recommendation;
   const [choice, setChoice] = useState<DeliveryMode | "">("");
   const [saving, setSaving] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const checkProfile = async (id: string) => {
+    setChecking(true);
+    await run(
+      () => admin.send(`/installation/transport-profiles/${id}/test`, "POST"),
+      phrase("Check finished."),
+    );
+    setChecking(false);
+    client.invalidateQueries({ queryKey: installationKey });
+    client.invalidateQueries({ queryKey: ["ws"] });
+  };
   const confirm = async (mode: DeliveryMode) => {
     setSaving(true);
     const r = await run(
@@ -506,8 +641,11 @@ export function DeliveryInfrastructure({
                 readiness={st.readiness}
                 onRecheck={mode === "existing_smtp" ? onRecheck : undefined}
                 rechecking={rechecking}
+                onCheckStep={st.profile ? () => checkProfile(st.profile!.id) : undefined}
+                checking={checking}
               />
             )}
+            {(st.rejections?.length ?? 0) > 0 && <Rejections items={st.rejections!} />}
           </Section>
         );
       }}

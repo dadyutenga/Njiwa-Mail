@@ -38,8 +38,18 @@ const (
 	CodeCertExpired      = "CLIENT_CERT_EXPIRED"
 )
 
-// DefaultCheckTTL is how long a passing check stays trustworthy.
+// DefaultCheckTTL is how long a passing check stays trustworthy on its own.
 const DefaultCheckTTL = 24 * time.Hour
+
+// EvidenceWindow is how recent live mail must be to confirm a check that is no
+// longer current.
+const EvidenceWindow = 24 * time.Hour
+
+// Why a step is out of date.
+const (
+	StaleSettingsChanged = "settings_changed"
+	StaleExpired         = "expired"
+)
 
 const (
 	ModeManaged  = "managed_mta"
@@ -67,6 +77,14 @@ type Facts struct {
 	// ClientCertNotAfter is when the worker's submission certificate
 	// (managed mode) expires; nil when unknown.
 	ClientCertNotAfter *time.Time
+	// ConfigChangedAt is when the profile's settings last changed; nil when unknown.
+	ConfigChangedAt *time.Time
+	// LiveHandover is the latest Live message the mail server accepted with the
+	// current revision of this profile, within EvidenceWindow.
+	LiveHandover *time.Time
+	// RemoteAccepted is the latest such message a recipient's mail server
+	// accepted. Only this shows that the server itself can send onwards.
+	RemoteAccepted *time.Time
 	// Delivery is what the worker saw recently on the active profile. Checks
 	// can pass while mail is not going out; this keeps the status honest.
 	Delivery *DeliveryHealth
@@ -92,6 +110,7 @@ type DeliveryHealth struct {
 	TransportFailures int        // connection-level temporary failures in the window
 	LastFailure       *time.Time // most recent of those
 	LastCode          string     // its reason code
+	LastProblem       string     // its SMTP_REJECT_* code, when the server refused
 	LastSubmitted     *time.Time // most recent successful hand-over
 }
 
@@ -125,6 +144,11 @@ type Step struct {
 	CheckedAt   *time.Time `json:"checked_at,omitempty"`
 	ProblemCode string     `json:"problem_code,omitempty"`
 	Message     string     `json:"message,omitempty"`
+	// StaleReason says why a stale step is stale; ChangedAt is when the
+	// settings changed. ConfirmedAt is the live mail that keeps a step ready.
+	StaleReason string     `json:"stale_reason,omitempty"`
+	ChangedAt   *time.Time `json:"changed_at,omitempty"`
+	ConfirmedAt *time.Time `json:"confirmed_at,omitempty"`
 	Action      *Action    `json:"action,omitempty"`
 }
 
@@ -139,6 +163,9 @@ type Readiness struct {
 	Status   Status   `json:"status"`
 	Progress Progress `json:"progress"`
 	Steps    []Step   `json:"steps"`
+	// LiveHandoverAt is the latest Live message the mail server accepted with
+	// these settings, if recent.
+	LiveHandoverAt *time.Time `json:"live_handover_at,omitempty"`
 }
 
 // Compute derives installation readiness. Counts are computed here, never
@@ -147,7 +174,7 @@ func Compute(f Facts) Readiness {
 	if f.Now.IsZero() {
 		f.Now = time.Now()
 	}
-	r := Readiness{Scope: "installation", Mode: f.Mode}
+	r := Readiness{Scope: "installation", Mode: f.Mode, LiveHandoverAt: f.LiveHandover}
 	choose := Step{ID: "choose_mode", Title: "Choose how mail is sent", Required: true,
 		Action: &Action{Label: "Choose delivery mode", Route: "/app/installation"}}
 	if f.Mode == "" {
@@ -224,10 +251,13 @@ func Compute(f Facts) Readiness {
 	// not given a green it has no evidence for.
 	if f.Delivery.Failing() {
 		t := *f.Delivery.LastFailure
+		code, msg := CodeTransportFailing, "Recent Live messages could not reach the mail server ("+f.Delivery.LastCode+"). They stay queued and are retried; fix the mail server and test again."
+		if p := f.Delivery.LastProblem; p != "" {
+			code, msg = p, "The mail server keeps refusing Live mail ("+f.Delivery.LastCode+"). Fix the cause and test again."
+		}
 		r.Steps = append(r.Steps, Step{ID: "live_delivery", Title: "Live mail is going out", Status: Error, Required: true,
-			CheckedAt: &t, ProblemCode: CodeTransportFailing,
-			Message: "Recent Live messages could not reach the mail server (" + f.Delivery.LastCode + "). They stay queued and are retried; fix the mail server and test again.",
-			Action:  &Action{Label: "Test connection", Route: "/app/installation"}})
+			CheckedAt: &t, ProblemCode: code, Message: msg,
+			Action: &Action{Label: "Test connection", Route: "/app/installation"}})
 	}
 	return finish(r)
 }
@@ -245,13 +275,37 @@ func checkStep(f Facts, id, title, key string, prerequisiteOK bool) Step {
 	}
 	t := c.CheckedAt
 	s.CheckedAt = &t
+	changed := c.Revision != f.ProfileRevision
+	if changed || (c.ExpiresAt != nil && !f.Now.Before(*c.ExpiresAt)) {
+		// Age or an edit alone is not a failure when live mail shows the
+		// current settings working. A failed check is only overridden by mail
+		// that went out after it.
+		ev, what := f.LiveHandover, "handed over"
+		if key == "preflight" {
+			// Handing mail to the local server says nothing about whether it
+			// can send onwards; a recipient's server accepting it does.
+			ev, what = f.RemoteAccepted, "accepted by a recipient's mail server"
+		}
+		if ev != nil && f.Now.Sub(*ev) < EvidenceWindow && (c.Result == "pass" || ev.After(c.CheckedAt)) {
+			at := *ev
+			s.Status, s.ConfirmedAt = Ready, &at
+			s.Message = "Confirmed by live mail " + what + " at " + stamp(at) + "."
+			return s
+		}
+		s.Status, s.ProblemCode = Stale, CodeCheckStale
+		if changed {
+			s.StaleReason, s.ChangedAt = StaleSettingsChanged, f.ConfigChangedAt
+			s.Message = "Settings changed after this check. Run it again."
+			if f.ConfigChangedAt != nil {
+				s.Message = "Settings changed at " + stamp(*f.ConfigChangedAt) + ", after this check. Run it again."
+			}
+		} else {
+			s.StaleReason = StaleExpired
+			s.Message = "Last checked at " + stamp(c.CheckedAt) + ", and no recent live mail confirms it. Run it again."
+		}
+		return s
+	}
 	switch {
-	case c.Revision != f.ProfileRevision:
-		s.Status, s.ProblemCode = Stale, CodeCheckStale
-		s.Message = "Settings changed after this check. Run it again."
-	case c.ExpiresAt != nil && !f.Now.Before(*c.ExpiresAt):
-		s.Status, s.ProblemCode = Stale, CodeCheckStale
-		s.Message = "This result is out of date. Run it again."
 	case c.Result == "pass":
 		s.Status = Ready
 	case c.Result == "skipped":
@@ -268,6 +322,8 @@ func checkStep(f Facts, id, title, key string, prerequisiteOK bool) Step {
 	}
 	return s
 }
+
+func stamp(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }
 
 func finish(r Readiness) Readiness {
 	var worst Status = Ready

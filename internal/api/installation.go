@@ -3,12 +3,10 @@ package api
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/njiwa-tz/mail/internal/installer/discover"
 	"github.com/njiwa-tz/mail/internal/installer/managed"
-	"github.com/njiwa-tz/mail/internal/mailer"
 	"github.com/njiwa-tz/mail/internal/mtaagent"
 	"github.com/njiwa-tz/mail/internal/service"
 )
@@ -216,19 +214,9 @@ func (s *Server) installationRoutes(app *fiber.App) {
 	// Connection diagnosis for one profile, recorded against its exact revision.
 	h("POST", "/transport-profiles/:id/test", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		id := c.Params("id")
-		cfg, sender, rev, err := svc.ProfileSMTP(reqCtx(c), id)
+		steps, ok, rev, err := svc.CheckTransportProfile(reqCtx(c), id, s.SMTPRootCAs)
 		if err != nil {
 			return nil, err
-		}
-		tctx, cancel := context.WithTimeout(reqCtx(c), 25*time.Second)
-		defer cancel()
-		steps := mailer.Diagnose(tctx, cfg, sender)
-		ok := true
-		for _, st := range steps {
-			ok = ok && (st.OK || (st.Skipped && st.Key == "sender" && sender == ""))
-		}
-		if err := svc.RecordInstallationCheck(reqCtx(c), id, rev, "connection", ok, service.ProblemCode("connection", steps), nil, false); err != nil {
-			return nil, &service.Error{Status: 503, Code: "service_unavailable"}
 		}
 		s.audit(c, u, "transport.test", "transport_profile", id, map[string]any{"ok": ok, "revision": rev})
 		return map[string]any{"ok": ok, "steps": steps, "config_revision": rev}, nil

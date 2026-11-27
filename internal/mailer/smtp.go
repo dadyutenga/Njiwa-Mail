@@ -37,6 +37,8 @@ type Result struct {
 	Outcome Outcome
 	Reason  string // safe, stable code
 	Reply   string // server reply text on acceptance (queue id etc.)
+	// Rejection is set when the server itself answered with a 4xx or 5xx.
+	Rejection *Rejection
 }
 
 type Envelope struct {
@@ -103,8 +105,13 @@ func isTimeout(err error) bool {
 
 // classifyPre classifies a failure that happened BEFORE any message body was
 // transmitted: the message cannot have been accepted.
-func classifyPre(err error, stage string) Result {
+func classifyPre(err error, stage string) (res Result) {
 	var te *textproto.Error
+	defer func() {
+		if errors.As(err, &te) {
+			res.Rejection = classifyRejection(te, stage)
+		}
+	}()
 	if errors.As(err, &te) {
 		code := strconv.Itoa(te.Code)
 		switch {
@@ -269,9 +276,9 @@ func (s *SMTP) submit(ctx context.Context, e Envelope) Result {
 		if errors.As(err, &te) {
 			switch {
 			case te.Code >= 400 && te.Code < 500:
-				return Result{Outcome: TempFailure, Reason: "smtp_" + strconv.Itoa(te.Code)}
+				return Result{Outcome: TempFailure, Reason: "smtp_" + strconv.Itoa(te.Code), Rejection: classifyRejection(te, "data")}
 			case te.Code >= 500:
-				return Result{Outcome: PermFailure, Reason: "smtp_" + strconv.Itoa(te.Code)}
+				return Result{Outcome: PermFailure, Reason: "smtp_" + strconv.Itoa(te.Code), Rejection: classifyRejection(te, "data")}
 			}
 		}
 		return Result{Outcome: Unknown, Reason: "smtp_ack_lost"}

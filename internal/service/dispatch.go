@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ type Claimed struct {
 	// Pin is set by the worker to the profile revision that performed the
 	// submission attempt; it is recorded on submitted and unknown outcomes.
 	Pin TransportPin
+	// Rejection is set by the worker when the mail server answered the
+	// submission with a 4xx or 5xx.
+	Rejection *mailer.Rejection
 }
 
 // Claim atomically leases due messages (FOR UPDATE SKIP LOCKED) in a single
@@ -121,6 +125,7 @@ type finishOpts struct {
 	retryAfter *float64
 	extra      func(ctx context.Context, tx *db.Tx) error
 	pin        TransportPin
+	rejection  *mailer.Rejection
 }
 
 // finish applies a lease-token-guarded transition. It reports false when the
@@ -159,6 +164,9 @@ RETURNING transport_test`,
 		return false, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO message_events(message_id, event_type, reason_code) VALUES ($1,$2,$3)`, id, o.event, o.reason); err != nil {
+		return false, err
+	}
+	if err := recordRejection(ctx, tx, id, token, o.to, o.rejection); err != nil {
 		return false, err
 	}
 	if o.clear {
@@ -205,6 +213,25 @@ RETURNING transport_test`,
 	return true, nil
 }
 
+// recordRejection keeps the server's refusal on the message and as delivery
+// evidence. A later acceptance clears it from the message; the evidence stays.
+func recordRejection(ctx context.Context, tx *db.Tx, id, token, state string, r *mailer.Rejection) error {
+	if r == nil {
+		if state != "submitted" {
+			return nil
+		}
+		_, err := tx.Exec(ctx, `UPDATE messages SET smtp_reject_code=NULL, smtp_reject_problem='', smtp_reject_reason='' WHERE id=$1`, id)
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE messages SET smtp_reject_code=$2, smtp_reject_problem=$3, smtp_reject_reason=$4 WHERE id=$1`,
+		id, r.Code, r.Problem, r.Reason); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO delivery_events(message_id, source, event, smtp_status, safe_reason, problem_code, dedupe_key)
+VALUES ($1,'smtp','rejected',$2,$3,$4,$5) ON CONFLICT (dedupe_key) DO NOTHING`, id, strconv.Itoa(r.Code), r.Reason, r.Problem, dedupe("rejected", id, token))
+	return err
+}
+
 var submittingOnly = []string{"submitting"}
 
 // Message states that produce a webhook event. Payloads carry ids, states and
@@ -242,7 +269,7 @@ func (s *Service) MarkSubmitted(ctx context.Context, c Claimed, reason, reply, m
 }
 
 func (s *Service) MarkFailed(ctx context.Context, c Claimed, reason string) (bool, error) {
-	return s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "failed", event: "failed", reason: reason, clear: true, complete: true, pin: c.Pin})
+	return s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "failed", event: "failed", reason: reason, clear: true, complete: true, pin: c.Pin, rejection: c.Rejection})
 }
 
 func (s *Service) MarkUnknown(ctx context.Context, c Claimed, reason string) (bool, error) {
@@ -274,15 +301,15 @@ func (s *Service) MarkCaptured(ctx context.Context, c Claimed, raw []byte, messa
 // would fall beyond the message deadline.
 func (s *Service) ScheduleRetry(ctx context.Context, c Claimed, reason string, delay time.Duration) (string, error) {
 	if c.Attempts >= s.Opts.MaxAttempts {
-		_, err := s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "failed", event: "failed", reason: "retries_exhausted:" + reason, clear: true, complete: true, pin: c.Pin})
+		_, err := s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "failed", event: "failed", reason: "retries_exhausted:" + reason, clear: true, complete: true, pin: c.Pin, rejection: c.Rejection})
 		return "failed", err
 	}
 	if !time.Now().Add(delay).Before(c.ExpiresAt) {
-		_, err := s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "expired", event: "expired", reason: "retry_beyond_ttl", clear: true, complete: true})
+		_, err := s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "expired", event: "expired", reason: "retry_beyond_ttl", clear: true, complete: true, rejection: c.Rejection})
 		return "expired", err
 	}
 	secs := delay.Seconds()
-	_, err := s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "retry_wait", event: "retry_scheduled", reason: reason, retryAfter: &secs})
+	_, err := s.finish(ctx, c.ID, c.Token, finishOpts{from: submittingOnly, to: "retry_wait", event: "retry_scheduled", reason: reason, retryAfter: &secs, rejection: c.Rejection})
 	return "retry_wait", err
 }
 

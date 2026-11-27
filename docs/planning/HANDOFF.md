@@ -19,6 +19,10 @@ Managed mode needs a host **without a mail service in use**, not a fresh one; on
 changes nothing, and Njiwa-Mail is meant to connect to the existing server instead (but the task rules forbid creating a Mailcow
 mailbox on `rida-server`).
 
+**Update on 2026-11-28 (round in `docs/planning/task-2026-11-28.md`):** item 1 done. Delivery readiness no longer goes stale on age
+alone: the scheduler re-checks the connection, recent live mail confirms old checks, and server refusals are recorded and shown
+(migration `0042`). Not yet verified: the 48-hour joint test.
+
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of
 gaps is [`REMAINING_WORK.md`](../REMAINING_WORK.md); operating instructions are in [`OPERATIONS.md`](../OPERATIONS.md); the security

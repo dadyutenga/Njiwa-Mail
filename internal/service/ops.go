@@ -378,7 +378,7 @@ GROUP BY r ORDER BY r`, transportDownReasons)
 
 	// What the mail server reported afterwards (mta-log collector, DSNs).
 	gauge("njiwa_mail_delivery_events_1h", "Delivery evidence recorded in the last hour, by event (deferred, remote_accepted, bounced, expired_in_queue, ...).")
-	ev, err := s.Pool.Query(ctx, `SELECT e, count(d.id) FROM unnest(ARRAY['submitted','deferred','remote_accepted','bounced','complaint','expired_in_queue']) e
+	ev, err := s.Pool.Query(ctx, `SELECT e, count(d.id) FROM unnest(ARRAY['submitted','rejected','deferred','remote_accepted','bounced','complaint','expired_in_queue']) e
 LEFT JOIN delivery_events d ON d.event = e AND d.observed_at > now() - interval '1 hour' GROUP BY e ORDER BY e`)
 	if err != nil {
 		return unavailable("metrics_evidence", err)

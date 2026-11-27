@@ -1016,6 +1016,7 @@ export function MailServer() {
             </Section>
             {!managed && (
               <Section title={phrase("Send test email")}>
+                <span id="send-test-email" className="block scroll-mt-24" />
                 <p className="mb-2 text-xs text-muted-foreground">
                   {phrase(
                     "Send through the queue to test the real path: the message is accepted, queued and sent by the worker, and the result is recorded for these settings. Send directly for a quick check of the connection only.",

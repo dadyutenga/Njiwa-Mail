@@ -165,11 +165,15 @@ func (s *Service) profileReadiness(ctx context.Context, id string) (installation
 	var rev int64
 	var cj []byte
 	var hasSecret bool
-	err := s.Pool.QueryRow(ctx, `SELECT mode, config_revision, config_json, encrypted_secret IS NOT NULL FROM transport_profiles WHERE id=$1::uuid`, id).Scan(&mode, &rev, &cj, &hasSecret)
+	var changedAt *time.Time
+	err := s.Pool.QueryRow(ctx, `SELECT mode, config_revision, config_json, encrypted_secret IS NOT NULL, config_changed_at FROM transport_profiles WHERE id=$1::uuid`, id).Scan(&mode, &rev, &cj, &hasSecret, &changedAt)
 	if err != nil {
 		return installation.Readiness{}, err
 	}
-	f := installation.Facts{Now: time.Now(), Mode: mode, ProfileRevision: rev, Checks: map[string]installation.Check{}}
+	f := installation.Facts{Now: time.Now(), Mode: mode, ProfileRevision: rev, Checks: map[string]installation.Check{}, ConfigChangedAt: changedAt}
+	if f.LiveHandover, f.RemoteAccepted, err = s.liveEvidence(ctx, id, rev); err != nil {
+		return installation.Readiness{}, err
+	}
 	var c struct {
 		Host     string `json:"host"`
 		Port     int    `json:"port"`
@@ -211,22 +215,60 @@ FROM installation_checks WHERE profile_id=$1::uuid ORDER BY check_key, checked_a
 	return installation.Compute(f), nil
 }
 
+// liveEvidence is the latest Live message, sent with this revision of the
+// profile, that the mail server accepted and that a recipient's server
+// accepted. Only what a server reported counts, never an operator's note.
+func (s *Service) liveEvidence(ctx context.Context, profileID string, rev int64) (handover, remote *time.Time, err error) {
+	err = s.Pool.QueryRow(ctx, `SELECT
+  max(d.observed_at) FILTER (WHERE d.event='submitted' AND d.source='smtp'),
+  max(d.observed_at) FILTER (WHERE d.event='remote_accepted')
+FROM delivery_events d JOIN messages m ON m.id=d.message_id JOIN environments e ON e.id=m.environment_id
+WHERE d.event IN ('submitted','remote_accepted') AND d.observed_at > now() - make_interval(secs => $3::float8)
+  AND e.mode='live' AND m.transport_profile_id=$1::uuid AND m.transport_revision=$2`,
+		profileID, rev, installation.EvidenceWindow.Seconds()).Scan(&handover, &remote)
+	return handover, remote, err
+}
+
+// RecentRejections groups what the mail server refused for Live mail in the
+// last 24 hours, newest first, for the delivery health card.
+func (s *Service) RecentRejections(ctx context.Context) ([]map[string]any, error) {
+	return s.maps(ctx, `SELECT d.problem_code, count(*) AS count, max(d.observed_at) AS last_at,
+  (array_agg(d.smtp_status ORDER BY d.observed_at DESC, d.id DESC))[1] AS smtp_status,
+  (array_agg(d.safe_reason ORDER BY d.observed_at DESC, d.id DESC))[1] AS reason
+FROM delivery_events d JOIN messages m ON m.id=d.message_id JOIN environments e ON e.id=m.environment_id
+WHERE d.event='rejected' AND d.observed_at > now() - interval '24 hours' AND e.mode='live'
+GROUP BY d.problem_code ORDER BY max(d.observed_at) DESC`)
+}
+
 // deliveryHealth looks at the last 15 minutes of Live send attempts.
 func (s *Service) deliveryHealth(ctx context.Context) *installation.DeliveryHealth {
 	d := &installation.DeliveryHealth{}
-	var code *string
-	err := s.Pool.QueryRow(ctx, `SELECT
-  count(*) FILTER (WHERE ev.event_type='retry_scheduled' AND ev.reason_code = ANY($1)),
-  max(ev.created_at) FILTER (WHERE ev.event_type='retry_scheduled' AND ev.reason_code = ANY($1)),
-  (array_agg(ev.reason_code ORDER BY ev.created_at DESC) FILTER (WHERE ev.event_type='retry_scheduled' AND ev.reason_code = ANY($1)))[1],
-  max(ev.created_at) FILTER (WHERE ev.event_type='submitted')
-FROM message_events ev JOIN messages m ON m.id=ev.message_id JOIN environments e ON e.id=m.environment_id
-WHERE e.mode='live' AND ev.created_at > now() - interval '15 minutes'`, transportDownReasons).Scan(&d.TransportFailures, &d.LastFailure, &code, &d.LastSubmitted)
+	var code, problem *string
+	// Failures that hit every message: the server could not be reached, or it
+	// refused the connection, the sign-in or relaying. An attempt that shows up
+	// both ways (a retry and a refusal, same transaction) counts once.
+	err := s.Pool.QueryRow(ctx, `WITH f AS (
+  SELECT ev.message_id, ev.created_at, ev.reason_code AS code, '' AS problem
+  FROM message_events ev JOIN messages m ON m.id=ev.message_id JOIN environments e ON e.id=m.environment_id
+  WHERE e.mode='live' AND ev.created_at > now() - interval '15 minutes' AND ev.event_type='retry_scheduled' AND ev.reason_code = ANY($1)
+  UNION ALL
+  SELECT d.message_id, d.created_at, 'smtp_'||d.smtp_status, d.problem_code
+  FROM delivery_events d JOIN messages m ON m.id=d.message_id JOIN environments e ON e.id=m.environment_id
+  WHERE e.mode='live' AND d.created_at > now() - interval '15 minutes' AND d.event='rejected' AND d.problem_code = ANY($2))
+SELECT count(DISTINCT (message_id, created_at)), max(created_at),
+  (array_agg(code ORDER BY created_at DESC, problem DESC))[1],
+  (array_agg(problem ORDER BY created_at DESC, problem DESC))[1],
+  (SELECT max(ev.created_at) FROM message_events ev JOIN messages m ON m.id=ev.message_id JOIN environments e ON e.id=m.environment_id
+   WHERE e.mode='live' AND ev.event_type='submitted' AND ev.created_at > now() - interval '15 minutes')
+FROM f`, transportDownReasons, mailer.ConnectionLevelProblems).Scan(&d.TransportFailures, &d.LastFailure, &code, &problem, &d.LastSubmitted)
 	if err != nil {
 		return nil
 	}
 	if code != nil {
 		d.LastCode = *code
+	}
+	if problem != nil {
+		d.LastProblem = *problem
 	}
 	return d
 }

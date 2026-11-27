@@ -123,3 +123,47 @@ func (t *StoredTransport) SendPinned(ctx context.Context, e mailer.Envelope) (ma
 	}
 	return s.Send(ctx, e), pin
 }
+
+// EnvTransport sends with the SMTP settings of the server environment. When
+// those are identical to the active profile's, a submission is attributed to
+// that profile revision, so live mail counts as evidence about it. With a
+// failover host the accepting server is not known, so nothing is attributed.
+type EnvTransport struct {
+	*transport.ExistingSMTPTransport
+	Svc      *service.Service
+	Cfg      mailer.SMTPConfig
+	Failover bool
+
+	mu      sync.Mutex
+	checked time.Time
+	pin     service.TransportPin
+}
+
+func (t *EnvTransport) SubmitPinned(ctx context.Context, sub transport.Submission) (transport.Receipt, service.TransportPin) {
+	pin := t.matching(ctx)
+	return t.Submit(ctx, sub), pin
+}
+
+// matching is the active profile revision when it holds exactly these
+// settings, re-read when the profile changes.
+func (t *EnvTransport) matching(ctx context.Context) service.TransportPin {
+	if t.Failover {
+		return service.TransportPin{}
+	}
+	current, _, found, err := t.Svc.ActiveProfileVersion(ctx)
+	if err != nil || !found {
+		return service.TransportPin{}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.pin == current && time.Since(t.checked) < 30*time.Second {
+		return t.pin
+	}
+	a, err := t.Svc.LoadActiveSMTP(ctx)
+	if err != nil || !a.OK || a.Cfg.Host != t.Cfg.Host || a.Cfg.Port != t.Cfg.Port || a.Cfg.Username != t.Cfg.Username ||
+		a.Cfg.Password != t.Cfg.Password || a.Cfg.Implicit != t.Cfg.Implicit {
+		return service.TransportPin{}
+	}
+	t.pin, t.checked = a.Pin(), time.Now()
+	return t.pin
+}

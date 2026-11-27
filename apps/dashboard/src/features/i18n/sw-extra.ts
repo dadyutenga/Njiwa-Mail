@@ -9,6 +9,46 @@ import { swTools } from "./sw-tools";
 import { swReports } from "./sw-reports";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "Latest refusal by the mail server": "Kukataliwa kwa karibuni na seva ya barua",
+  "The settings changed after this check.": "Mipangilio ilibadilishwa baada ya ukaguzi huu.",
+  Changed: "Ilibadilishwa",
+  "This check is old and no recent live mail confirms it.":
+    "Ukaguzi huu ni wa zamani na hakuna barua halisi ya karibuni inayouthibitisha.",
+  "Confirmed by live mail accepted by a recipient's mail server at":
+    "Imethibitishwa na barua halisi iliyokubaliwa na seva ya barua ya mpokeaji saa",
+  "Confirmed by live mail handed over at": "Imethibitishwa na barua halisi iliyokabidhiwa saa",
+  "The automatic check never sends mail.": "Ukaguzi wa kiotomatiki hautumi barua kamwe.",
+  "Send a test message": "Tuma ujumbe wa majaribio",
+  "Run this on the mail host:": "Endesha hii kwenye seva ya barua:",
+  "Refused by your mail server in the last 24 hours":
+    "Zilizokataliwa na seva yako ya barua katika saa 24 zilizopita",
+  Times: "Mara",
+  "Check finished.": "Ukaguzi umekamilika.",
+  "Some delivery checks need attention. Your mail server recently accepted live mail.":
+    "Baadhi ya kaguzi za utumaji zinahitaji kushughulikiwa. Seva yako ya barua imekubali barua halisi hivi karibuni.",
+  "Last handed over": "Ilikabidhiwa mwisho",
+  "Refused by your mail server": "Imekataliwa na seva yako ya barua",
+  "Your mail server answered": "Seva yako ya barua ilijibu",
+  "Your mail server refused it. The reply is shown below.":
+    "Seva yako ya barua iliikataa. Jibu lake linaonyeshwa hapa chini.",
+  "The mail server refused the connection or is temporarily unavailable. Check that it is running and accepts this server.":
+    "Seva ya barua ilikataa muunganisho au haipatikani kwa sasa. Hakikisha inafanya kazi na inaikubali seva hii.",
+  "The mail server refused the username or password. Enter them again in the mail server settings, then run the connection test.":
+    "Seva ya barua ilikataa jina la mtumiaji au nenosiri. Yaingize tena kwenye mipangilio ya seva ya barua, kisha jaribu muunganisho.",
+  "The mail server will not relay for this login. Allow the account to send to outside addresses on the mail server.":
+    "Seva ya barua haitapeleka barua kwa akaunti hii. Iruhusu akaunti kutuma kwa anwani za nje kwenye seva ya barua.",
+  "The mail server refused the sender address. Allow this login to send as it, or use another sender.":
+    "Seva ya barua ilikataa anwani ya mtumaji. Iruhusu akaunti hii kutuma kwa anwani hiyo, au tumia mtumaji mwingine.",
+  "The mail server refused this recipient. Check the address. Other messages are not affected.":
+    "Seva ya barua ilimkataa mpokeaji huyu. Kagua anwani. Ujumbe mwingine hauathiriki.",
+  "The mail server refused the message under its spam or policy rules. Read the reply, then check SPF, DKIM, DMARC and the content.":
+    "Seva ya barua ilikataa ujumbe kwa kanuni zake za barua taka au sera. Soma jibu, kisha kagua SPF, DKIM, DMARC na maudhui.",
+  "The mail server is limiting how fast you send. Raise the limit on the server or send more slowly.":
+    "Seva ya barua inazuia kasi ya utumaji wako. Ongeza kikomo kwenye seva au tuma polepole zaidi.",
+  "The mail server refused it for now. Njiwa-Mail retries temporary refusals automatically.":
+    "Seva ya barua imeikataa kwa sasa. Njiwa-Mail hujaribu tena kukataliwa kwa muda kiotomatiki.",
+  "The mail server refused the message. Read the reply and check the server's log.":
+    "Seva ya barua ilikataa ujumbe. Soma jibu na ukague kumbukumbu za seva.",
   "Every browser except this one is signed out and must sign in again.":
     "Kila kivinjari isipokuwa hiki kitatolewa na lazima kiingie tena.",
   "Sign out every other browser?": "Toa kila kivinjari kingine?",

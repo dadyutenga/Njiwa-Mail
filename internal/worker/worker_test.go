@@ -38,3 +38,15 @@ func TestBreakerUsesTransportOutcome(t *testing.T) {
 		t.Fatal("accepted submission should clear failure streak")
 	}
 }
+
+func TestBreakerCountsRefusalsThatStopEveryMessage(t *testing.T) {
+	w := &Worker{BreakerThreshold: 1, BreakerBase: time.Minute, BreakerMax: time.Minute}
+	w.breaker(transport.Receipt{Outcome: transport.Permanent, SafeReason: "smtp_550", Rejection: &mailer.Rejection{Code: 550, Problem: mailer.RejectRecipient}})
+	if w.LivePaused() {
+		t.Fatal("one refused recipient must not pause live sending")
+	}
+	w.breaker(transport.Receipt{Outcome: transport.Permanent, SafeReason: "smtp_auth_failed", Rejection: &mailer.Rejection{Code: 535, Problem: mailer.RejectAuth}})
+	if !w.LivePaused() {
+		t.Fatal("a refused sign-in should pause live claims")
+	}
+}

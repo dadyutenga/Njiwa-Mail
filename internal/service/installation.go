@@ -134,6 +134,9 @@ func (s *Service) InstallationState(ctx context.Context) (map[string]any, error)
 		rd = installation.Compute(installation.Facts{Now: time.Now(), Mode: w.SelectedMode})
 	}
 	out["readiness"] = rd
+	if out["rejections"], err = s.RecentRejections(ctx); err != nil {
+		return nil, unavailable("installation_state", err)
+	}
 
 	var everPassed bool
 	if id != "" {
@@ -163,7 +166,7 @@ func (s *Service) InstallationSummary(ctx context.Context) (map[string]any, erro
 	}
 	rd := st["readiness"].(installation.Readiness)
 	return map[string]any{"scope": "installation", "status": rd.Status, "mode": rd.Mode, "progress": rd.Progress,
-		"welcome_state": st["welcome_state"]}, nil
+		"welcome_state": st["welcome_state"], "live_handover_at": rd.LiveHandoverAt}, nil
 }
 
 // RecordManagedPreflight stores a host preflight run as the "preflight" check

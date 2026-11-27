@@ -58,7 +58,10 @@ func (w *Worker) breaker(res transport.Receipt) {
 		w.failStreak, w.pauses = 0, 0
 		return
 	}
-	if res.Outcome != transport.Temporary || !service.TransportDown(res.SafeReason) {
+	// A server that cannot be reached, or one that refuses everyone (sign-in,
+	// relaying), counts. A refusal of one message or recipient does not.
+	unreachable := res.Outcome == transport.Temporary && service.TransportDown(res.SafeReason)
+	if !unreachable && !res.Rejection.ConnectionLevel() {
 		return
 	}
 	w.failStreak++
@@ -345,6 +348,7 @@ func (w *Worker) process(ctx context.Context, c service.Claimed) {
 	sub := transport.Submission{MessageID: msgID, EnvelopeFrom: envFrom, Recipients: rcpts, RFC5322: raw}
 	res, pin := w.submit(sctx, sub)
 	c.Pin = pin
+	c.Rejection = res.Rejection
 	cancel()
 	w.breaker(res)
 

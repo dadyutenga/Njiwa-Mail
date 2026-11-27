@@ -123,3 +123,39 @@ func TestBounceStepReportsWrongInboundSources(t *testing.T) {
 		t.Fatalf("%+v", last)
 	}
 }
+
+func TestOutdatedChecksAndLiveEvidence(t *testing.T) {
+	recent := now.Add(-time.Hour)
+	f := Facts{Now: now, Mode: ModeExisting, ProfileRevision: 1, ConfigComplete: true,
+		Checks: map[string]Check{"connection": pass(1, 31*time.Hour), "test_send": pass(1, 31*time.Hour)}}
+	if r := Compute(f); r.Status != Stale || r.Steps[2].StaleReason != StaleExpired {
+		t.Fatalf("%+v", r)
+	}
+	f.LiveHandover = &recent
+	if r := Compute(f); r.Status != Ready || r.Steps[2].ConfirmedAt == nil {
+		t.Fatalf("%+v", r)
+	}
+	// A failed check is overridden only by mail that went out after it.
+	f.Checks["connection"] = Check{Result: "fail", Revision: 1, CheckedAt: now.Add(-31 * time.Hour), ExpiresAt: &recent}
+	if r := Compute(f); r.Steps[2].Status != Ready {
+		t.Fatalf("newer mail: %+v", r.Steps[2])
+	}
+	f.Checks["connection"] = Check{Result: "fail", Revision: 1, CheckedAt: now.Add(-time.Minute)}
+	if r := Compute(f); r.Steps[2].Status != NeedsAction {
+		t.Fatalf("a current failure stays: %+v", r.Steps[2])
+	}
+}
+
+// Handing mail to the host's own server does not prove it can send onwards.
+func TestPreflightNeedsRemoteAcceptance(t *testing.T) {
+	recent := now.Add(-time.Hour)
+	f := Facts{Now: now, Mode: ModeManaged, ProfileRevision: 1, ManagedInstalled: true, LiveHandover: &recent,
+		Checks: map[string]Check{"preflight": pass(1, 31*time.Hour), "connection": pass(1, 31*time.Hour)}}
+	if r := Compute(f); r.Status != Stale || r.Steps[1].Status != Stale || r.Steps[3].Status != Ready {
+		t.Fatalf("%+v", r)
+	}
+	f.RemoteAccepted = &recent
+	if r := Compute(f); r.Status != Ready {
+		t.Fatalf("%+v", r)
+	}
+}

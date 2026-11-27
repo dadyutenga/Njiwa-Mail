@@ -435,7 +435,8 @@ func runWorker(ctx context.Context, cfg *config.Config, svc *service.Service) {
 	// Webhook deliveries share the worker role: one process drains both outboxes.
 	go (&webhook.Deliverer{Svc: svc}).Run(ctx)
 	if cfg.SMTP.Configured() {
-		w.Transport = &transport.ExistingSMTPTransport{SMTP: smtpTransport(cfg)}
+		w.Transport = &worker.EnvTransport{ExistingSMTPTransport: &transport.ExistingSMTPTransport{SMTP: smtpTransport(cfg)},
+			Svc: svc, Cfg: *envSMTP(cfg), Failover: cfg.SMTP.FailoverHost != ""}
 	} else {
 		w.Transport = &worker.StoredTransport{Svc: svc, Timeout: cfg.SMTP.Timeout}
 		slog.Warn("SMTP_HOST not set: live mail uses the settings saved on the Mail server page; until they are saved, live messages stay queued")
@@ -566,6 +567,13 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 			return err
 		}
 		_, err = svc.RecheckDNSSetups(ctx, nil) // bounded: setups applied in the last 48 hours
+		return err
+	})
+	// Keeps the active delivery profile's connection check fresh: every six
+	// hours, soon after a settings change, and sooner after a failure. It signs
+	// in to the mail server and sends no message.
+	every(time.Minute, "installation-recheck", func() error {
+		_, err := svc.RecheckInstallation(ctx, nil)
 		return err
 	})
 	every(time.Hour, "dns_oauth_states", func() error { return svc.PurgeDNSOAuthStates(ctx) })

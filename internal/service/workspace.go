@@ -238,7 +238,7 @@ type WSMessageFilter struct {
 
 const wsMessageCols = `m.id::text AS id, m.state, m.bounce_state, m.template, m.template_version, m.locale, m.priority, m.source,
   m.sender, m.recipient_masked AS recipient, m.subject, m.send_at, m.attempts, m.created_at, m.updated_at, m.expires_at,
-  m.submitted_at, m.completed_at, m.smtp_reply, k.prefix AS api_key_prefix, m.campaign_id::text AS campaign_id,
+  m.submitted_at, m.completed_at, m.smtp_reply, m.smtp_reject_code, m.smtp_reject_problem, m.smtp_reject_reason, k.prefix AS api_key_prefix, m.campaign_id::text AS campaign_id,
   m.reply_to_inbound_id::text AS reply_to_inbound_id`
 
 func (s *Service) WSMessages(ctx context.Context, sc *Scope, f WSMessageFilter, pg Page) ([]map[string]any, bool, error) {

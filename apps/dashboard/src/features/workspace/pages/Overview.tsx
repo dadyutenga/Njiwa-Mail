@@ -25,7 +25,7 @@ import { DeliveryHealthCard } from "@/features/installation/Profiles";
 import { Button } from "@/components/ui/button";
 import { lastWorkspace, useProjects, useWorkspace, useWsKey } from "../context";
 import { FirstRunShell, NewProjectDialog, useCompose } from "../Layout";
-import { DataState, ErrorState, LoadingRows, PageHeader, Section, StateBadge } from "../ui";
+import { DataState, ErrorState, LoadingRows, PageHeader, Section, StateBadge, Time } from "../ui";
 
 // ---------------------------------------------------------------- /app: choose the workspace
 
@@ -566,6 +566,7 @@ type InstallationSummary = {
   progress: { complete: number; required: number };
   welcome_state: string;
   environment_override?: boolean;
+  live_handover_at?: string | null;
 };
 
 type ChecklistResponse = {
@@ -580,12 +581,17 @@ function InstallationBanner({ inst }: { inst: InstallationSummary }) {
   const phrase = usePhrase();
   const { to } = useWorkspace();
   if (inst.status === "ready") return null;
+  // Never say mail may not go out when it demonstrably just did. A failing
+  // delivery is reported as an error, which keeps the warning.
+  const handedOver = inst.status !== "error" ? inst.live_handover_at : null;
   const text =
     inst.status === "not_started"
       ? "Mail delivery for this installation is not set up yet. Sandbox works now; live mail waits until delivery is ready."
-      : inst.status === "stale"
-        ? "Mail delivery settings changed or were last checked too long ago. Live mail may not go out until they are checked again."
-        : "Mail delivery for this installation needs attention. Live mail stays queued until it is ready.";
+      : handedOver
+        ? "Some delivery checks need attention. Your mail server recently accepted live mail."
+        : inst.status === "stale"
+          ? "Mail delivery settings changed or were last checked too long ago. Live mail may not go out until they are checked again."
+          : "Mail delivery for this installation needs attention. Live mail stays queued until it is ready.";
   return (
     <div
       role="status"
@@ -596,6 +602,12 @@ function InstallationBanner({ inst }: { inst: InstallationSummary }) {
         <span className="font-medium">{phrase("Delivery infrastructure")}:</span>{" "}
         {phrase(statusLabels[inst.status] ?? inst.status)} ({inst.progress.complete}/
         {inst.progress.required}). {phrase(text)}
+        {handedOver && (
+          <>
+            {" "}
+            {phrase("Last handed over")}: <Time value={handedOver} />
+          </>
+        )}
       </p>
       <Link className="mt-1 inline-block font-medium text-primary" to={to("mail-server")}>
         {phrase("Open Delivery infrastructure")}

@@ -242,13 +242,31 @@ what the mail server answered. The Delivery infrastructure page shows an optiona
 - Ready: shows when the last bounce report arrived. Some providers never return DSNs to a custom envelope sender; then this stays
   "none has arrived yet" and bounce visibility is limited by design.
 
+## How delivery readiness stays current
+
+- A passing check is trusted for 24 hours. The scheduler job `installation-recheck` runs the active profile's connection check
+  every 6 hours, within a minute of a settings change, and 10 minutes after a failure. It connects, signs in and asks whether the
+  test sender is allowed. **It never sends a message.**
+- An old check, or one made before a settings change, stays **Ready** when Live mail sent with the current settings was accepted by
+  the mail server in the last 24 hours. The step says "Confirmed by live mail handed over at …". The managed preflight needs more:
+  a recipient's server accepting such a message (this needs `mta-log`).
+- With neither, the step is **Out of date** and says why. The test message is never re-sent automatically, and the managed
+  preflight still runs on the host (`njiwa-mail preflight -record`).
+- With SMTP settings from the environment (`SMTP_HOST`), Live mail counts as evidence only when they are identical to the active
+  profile's and no failover host is set.
+- Every 4xx or 5xx answer to a submission is stored on the message and as delivery evidence, with a problem code
+  (`SMTP_REJECT_CONNECTION`, `_AUTH`, `_RELAY`, `_SENDER`, `_RECIPIENT`, `_POLICY`, `_RATE_LIMIT`, `_TEMPORARY`, `_OTHER`) and
+  the server's reply without addresses or long tokens. Nothing the server says about a sign-in is kept except its status.
+- Connection, sign-in and relay refusals stop every message: three within 15 minutes with no success mark delivery as failing, and
+  the worker pauses Live claims. A refused recipient, sender or message affects only that message.
+
 ## Delivery evidence from the mail server log
 
 A message's state says what Njiwa-Mail did: `submitted` means your mail server (managed Postfix or an existing SMTP server)
 accepted it. What happens afterwards is recorded separately as delivery evidence, each item with its source, and shown on the
 message page:
 
-- the SMTP reply (with the MTA queue ID, from "queued as …"),
+- the SMTP reply (with the MTA queue ID, from "queued as …"), including refusals,
 - the mail server log (`deferred`, `sent` = the recipient's server accepted it, `bounced`, `expired`),
 - bounce reports (DSNs) and feedback-loop complaints,
 - operator resolutions of unknown outcomes.
