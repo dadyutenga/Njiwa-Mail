@@ -129,6 +129,13 @@ TypeScript: `clients/typescript/index.ts` (`NjiwaMail.send`).
 
 Any other language implements this document. The machine-readable contract is [openapi.yaml](openapi.yaml). Webhook verification is [WEBHOOKS.md](WEBHOOKS.md).
 
+## SMTP relay (software that cannot call the API)
+
+When the operator runs the relay, an application sends over SMTP instead: host and port as shown on the dashboard's *SMTP relay*
+page, STARTTLS (or TLS from the first byte), AUTH PLAIN with any username and an API key with scope `emails:send_raw` as the
+password. Each envelope recipient becomes one message with the same rules and statuses as `POST /v1/emails`; the reply is
+`250 Queued as <ids>`. `451` means try again later; `550` and `554` are permanent and name the reason.
+
 ## 6. Webhooks
 
 Subscribe in the operator UI or `POST /admin/v1/webhooks`. Payloads contain ids and states, not bodies or tokens. Verify `X-DM-Signature` before trusting the body. The app stores the message id returned by send if it needs to match a later `email.bounced` event to a user.

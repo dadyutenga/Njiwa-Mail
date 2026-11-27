@@ -9,6 +9,36 @@ import { swTools } from "./sw-tools";
 import { swReports } from "./sw-reports";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "Not enabled": "Haijawashwa",
+  "Set COMPOSE_PROFILES=relay and RELAY_PUBLIC_HOST in .env, put fullchain.pem and privkey.pem in the relay-tls directory, then run: docker compose up -d":
+    "Weka COMPOSE_PROFILES=relay na RELAY_PUBLIC_HOST kwenye .env, weka fullchain.pem na privkey.pem kwenye saraka ya relay-tls, kisha endesha: docker compose up -d",
+  Starting: "Inaanza",
+  "Wait a few seconds.": "Subiri sekunde chache.",
+  "Use the test below to check the connection, sign-in and queueing.":
+    "Tumia jaribio lililo hapa chini kukagua muunganisho, kuingia na kuweka kwenye foleni.",
+  "Not reporting": "Haitoi taarifa",
+  "The relay has not reported in for over a minute. Check docker compose logs relay, then run: docker compose --profile relay up -d relay":
+    "Relay haijatoa taarifa kwa zaidi ya dakika moja. Kagua docker compose logs relay, kisha endesha: docker compose --profile relay up -d relay",
+  "Fix the problem below. The relay retries by itself.":
+    "Rekebisha tatizo lililo hapa chini. Relay hujaribu tena yenyewe.",
+  "Send a test through the relay": "Tuma jaribio kupitia relay",
+  "Signs in with a temporary API key and sends one Sandbox message from this project's default sender to itself. No external mail is sent.":
+    "Huingia kwa API key ya muda na kutuma ujumbe mmoja wa Sandbox kutoka kwa mtumaji chaguomsingi wa mradi huu kwenda kwake mwenyewe. Hakuna barua inayotumwa nje.",
+  "The relay test passed": "Jaribio la relay limefaulu",
+  "The relay test failed": "Jaribio la relay limeshindwa",
+  passed: "imefaulu",
+  skipped: "imerukwa",
+  "Connected to the relay": "Imeunganishwa na relay",
+  "TLS certificate valid": "Cheti cha TLS ni halali",
+  "Signed in with a temporary API key": "Imeingia kwa API key ya muda",
+  "Message accepted and queued": "Ujumbe umekubaliwa na kuwekwa kwenye foleni",
+  "This test connects from the Njiwa-Mail API to the relay. It does not prove that your application can reach the public host and port.":
+    "Jaribio hili huunganisha kutoka API ya Njiwa-Mail hadi relay. Halithibitishi kwamba programu yako inaweza kufikia anwani na mlango wa umma.",
+  "Certificate valid until": "Cheti ni halali hadi",
+  "The host is the address you opened this page on. Set RELAY_PUBLIC_HOST if applications connect to another name.":
+    "Anwani ni ile uliyotumia kufungua ukurasa huu. Weka RELAY_PUBLIC_HOST ikiwa programu zinaunganisha kwa jina lingine.",
+  "“Running” means the relay reported in the last minute that it is listening with a certificate. It does not prove the port is reachable from your application's network. Mail it accepts is queued like any other message; delivery is shown in the message timeline.":
+    "“Inafanya kazi” inamaanisha relay iliripoti katika dakika iliyopita kwamba inasikiliza ikiwa na cheti. Haithibitishi kwamba mlango unafikiwa kutoka mtandao wa programu yako. Barua inayoikubali huwekwa kwenye foleni kama ujumbe mwingine; uwasilishaji unaonyeshwa kwenye mfuatano wa ujumbe.",
   "Latest refusal by the mail server": "Kukataliwa kwa karibuni na seva ya barua",
   "The settings changed after this check.": "Mipangilio ilibadilishwa baada ya ukaguzi huu.",
   Changed: "Ilibadilishwa",

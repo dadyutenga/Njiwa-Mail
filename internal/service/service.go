@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"github.com/njiwa-tz/mail/internal/db"
@@ -97,6 +98,15 @@ type Options struct {
 	// for the dashboard; whether it is running comes from its heartbeat.
 	RelayAddr        string
 	RelayImplicitTLS bool
+	// RelayEnabled says the relay is meant to run. RelayPublicHost and
+	// RelayPublicPort are where applications connect; RelayProbeAddr is where
+	// this process reaches it for the test, and RelayTestRoots its trust store
+	// (nil: the system's; tests set it).
+	RelayEnabled    bool
+	RelayPublicHost string
+	RelayPublicPort string
+	RelayProbeAddr  string
+	RelayTestRoots  *x509.CertPool
 
 	// AllowUnregisteredLiveDomains: see config. Temporary upgrade escape hatch.
 	AllowUnregisteredLiveDomains bool

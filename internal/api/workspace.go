@@ -421,6 +421,15 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		return nil, nil
 	})
 
+	// A real SMTP session to the relay with a temporary key (Sandbox only).
+	h("POST", "/relay-test", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		res, err := svc.TestRelay(ctx(c), sc, c.Hostname())
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "relay.test", "environment", sc.EnvID, scoped(sc, map[string]any{"ok": res.OK}))
+		return res, nil
+	})
 	h("GET", "/inbox/unread", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.UnreadCounts(ctx(c), sc)
 	})

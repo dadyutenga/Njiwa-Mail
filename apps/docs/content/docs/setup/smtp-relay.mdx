@@ -20,6 +20,36 @@ It listens on `127.0.0.1:2587` by default, so it never takes port 587 from a mai
 from other machines, set `NJIWA_RELAY_BIND=0.0.0.0` (and `NJIWA_RELAY_PORT` if you like) and allow only your application
 servers in the firewall.
 
+## Running it in production
+
+1. Pick the name applications will use and get a certificate for it. Put `fullchain.pem` and `privkey.pem` in
+   `./relay-tls/`. The relay runs as user id `10001`, so the key must be readable by it:
+   `chown 10001 relay-tls/privkey.pem && chmod 600 relay-tls/privkey.pem`. A renewed certificate is picked up without a
+   restart; copy it there from your renewal hook.
+2. In `.env` set:
+
+```bash
+COMPOSE_PROFILES=relay          # the relay starts with the rest of the stack (add to any profiles already listed)
+RELAY_PUBLIC_HOST=smtp.example.com
+NJIWA_RELAY_BIND=0.0.0.0        # only with the firewall rule below
+NJIWA_RELAY_PORT=587            # or 2587 when a mail server on this host owns 587
+```
+
+3. Open exactly that port, ideally only to your application servers, for example
+   `ufw allow from 203.0.113.20 to any port 587 proto tcp`. Docker publishes ports past some host firewalls: restrict
+   the source in the `DOCKER-USER` chain or your provider's firewall too. For TLS from the first byte (port 465) set
+   `RELAY_IMPLICIT_TLS=true`. A TCP proxy in front must pass the connection through, not end TLS without starting it again.
+4. `docker compose up -d`.
+
+The relay never offers AUTH without TLS and never accepts mail without AUTH.
+
+## Check it
+
+The dashboard's **SMTP relay** page shows what the relay says about itself: not enabled, starting, running, not reporting,
+or an error with its cause (for example an unreadable certificate). **Send a test through the relay** opens a real SMTP
+session with a temporary key and sends one Sandbox message, showing each step. It connects from the API to the relay, so
+it does not prove that your application can reach the public address.
+
 ## Configure your application
 
 | Setting | Value |

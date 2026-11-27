@@ -72,6 +72,15 @@ if [ "$changed" != ALL ]; then
 fi
 cd "$APP"
 
+# The SMTP relay runs when this server's .env says RELAY_ENABLED=true. Its
+# profile is added to any already listed, so no other service is dropped.
+if grep -Eq '^RELAY_ENABLED=(true|1)[[:space:]]*$' .env; then
+  profiles=$(sed -n 's/^COMPOSE_PROFILES=//p' .env | tail -n 1)
+  case ",$profiles," in *,relay,*) ;; *) profiles="${profiles:+$profiles,}relay" ;; esac
+  export COMPOSE_PROFILES="$profiles"
+  log "SMTP relay enabled (compose profiles: $profiles)"
+fi
+
 # --- back up what a rollback needs --------------------------------------------
 mkdir -p "$BACKUPS"
 docker image inspect njiwa-mail:local >/dev/null 2>&1 && docker image tag njiwa-mail:local njiwa-mail:rollback

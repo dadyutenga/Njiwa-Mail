@@ -4,7 +4,6 @@ package cli
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -51,7 +50,7 @@ Runtime:
   scheduler                   run periodic jobs: retention, lease recovery, DNS checks, bounce-rate alerts
   migrate                     apply database migrations and seed the built-in templates
   worker-health [-max 60s]    exit non-zero if no worker heartbeat (for container healthchecks)
-  role-health -role R [-max 60s]   same, for worker | inbound | scheduler
+  role-health -role R [-max 60s]   same, for worker | inbound | scheduler | relay
   dns-check                   run the read-only DNS health check now and print the results
   dkim-verify [-file message.eml|-]
                               verify every DKIM signature on a received message (needs DNS, not the database)
@@ -191,7 +190,8 @@ func Run(args []string) {
 		InboundDomain: cfg.InboundDomain, BounceAddress: cfg.BounceAddress, DataDir: cfg.DataDir,
 		InboundAllowedSources: cfg.InboundAllowedSources, NjiwaSubnet: os.Getenv("NJIWA_SUBNET"),
 		LocalMailcowFactsFile: cfg.LocalMailcowFactsFile, MailHost: cfg.MailHostname, OutboundIP: cfg.OutboundIP, DKIMSelector: cfg.DKIMSelector, SessionTTL: cfg.AdminSessionTTL,
-		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, UpdateCheckURL: cfg.UpdateCheckURL, SSOAllowedNetworks: cfg.SSOAllowedNetworks, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
+		PublicURL: cfg.PublicURL, FormsEnabled: cfg.FormsEnabled, ChatEnabled: cfg.ChatEnabled, UpdateCheckURL: cfg.UpdateCheckURL, SSOAllowedNetworks: cfg.SSOAllowedNetworks, RelayAddr: cfg.RelayListenAddr, RelayImplicitTLS: cfg.RelayImplicitTLS,
+		RelayEnabled: cfg.RelayEnabled, RelayPublicHost: cfg.RelayPublicHost, RelayPublicPort: cfg.RelayPublicPort, RelayProbeAddr: cfg.RelayProbeAddr, AllowUnregisteredLiveDomains: cfg.AllowUnregisteredLiveDomains,
 		DNSOAuth: service.DNSOAuth{ClientID: cfg.CloudflareOAuthClientID, ClientSecret: cfg.CloudflareOAuthClientSecret, AuthURL: cfg.CloudflareOAuthAuthURL,
 			TokenURL: cfg.CloudflareOAuthTokenURL, RevokeURL: cfg.CloudflareOAuthRevokeURL, Scope: cfg.CloudflareOAuthScope},
 		LiveGlobalPerMinute: cfg.LiveGlobalPerMinute, LiveGlobalPerHour: cfg.LiveGlobalPerHour,
@@ -232,7 +232,7 @@ func Run(args []string) {
 		runScheduler(ctx, cfg, svc)
 	case "role-health":
 		fs := flag.NewFlagSet(cmd, flag.ExitOnError)
-		role := fs.String("role", "worker", "worker, inbound or scheduler")
+		role := fs.String("role", "worker", "worker, inbound, scheduler or relay")
 		max := fs.Duration("max", 60*time.Second, "maximum heartbeat age")
 		fs.Parse(args)
 		ok, err := svc.RoleHealthy(ctx, *role, *max)
@@ -474,21 +474,19 @@ func runInbound(ctx context.Context, cfg *config.Config, svc *service.Service) {
 }
 
 // runRelay serves SMTP submission for applications (AUTH PLAIN with an API
-// key, TLS required).
+// key, TLS required). Its heartbeat says whether it is really listening.
 func runRelay(ctx context.Context, cfg *config.Config, svc *service.Service) {
-	go beat(ctx, svc, "relay", hostID())
-	if cfg.RelayTLSCert == "" || cfg.RelayTLSKey == "" {
-		die(errors.New("the relay needs RELAY_TLS_CERT and RELAY_TLS_KEY: AUTH is only offered over TLS"))
+	id := hostID()
+	d := &relay.Daemon{
+		Server:   relay.Server{Svc: svc, Addr: cfg.RelayListenAddr, Hostname: cfg.MailHostname, Implicit: cfg.RelayImplicitTLS},
+		CertFile: cfg.RelayTLSCert, KeyFile: cfg.RelayTLSKey,
+		Report: func(ctx context.Context, state, detail string, info map[string]any) {
+			if err := svc.ReportRole(ctx, "relay", id, state, detail, info); err != nil && ctx.Err() == nil {
+				slog.Error("heartbeat failed", "role", "relay", "err", err)
+			}
+		},
 	}
-	cert, err := tls.LoadX509KeyPair(cfg.RelayTLSCert, cfg.RelayTLSKey)
-	if err != nil {
-		die(fmt.Errorf("relay certificate: %w", err))
-	}
-	srv := &relay.Server{Svc: svc, Addr: cfg.RelayListenAddr, Hostname: cfg.MailHostname, Implicit: cfg.RelayImplicitTLS,
-		TLS: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}}
-	if err := srv.ListenAndServe(ctx); err != nil {
-		die(err)
-	}
+	d.Run(ctx)
 }
 
 func beat(ctx context.Context, svc *service.Service, role, id string) {

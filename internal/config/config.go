@@ -97,6 +97,10 @@ type Config struct {
 	// port 465 instead of STARTTLS.
 	RelayListenAddr, RelayTLSCert, RelayTLSKey string
 	RelayImplicitTLS                           bool
+	// RELAY_ENABLED (or "relay" in COMPOSE_PROFILES), RELAY_PUBLIC_HOST,
+	// RELAY_PUBLIC_PORT and RELAY_PROBE_ADDR: what the dashboard shows and tests.
+	RelayEnabled                                     bool
+	RelayPublicHost, RelayPublicPort, RelayProbeAddr string
 
 	// FormsEnabled (FORMS_ENABLED) turns on contact forms; off by default.
 	FormsEnabled bool
@@ -418,6 +422,14 @@ func Load() (*Config, error) {
 	if c.RelayImplicitTLS, err = boolVar("RELAY_IMPLICIT_TLS"); err != nil {
 		return nil, err
 	}
+	if c.RelayEnabled, err = boolVar("RELAY_ENABLED"); err != nil {
+		return nil, err
+	}
+	for _, p := range strings.Split(get("COMPOSE_PROFILES", ""), ",") {
+		c.RelayEnabled = c.RelayEnabled || strings.TrimSpace(p) == "relay"
+	}
+	c.RelayPublicHost = strings.ToLower(get("RELAY_PUBLIC_HOST", ""))
+	c.RelayPublicPort, c.RelayProbeAddr = get("RELAY_PUBLIC_PORT", ""), get("RELAY_PROBE_ADDR", "")
 	c.IMAPHost = get("IMAP_HOST", "")
 	if c.IMAPPort, err = intVar("IMAP_PORT", 993); err != nil {
 		return nil, err

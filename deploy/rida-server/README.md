@@ -57,6 +57,22 @@ key, then delete it from the server), `DEPLOY_HOST`, `DEPLOY_KNOWN_HOSTS`
 When `deploy/rida-server/njiwa-deploy.sh` changes, reinstall it on the server
 by hand: the pipeline never replaces its own entrypoint.
 
+## SMTP relay
+
+The relay runs when `/opt/njiwa-mail/.env` has `RELAY_ENABLED=true`. Mailcow owns 587 and 465 on this host, so use
+another port:
+
+```sh
+RELAY_ENABLED=true
+RELAY_PUBLIC_HOST=<the name applications connect to, with a certificate>
+NJIWA_RELAY_PORT=2587
+NJIWA_RELAY_BIND=0.0.0.0     # only together with a firewall rule limited to the application servers
+```
+
+Put `fullchain.pem` and `privkey.pem` in `/opt/njiwa-mail/relay-tls/`, readable by uid 10001. Reinstall
+`njiwa-deploy.sh` by hand (see Setup), then deploy, or once: `docker compose -f compose.yaml -f compose.production.yaml
+--profile relay up -d relay`.
+
 ## Turning it off or rolling back
 
 - Pause: GitHub → Actions → Deploy → Disable workflow (or disable only

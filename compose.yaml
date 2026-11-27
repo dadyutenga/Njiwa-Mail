@@ -74,6 +74,11 @@ services:
   api:
     <<: *app
     command: ["serve"]
+    environment:
+      <<: *app-env
+      # What the dashboard's SMTP relay page shows, and where its test connects.
+      RELAY_PUBLIC_PORT: ${RELAY_PUBLIC_PORT:-${NJIWA_RELAY_PORT:-2587}}
+      RELAY_PROBE_ADDR: ${RELAY_PROBE_ADDR:-relay:2587}
     ports: ["127.0.0.1:${NJIWA_API_PORT:-8080}:8080"]   # reverse proxy (HTTPS) terminates in front
     volumes: ["maildata:/var/lib/njiwa-mail"]   # serves inbound attachments
     depends_on:
@@ -134,7 +139,9 @@ services:
     deploy: { resources: { limits: { memory: 256m } } }
 
   # SMTP relay for applications that cannot use the HTTP API yet (AUTH PLAIN
-  # with an API key, TLS only). Host port 2587 by default, so it never takes
+  # with an API key, TLS only). To run it with the stack, set
+  # COMPOSE_PROFILES=relay and RELAY_PUBLIC_HOST in .env and put fullchain.pem
+  # and privkey.pem (readable by uid 10001) in the relay-tls directory. Host port 2587 by default, so it never takes
   # 587 from a mail server already on this host; publish it beyond
   # 127.0.0.1 with NJIWA_RELAY_BIND=0.0.0.0 only behind your firewall rules.
   relay:
@@ -150,6 +157,13 @@ services:
     ports: ["${NJIWA_RELAY_BIND:-127.0.0.1}:${NJIWA_RELAY_PORT:-2587}:2587"]
     depends_on:
       migrate: { condition: service_completed_successfully }
+    # Liveness only: a certificate problem shows on the dashboard and must not
+    # fail a deploy of the other services.
+    healthcheck:
+      test: ["CMD", "njiwa-mail", "role-health", "-role", "relay", "-max", "60s"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy: { resources: { limits: { memory: 256m } } }
 
   # Local catcher for development. It is not Mailcow and it does not prove real delivery.

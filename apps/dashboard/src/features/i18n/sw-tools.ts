@@ -19,15 +19,9 @@ export const swTools: Record<string, string> = {
     "Tenganisha kwa nafasi, koma au mistari mipya. Hadi 100.",
   "Settings for your application": "Mipangilio ya programu yako",
   "The relay has not checked in yet.": "Relay bado haijaripoti.",
-  "The relay is a separate, optional service. Start it with: docker compose --profile relay up -d relay":
-    "Relay ni huduma tofauti ya hiari. Ianzishe kwa: docker compose --profile relay up -d relay",
   Why: "Kwa nini",
-  "The port is the one the relay listens on. With the Compose profile it is published on host port 2587 (NJIWA_RELAY_PORT), bound to 127.0.0.1, so connect to that port from the same machine.":
-    "Bandari ni ile ambayo relay inasikiliza. Kwa profile ya Compose inachapishwa kwenye bandari ya mwenyeji 2587 (NJIWA_RELAY_PORT), imefungwa kwa 127.0.0.1, kwa hiyo unganisha kwenye bandari hiyo kutoka mashine ile ile.",
   "“Deliverable” means the domain can receive mail and nothing known blocks it. It is not a promise that the mailbox exists.":
     "“Deliverable” inamaanisha kikoa kinaweza kupokea barua na hakuna kinachojulikana kuzuia. Si ahadi kuwa sanduku la barua lipo.",
-  "“Running” means the relay checked in during the last minute. It does not prove the port is reachable from your application's network. Mail it accepts is queued like any other message; delivery is shown in the message timeline.":
-    "“Running” inamaanisha relay iliripoti ndani ya dakika iliyopita. Haithibitishi kuwa mlango unafikika kutoka mtandao wa programu yako. Barua inazozikubali huwekwa kwenye foleni kama ujumbe mwingine; kufika kunaonyeshwa kwenye ratiba ya ujumbe.",
   Running: "Inafanya kazi",
   "Not running": "Haifanyi kazi",
   deliverable: "inaweza kufikishwa",

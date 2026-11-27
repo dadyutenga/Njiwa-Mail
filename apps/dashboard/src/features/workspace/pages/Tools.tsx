@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
-import { useSendingEnvironment } from "../context";
+import { useSendingEnvironment, useWorkspace } from "../context";
 import { SendingMode, useSendingModeParam } from "../SendingMode";
 import {
   CopyButton,
@@ -11,6 +12,7 @@ import {
   errorMessage,
   Field,
   PageHeader,
+  run,
   s,
   Section,
   StateBadge,
@@ -145,6 +147,112 @@ export function CheckAddresses() {
 
 // ---------------------------------------------------------------- SMTP relay
 
+type RelayState = "not_enabled" | "starting" | "running" | "stale" | "error";
+
+const relayStates: Record<RelayState, { label: string; badge: string; next: string }> = {
+  not_enabled: {
+    label: "Not enabled",
+    badge: "cancelled",
+    next: "Set COMPOSE_PROFILES=relay and RELAY_PUBLIC_HOST in .env, put fullchain.pem and privkey.pem in the relay-tls directory, then run: docker compose up -d",
+  },
+  starting: { label: "Starting", badge: "pending", next: "Wait a few seconds." },
+  running: {
+    label: "Running",
+    badge: "active",
+    next: "Use the test below to check the connection, sign-in and queueing.",
+  },
+  stale: {
+    label: "Not reporting",
+    badge: "failed",
+    next: "The relay has not reported in for over a minute. Check docker compose logs relay, then run: docker compose --profile relay up -d relay",
+  },
+  error: {
+    label: "Error",
+    badge: "failed",
+    next: "Fix the problem below. The relay retries by itself.",
+  },
+};
+
+type RelayStep = { key: string; title: string; ok: boolean; skipped?: boolean; detail: string };
+type RelayTestResult = {
+  ok: boolean;
+  address: string;
+  tls_name: string;
+  message_id: string;
+  steps: RelayStep[];
+};
+
+/** Opens a real SMTP session to the relay and shows each step. */
+function RelayTest() {
+  const phrase = usePhrase();
+  const { project, to } = useWorkspace();
+  const [result, setResult] = useState<RelayTestResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Section className="mt-4" title={phrase("Send a test through the relay")}>
+      <p className="mb-3 text-sm text-muted-foreground">
+        {phrase(
+          "Signs in with a temporary API key and sends one Sandbox message from this project's default sender to itself. No external mail is sent.",
+        )}
+      </p>
+      <Button
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setResult(null);
+          const r = await run(
+            () => admin.send<RelayTestResult>(`/w/${project}/sandbox/relay-test`, "POST"),
+            "",
+          );
+          setBusy(false);
+          if (r) setResult(r);
+        }}
+      >
+        {busy ? phrase("Testing…") : phrase("Send a test through the relay")}
+      </Button>
+      {result && (
+        <div className="mt-3" role="status" data-testid="relay-test">
+          <p className="text-sm font-medium">
+            {phrase(result.ok ? "The relay test passed" : "The relay test failed")}
+          </p>
+          <ol className="mt-2 space-y-2 text-sm">
+            {result.steps.map((st) => (
+              <li key={st.key} className="flex items-start gap-2" data-relay-step={st.key}>
+                <StateBadge
+                  state={st.ok ? "active" : st.skipped ? "cancelled" : "failed"}
+                  label={phrase(st.ok ? "passed" : st.skipped ? "skipped" : "failed")}
+                />
+                <span className="min-w-0">
+                  <span className="font-medium">{phrase(st.title)}</span>
+                  <span className="block break-words text-xs text-muted-foreground">
+                    {st.detail}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          {result.message_id && (
+            <p className="mt-2 text-sm">
+              <Link
+                className="text-primary underline"
+                to={to(`messages/${result.message_id}?mode=sandbox`)}
+              >
+                {phrase("view the message")}
+              </Link>
+            </p>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            {phrase(
+              "This test connects from the Njiwa-Mail API to the relay. It does not prove that your application can reach the public host and port.",
+            )}{" "}
+            <code>{result.address}</code>
+          </p>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function RelayStatus() {
   const phrase = usePhrase();
   const q = useQuery({
@@ -162,13 +270,11 @@ export function RelayStatus() {
       />
       <DataState q={q}>
         {(d) => {
-          const host = s(d.host) || "mail.example.com";
-          const port = s(d.port) || "587";
-          const tls = s(d.tls);
+          const state = relayStates[s(d.state) as RelayState] ?? relayStates.stale;
           const settings = [
-            `Host: ${host}`,
-            `Port: ${port}`,
-            `Security: ${tls === "implicit" ? "TLS on connect (SMTPS)" : "STARTTLS"}`,
+            `Host: ${s(d.host)}`,
+            `Port: ${s(d.port)}`,
+            `Security: ${s(d.tls) === "implicit" ? "TLS on connect (SMTPS)" : "STARTTLS"}`,
             "Authentication: PLAIN",
             "Username: anything",
             "Password: <your API key with emails:send_raw>",
@@ -176,11 +282,8 @@ export function RelayStatus() {
           return (
             <>
               <Section>
-                <div className="flex flex-wrap items-center gap-3">
-                  <StateBadge
-                    state={d.running ? "active" : "failed"}
-                    label={phrase(d.running ? "Running" : "Not running")}
-                  />
+                <div className="flex flex-wrap items-center gap-3" data-relay-state={s(d.state)}>
+                  <StateBadge state={state.badge} label={phrase(state.label)} />
                   <span className="text-sm text-muted-foreground">
                     {d.last_seen ? (
                       <>
@@ -191,11 +294,13 @@ export function RelayStatus() {
                     )}
                   </span>
                 </div>
-                {!d.running && (
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {phrase(
-                      "The relay is a separate, optional service. Start it with: docker compose --profile relay up -d relay",
-                    )}
+                {Boolean(d.detail) && (
+                  <p className="mt-3 break-words text-sm text-destructive">{s(d.detail)}</p>
+                )}
+                <p className="mt-3 text-sm text-muted-foreground">{phrase(state.next)}</p>
+                {Boolean(d.cert_not_after) && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {phrase("Certificate valid until")}: <Time value={d.cert_not_after} />
                   </p>
                 )}
               </Section>
@@ -206,17 +311,20 @@ export function RelayStatus() {
                 <div className="mt-2 flex justify-end">
                   <CopyButton text={settings} />
                 </div>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {phrase(
-                    "The port is the one the relay listens on. With the Compose profile it is published on host port 2587 (NJIWA_RELAY_PORT), bound to 127.0.0.1, so connect to that port from the same machine.",
-                  )}
-                </p>
+                {d.host_source === "request" && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {phrase(
+                      "The host is the address you opened this page on. Set RELAY_PUBLIC_HOST if applications connect to another name.",
+                    )}
+                  </p>
+                )}
                 <p className="mt-2 text-xs text-muted-foreground">
                   {phrase(
-                    "“Running” means the relay checked in during the last minute. It does not prove the port is reachable from your application's network. Mail it accepts is queued like any other message; delivery is shown in the message timeline.",
+                    "“Running” means the relay reported in the last minute that it is listening with a certificate. It does not prove the port is reachable from your application's network. Mail it accepts is queued like any other message; delivery is shown in the message timeline.",
                   )}
                 </p>
               </Section>
+              <RelayTest />
             </>
           );
         }}

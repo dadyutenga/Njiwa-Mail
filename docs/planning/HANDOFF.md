@@ -22,6 +22,8 @@ mailbox on `rida-server`).
 **Update on 2026-11-28 (round in `docs/planning/task-2026-11-28.md`):** item 1 done. Delivery readiness no longer goes stale on age
 alone: the scheduler re-checks the connection, recent live mail confirms old checks, and server refusals are recorded and shown
 (migration `0042`). Not yet verified: the 48-hour joint test.
+Item 7 done in code: the SMTP relay reports its real state, the dashboard can test it, and `RELAY_ENABLED=true` starts it on
+deploy (migration `0043`). Owner still: certificate, `.env`, firewall and reinstalling `njiwa-deploy.sh` on the server.
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of
