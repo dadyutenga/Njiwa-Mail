@@ -222,7 +222,7 @@ is React).
 - [x] Web view: `web_view: true`, signed expiring link `/v1/view/{token}`, sandboxed page, not for high priority.
 - [x] SMTP relay role for applications (AUTH PLAIN with an API key over TLS, same accept path, idempotent retries).
 - [x] Live inbox stream (server-sent events), used by the Inbox page.
-- [x] Signed HTTP ingest of inbound mail `POST /v1/inbound/ingest/{env}` (per-environment HMAC secret, replay-safe).
+- [x] Signed HTTP ingest of inbound mail `POST /v1/inbound/ingest/{env}` (per-environment HMAC secret, replay-safe). Removed on 2026-11-27; the unused table stays.
 
 ### 12.2 Contacts and marketing (PR 2)
 - [x] Contacts with per-recipient send/failure stats; subscriber lists (static) and segments (dynamic).

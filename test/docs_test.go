@@ -56,7 +56,7 @@ var tableDocs = map[string]string{
 	"sso_pending":           "A provider sign-in waiting for the account's authenticator code (five minutes, five tries).",
 	"sso_providers":         "OpenID Connect providers: issuer, client id, encrypted client secret, allowed email domains.",
 	"sso_states":            "One-time state, nonce and encrypted PKCE verifier of a sign-in in progress (ten minutes).",
-	"inbound_ingest":        "Per-environment secret (encrypted) for signed HTTP ingest of inbound mail.",
+	"inbound_ingest":        "Unused: held the secrets of the removed HTTP ingest of inbound mail.",
 	"chat_bans":             "Banned chat visitors: keyed hashes of the address and the email, never the values.",
 	"chat_snippets":         "Canned replies an agent can insert into a chat answer.",
 	"chat_conversations":    "Live chat conversations: visitor details encrypted, session token kept only as a hash, masked address, state.",

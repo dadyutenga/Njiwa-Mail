@@ -177,7 +177,6 @@ func TestWorkspaceRouteRoles(t *testing.T) {
 		{"POST", "/domains/:id/verify-message", "admin"},
 		{"POST", "/privacy/delete", "admin"},
 		{"GET", "/messages/:id/export", "admin"},
-		{"GET", "/inbound-ingest", "admin"},
 		{"POST", "/transport-test", "admin"},
 		{"GET", "/members", "viewer"},
 		{"POST", "/members", "owner"},

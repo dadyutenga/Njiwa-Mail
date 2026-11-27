@@ -49,6 +49,7 @@ var sealedColumns = []sealedSpec{
 	{"dns_connections.refresh_enc", "dns_connections", "refresh_enc", "id::text", "'dns-connection:'||id::text||':refresh'"},
 	{"contacts.data_enc", "contacts", "data_enc", "id::text", "'contact:'||id::text"},
 	{"web_views.html_enc", "web_views", "html_enc", "message_id::text", "'web-view:'||message_id::text"},
+	// Unused since HTTP ingest was removed. The table stays because migrations are additive.
 	{"inbound_ingest.secret_enc", "inbound_ingest", "secret_enc", "environment_id::text", "'ingest:'||environment_id::text"},
 	{"sso_providers.client_secret_enc", "sso_providers", "client_secret_enc", "id::text", "'sso:'||id::text"},
 	{"sso_states.verifier_enc", "sso_states", "verifier_enc", "encode(state_hash,'hex')", "'sso-state:'||encode(state_hash,'hex')"},

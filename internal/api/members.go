@@ -24,7 +24,7 @@ func NeededRole(method, rel string) string {
 			return service.MemberOwner
 		}
 		return service.MemberViewer
-	case under("/privacy"), under("/inbound-ingest"), under("/transport-test"), under("/dns/connections"), under("/dns/oauth"),
+	case under("/privacy"), under("/transport-test"), under("/dns/connections"), under("/dns/oauth"),
 		method == "GET" && strings.HasSuffix(rel, "/export"):
 		return service.MemberAdmin
 	}
