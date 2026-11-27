@@ -248,7 +248,7 @@ func TestComposeIdempotencySuppressionAndCopy(t *testing.T) {
 	}
 }
 
-func TestInboxReplyAutomationAndTempInbox(t *testing.T) {
+func TestInboxReplyAndAutomation(t *testing.T) {
 	e := setup(t)
 	e.srv.Resolver = newDNS()
 	e.provision("sacas")
@@ -339,20 +339,6 @@ func TestInboxReplyAutomationAndTempInbox(t *testing.T) {
 	}
 	e.admOK(admin, "DELETE", wsBase+"/inbox/"+first, nil)
 
-	// Temporary inbox: create, receive, expire.
-	tmp := e.admOK(admin, "POST", wsBase+"/temp-inboxes", map[string]any{"ttl": "1h"})
-	taddr := str(tmp.JSON, "address")
-	e.must(smtpSend(addr, "x@customer.example", []string{taddr}, inboundMail(taddr)))
-	e.process()
-	if n := e.count(`SELECT count(*) FROM inbound_messages m JOIN inbound_addresses a ON a.id=m.address_id WHERE a.temporary`); n != 1 {
-		t.Fatalf("temp inbox mail: %d", n)
-	}
-	_, err = e.pool.Exec(ctx, `UPDATE inbound_addresses SET expires_at=now() - interval '1 second' WHERE temporary`)
-	e.must(err)
-	e.must(e.svc.ExpireTempInboxes(ctx))
-	if n := e.count(`SELECT count(*) FROM inbound_addresses WHERE temporary`); n != 0 {
-		t.Fatalf("expired temp inbox remains")
-	}
 	// Mailbox delete removes its mail.
 	e.admOK(admin, "DELETE", wsBase+"/mailboxes/"+mbID, nil)
 	if n := e.count(`SELECT count(*) FROM inbound_messages`); n != 0 {

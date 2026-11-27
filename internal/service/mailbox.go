@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -12,8 +10,7 @@ import (
 )
 
 // Mailboxes are inbound_addresses on the configured inbound domain or on a
-// verified receiving domain of the project. Temporary inboxes are mailboxes
-// with an expiry; they and their mail are removed when they expire.
+// verified receiving domain of the project.
 
 func (s *Service) receivingDomainOK(ctx context.Context, sc *Scope, domain string) error {
 	if domain == "" {
@@ -65,14 +62,14 @@ VALUES ($1,$2,$3,$4,'store',$5) ON CONFLICT (domain, local_part) DO NOTHING RETU
 	return id, nil
 }
 
-func (s *Service) ListMailboxes(ctx context.Context, sc *Scope, temporary bool, pg Page) ([]map[string]any, bool, error) {
+func (s *Service) ListMailboxes(ctx context.Context, sc *Scope, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT a.id::text AS id, a.local_part || '@' || a.domain AS address, a.local_part, a.domain, a.display_name,
-  a.enabled, a.route, a.forward_to, a.local_part='*' AS catch_all, a.expires_at, a.created_at,
+  a.enabled, a.route, a.forward_to, a.local_part='*' AS catch_all, a.created_at,
   (SELECT count(*) FROM inbound_messages m WHERE m.address_id=a.id AND m.read_at IS NULL AND m.archived_at IS NULL) AS unread,
   (SELECT count(*) FROM inbound_messages m WHERE m.address_id=a.id) AS messages,
   (SELECT max(received_at) FROM inbound_messages m WHERE m.address_id=a.id) AS last_received_at,
   (SELECT count(*) FROM automation_rules r WHERE r.address_id=a.id) AS automations
-FROM inbound_addresses a WHERE a.environment_id=$1 AND a.temporary=$2 ORDER BY a.domain, a.local_part`, sc.EnvID, temporary)
+FROM inbound_addresses a WHERE a.environment_id=$1 ORDER BY a.domain, a.local_part`, sc.EnvID)
 }
 
 func (s *Service) SetMailboxEnabled(ctx context.Context, sc *Scope, id string, enabled bool) error {
@@ -121,44 +118,31 @@ func (s *Service) deleteAddresses(ctx context.Context, where string, args ...any
 	return nil
 }
 
-// ---------------------------------------------------------------- temporary inboxes
-
-var tempTTLs = map[string]time.Duration{"1h": time.Hour, "1d": 24 * time.Hour, "7d": 7 * 24 * time.Hour}
-
-func (s *Service) CreateTempInbox(ctx context.Context, sc *Scope, ttl string) (map[string]any, error) {
-	d, ok := tempTTLs[ttl]
-	if !ok {
-		return nil, badRequest("lifetime must be 1h, 1d or 7d")
-	}
-	if s.Opts.InboundDomain == "" {
-		return nil, &Error{Status: 409, Code: "inbound_not_configured", Message: "temporary inboxes need INBOUND_DOMAIN on the server"}
-	}
-	var active, limit int
-	if err := s.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM inbound_addresses WHERE environment_id=$1 AND temporary AND expires_at > now()),
-  (SELECT temp_inbox_limit FROM projects WHERE id=$2)`, sc.EnvID, sc.ProjectID).Scan(&active, &limit); err != nil {
-		return nil, unavailable("temp_count", err)
-	}
-	if active >= limit {
-		return nil, &Error{Status: 409, Code: "temp_inbox_limit", Message: "this project already has its maximum number of active temporary inboxes; delete one first"}
-	}
-	b := make([]byte, 5)
-	if _, err := rand.Read(b); err != nil {
-		return nil, unavailable("random", err)
-	}
-	local := "tmp-" + hex.EncodeToString(b)
-	var id string
-	err := s.Pool.QueryRow(ctx, `INSERT INTO inbound_addresses(project_id, environment_id, domain, local_part, route, temporary, expires_at)
-VALUES ($1,$2,$3,$4,'store',true, now() + make_interval(secs => $5::float8)) RETURNING id::text`,
-		sc.ProjectID, sc.EnvID, s.Opts.InboundDomain, local, d.Seconds()).Scan(&id)
+// PurgeRemovedInboundFiles deletes the attachment files of mail removed by a
+// migration, and returns how many messages it handled. Only the scheduler runs
+// it: it has the data directory.
+func (s *Service) PurgeRemovedInboundFiles(ctx context.Context) (int, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT message_id::text FROM removed_inbound_files LIMIT 500`)
 	if err != nil {
-		return nil, unavailable("temp_create", err)
+		return 0, err
 	}
-	return map[string]any{"id": id, "address": local + "@" + s.Opts.InboundDomain}, nil
-}
-
-// ExpireTempInboxes deletes expired temporary inboxes and their mail.
-func (s *Service) ExpireTempInboxes(ctx context.Context) error {
-	return s.deleteAddresses(ctx, `temporary AND expires_at <= now()`)
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		s.attachDeleteMessage(ctx, id)
+		if _, err := s.Pool.Exec(ctx, `DELETE FROM removed_inbound_files WHERE message_id=$1`, id); err != nil {
+			return 0, err
+		}
+	}
+	return len(ids), rows.Err()
 }
 
 // ---------------------------------------------------------------- inbox
@@ -173,7 +157,7 @@ func (s *Service) Inbox(ctx context.Context, sc *Scope, f InboxFilter, pg Page) 
 		return nil, false, badRequest("unknown mailbox")
 	}
 	items, more, err := s.page(ctx, pg, `SELECT `+inboundCols+`, m.read_at, m.archived_at, to_jsonb(m.labels) AS labels,
-  a.local_part || '@' || a.domain AS mailbox, a.temporary
+  a.local_part || '@' || a.domain AS mailbox
 FROM inbound_messages m LEFT JOIN inbound_addresses a ON a.id=m.address_id
 WHERE m.environment_id=$1 AND ($2='' OR m.address_id=NULLIF($2,'')::uuid) AND (NOT $3 OR m.read_at IS NULL)
   AND (CASE WHEN $4 THEN m.archived_at IS NOT NULL ELSE m.archived_at IS NULL END)

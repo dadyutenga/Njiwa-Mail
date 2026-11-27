@@ -193,7 +193,7 @@ WHERE si.project_id=$1 AND split_part(si.email,'@',2)=$2 ORDER BY si.email`, sc.
 		return nil, err
 	}
 	if d["mailboxes"], err = s.maps(ctx, `SELECT a.id::text AS id, a.local_part || '@' || a.domain AS address, e.mode FROM inbound_addresses a
-JOIN environments e ON e.id=a.environment_id WHERE a.project_id=$1 AND a.domain=$2 AND NOT a.temporary ORDER BY a.local_part`, sc.ProjectID, name); err != nil {
+JOIN environments e ON e.id=a.environment_id WHERE a.project_id=$1 AND a.domain=$2 ORDER BY a.local_part`, sc.ProjectID, name); err != nil {
 		return nil, err
 	}
 	if d["recent_messages"], err = s.maps(ctx, `SELECT id::text AS id, state, recipient_masked AS recipient, COALESCE(NULLIF(subject,''), template) AS subject, created_at

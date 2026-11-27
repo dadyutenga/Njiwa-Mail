@@ -21,7 +21,6 @@ export type WorkspaceInfo = {
   api_host: string;
   bulk_max_per_campaign: number;
   bulk_max_per_day: number;
-  temp_inbox_limit: number;
   forms_enabled?: boolean;
   chat_enabled?: boolean;
   /** The signed-in user's role in this project: viewer, developer, admin or owner. */

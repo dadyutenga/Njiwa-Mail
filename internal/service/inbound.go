@@ -66,7 +66,7 @@ func (s *Service) route(ctx context.Context, addr string) (*inboundRoute, error)
 	var r inboundRoute
 	err := s.Pool.QueryRow(ctx, `SELECT a.id::text, a.project_id::text, a.environment_id::text, a.webhook_endpoint_id::text, a.route, a.forward_to
 FROM inbound_addresses a JOIN environments e ON e.id=a.environment_id JOIN projects p ON p.id=a.project_id
-WHERE a.domain=$1 AND a.local_part IN ($2,'*') AND a.enabled AND e.enabled AND p.enabled AND (a.expires_at IS NULL OR a.expires_at > now())
+WHERE a.domain=$1 AND a.local_part IN ($2,'*') AND a.enabled AND e.enabled AND p.enabled
 ORDER BY (a.local_part='*') LIMIT 1`, domain, local).Scan(&r.AddressID, &r.ProjectID, &r.EnvironmentID, &r.EndpointID, &r.Route, &r.ForwardTo)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, nil

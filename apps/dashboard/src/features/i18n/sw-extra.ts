@@ -401,13 +401,10 @@ export const swExtra: Record<string, string> = {
   "(tick “Relay all recipients”)": "(weka tiki kwenye “Relay all recipients”)",
   ", then publish the key as the DKIM record above.":
     ", kisha chapisha ufunguo kama rekodi ya DKIM iliyo juu.",
-  "1 day": "siku 1",
-  "1 hour": "saa 1",
   "1 to 10000 per minute.": "1 hadi 10000 kwa dakika.",
   "12+ characters; share it privately.": "Herufi 12 au zaidi; mshirikishe kwa siri.",
   "6 digits from the app, or a recovery code such as ABCDE-FGHIJ.":
     "Tarakimu 6 kutoka kwenye programu, au msimbo wa kurejesha kama ABCDE-FGHIJ.",
-  "7 days": "siku 7",
   "A dedicated mailbox, for example njiwa@example.com. Not a personal or admin account.":
     "Kisanduku maalum cha barua, kwa mfano njiwa@example.com. Si akaunti ya kibinafsi au ya msimamizi.",
   "A domain is claimed when a project's ownership check passes.":
@@ -495,7 +492,6 @@ export const swExtra: Record<string, string> = {
   "Approved by": "Imeidhinishwa na",
   "Archived.": "Imehifadhiwa kwenye kumbukumbu.",
   "Asked not to be contacted": "Aliomba asiwasiliane naye",
-  "At most": "Kiwango cha juu",
   "At most 40 characters.": "Herufi 40 kwa juu.",
   "Attach files": "Ambatisha faili",
   "Attachments may total at most 5 MB.": "Viambatisho vinaweza kuwa jumla ya MB 5 kwa juu.",
@@ -576,7 +572,6 @@ export const swExtra: Record<string, string> = {
   "Delete this endpoint?": "Kufuta endpoint hii?",
   "Delete this message from the mail queue?": "Kufuta ujumbe huu kutoka kwenye foleni ya barua?",
   "Delete this message?": "Kufuta ujumbe huu?",
-  "Delete this temporary inbox?": "Kufuta kisanduku hiki cha muda?",
   "Deleted from the mail queue.": "Imefutwa kwenye foleni ya barua.",
   "Deleted.": "Imefutwa.",
   Deliveries: "Uwasilishaji",
@@ -825,7 +820,6 @@ export const swExtra: Record<string, string> = {
   "No sender on this domain yet.": "Hakuna mtumaji kwenye kikoa hiki bado.",
   "No suppressed addresses": "Hakuna anwani zilizozuiwa",
   "No template — write the message": "Hakuna kiolezo — andika ujumbe",
-  "No temporary inboxes": "Hakuna visanduku vya muda",
   "No verified sender address yet": "Hakuna anwani ya mtumaji iliyothibitishwa bado",
   "No webhook endpoints": "Hakuna endpoints za webhook",
   "No webhook events for this message.": "Hakuna matukio ya webhook kwa ujumbe huu.",
@@ -1066,9 +1060,6 @@ export const swExtra: Record<string, string> = {
   "Template duplicated.": "Kiolezo kimenakiliwa.",
   "Template, not a record to copy: replace the part in <…> with your mail server's details before publishing.":
     "Kiolezo, si rekodi ya kunakili: badilisha sehemu iliyo ndani ya <…> kwa maelezo ya seva yako ya barua kabla ya kuchapisha.",
-  "Temporary inbox created.": "Kisanduku cha muda kimeundwa.",
-  "Temporary inboxes need an inbound domain. Set INBOUND_DOMAIN on the server and have your mail server relay it to Njiwa-Mail (see Delivery infrastructure).":
-    "Visanduku vya muda vinahitaji kikoa cha inbound. Weka INBOUND_DOMAIN kwenye seva na uifanye seva yako ya barua isafirishe kwenda Njiwa-Mail (angalia Delivery infrastructure).",
   "Temporary password": "Nenosiri la muda",
   Test: "Jaribio",
   "Test against a recent message": "Jaribu kwa ujumbe wa karibuni",
@@ -1234,7 +1225,6 @@ export const swExtra: Record<string, string> = {
   "auto-reply with": "jibu la kiotomatiki lenye",
   "bulk only": "barua nyingi pekee",
   "call a webhook": "ita webhook",
-  "can be active at once.": "vinaweza kutumika kwa wakati mmoja.",
   "catch-all": "catch-all",
   clear: "futa",
   current: "ya sasa",

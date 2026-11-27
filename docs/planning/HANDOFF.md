@@ -25,6 +25,7 @@ alone: the scheduler re-checks the connection, recent live mail confirms old che
 Item 7 done in code: the SMTP relay reports its real state, the dashboard can test it, and `RELAY_ENABLED=true` starts it on
 deploy (migration `0043`). Owner still: certificate, `.env`, firewall and reinstalling `njiwa-deploy.sh` on the server.
 Item 10 done: a new installation starts with a one-time setup wizard (migration `0044`, optional `SETUP_TOKEN`).
+Item 4 done: temporary inboxes are gone; migration `0045` is destructive (restore the pre-deploy dump to go back).
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of

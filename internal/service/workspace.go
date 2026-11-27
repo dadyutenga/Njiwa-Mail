@@ -58,12 +58,12 @@ func (s *Service) principal(ctx context.Context, sc *Scope) (*Principal, error) 
 func (s *Service) WorkspaceContext(ctx context.Context, sc *Scope) (map[string]any, error) {
 	m, err := s.one(ctx, `SELECT p.name AS project, e.mode, p.enabled AS project_enabled, e.enabled AS environment_enabled,
   e.restrict_recipients, to_jsonb(e.recipient_allowlist) AS recipient_allowlist,
-  p.bulk_max_per_campaign, p.bulk_max_per_day, p.temp_inbox_limit,
+  p.bulk_max_per_campaign, p.bulk_max_per_day,
   (SELECT count(*) FROM sender_identities si WHERE si.environment_id=e.id) AS senders,
   (SELECT count(*) FROM sender_identities si WHERE si.environment_id=e.id AND `+senderVerifiedSQL+`) AS verified_senders,
   (SELECT si.email FROM sender_identities si WHERE si.environment_id=e.id AND si.is_default) AS default_sender,
   (SELECT count(*) FROM domains d WHERE d.project_id=p.id) AS domains,
-  (SELECT count(*) FROM inbound_addresses a WHERE a.environment_id=e.id AND NOT a.temporary) AS mailboxes,
+  (SELECT count(*) FROM inbound_addresses a WHERE a.environment_id=e.id) AS mailboxes,
   (SELECT count(*) FROM inbound_messages im WHERE im.environment_id=e.id AND im.read_at IS NULL AND im.archived_at IS NULL) AS unread
 FROM projects p JOIN environments e ON e.project_id=p.id WHERE e.id=$1`, sc.EnvID)
 	if err != nil {
@@ -119,7 +119,7 @@ func (s *Service) Checklist(ctx context.Context, sc *Scope) (ProjectOnboarding, 
   EXISTS (SELECT 1 FROM sender_identities si WHERE si.project_id=$1 AND `+senderVerifiedSQL+`),
   EXISTS (SELECT 1 FROM api_keys WHERE project_id=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())),
   EXISTS (SELECT 1 FROM messages m JOIN environments e ON e.id=m.environment_id WHERE m.project_id=$1 AND e.mode='live' AND m.state='submitted'),
-  EXISTS (SELECT 1 FROM inbound_addresses WHERE project_id=$1 AND NOT temporary)`, sc.ProjectID).
+  EXISTS (SELECT 1 FROM inbound_addresses WHERE project_id=$1)`, sc.ProjectID).
 		Scan(&domains, &dnsOK, &senders, &keys, &submitted, &mailboxes)
 	if err != nil {
 		return ProjectOnboarding{}, unavailable("checklist", err)

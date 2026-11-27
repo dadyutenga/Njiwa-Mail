@@ -485,7 +485,7 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		return nil, svc.Unblock(ctx(c), sc, c.Params("sender"))
 	})
 	h("GET", "/mailboxes", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
-		items, more, err := svc.ListMailboxes(ctx(c), sc, false, pageOf(c))
+		items, more, err := svc.ListMailboxes(ctx(c), sc, pageOf(c))
 		return list(c, items, more, err)
 	})
 	h("GET", "/receiving-domains", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
@@ -523,27 +523,6 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		}
 		s.audit(c, u, "mailbox.delete", "inbound_address", c.Params("id"), scoped(sc, nil))
 		return nil, nil
-	})
-	h("GET", "/temp-inboxes", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
-		items, more, err := svc.ListMailboxes(ctx(c), sc, true, pageOf(c))
-		return list(c, items, more, err)
-	})
-	h("POST", "/temp-inboxes", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
-		var in struct {
-			TTL string `json:"ttl"`
-		}
-		if err := decode(c, &in); err != nil {
-			return nil, err
-		}
-		out, err := svc.CreateTempInbox(ctx(c), sc, in.TTL)
-		if err != nil {
-			return nil, err
-		}
-		s.audit(c, u, "temp_inbox.create", "inbound_address", out["id"].(string), scoped(sc, map[string]any{"ttl": in.TTL}))
-		return out, nil
-	})
-	h("DELETE", "/temp-inboxes/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
-		return nil, svc.DeleteMailbox(ctx(c), sc, c.Params("id"))
 	})
 
 	// ---- domains

@@ -561,7 +561,10 @@ func runScheduler(ctx context.Context, cfg *config.Config, svc *service.Service)
 		_, err := svc.PumpCampaigns(ctx)
 		return err
 	})
-	every(5*time.Minute, "temporary_inboxes", func() error { return svc.ExpireTempInboxes(ctx) })
+	every(time.Hour, "removed_inbound_files", func() error {
+		_, err := svc.PurgeRemovedInboundFiles(ctx)
+		return err
+	})
 	every(10*time.Minute, "domain_recheck", func() error {
 		_, err := svc.RecheckPendingDomains(ctx, nil)
 		if err != nil {

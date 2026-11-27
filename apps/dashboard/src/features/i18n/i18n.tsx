@@ -649,7 +649,6 @@ export const swPhrases: Record<string, string> = {
   Sent: "Zilizotumwa",
   Scheduled: "Zilizopangwa",
   "Bulk send": "Tuma kwa wengi",
-  "Temporary inboxes": "Vikasha vya muda",
   "DNS setup guide": "Mwongozo wa DNS",
   Mailboxes: "Masanduku ya barua",
   "Sender addresses": "Anwani za watumaji",

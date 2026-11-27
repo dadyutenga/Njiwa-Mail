@@ -16,6 +16,7 @@ import (
 // rewrites it; without the variable the test fails when the file is stale.
 
 var tableDocs = map[string]string{
+	"removed_inbound_files": "Mail removed by a migration whose attachment files the scheduler still has to delete.",
 	"organization":          "The installation's organization, created by the first-run setup.",
 	"alert_channels":        "Where operator alerts are sent (webhook or email), per alert kind.",
 	"alerts":                "Operator alerts (policy bounces, disabled webhooks, failing checks) with acknowledgement.",
@@ -40,7 +41,7 @@ var tableDocs = map[string]string{
 	"domains":               "Sending and receiving domains of a project with DNS check results, DKIM proof and return-path domain.",
 	"drafts":                "Compose drafts (content sealed).",
 	"environments":          "Sandbox and Live environment of a project: enabled flag, approved origins, recipient allowlist.",
-	"inbound_addresses":     "Addresses that receive mail into a project (mailboxes, temporary inboxes, catch-all).",
+	"inbound_addresses":     "Addresses that receive mail into a project (mailboxes and catch-all).",
 	"inbound_attachments":   "Metadata of inbound attachments; the files are sealed on disk.",
 	"monthly_usage":         "Live messages accepted per project and UTC month, for the plan's monthly quota.",
 	"usage_plans":           "Named sets of project limits (sending, bulk, monthly messages, contacts).",

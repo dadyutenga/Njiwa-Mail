@@ -16,7 +16,6 @@ import {
   Sandbox,
   Scheduled,
   Sent,
-  TempInboxes,
   UnknownQueue,
 } from "@/features/workspace/pages/Mail";
 import { DnsGuide, DomainDetail, Domains } from "@/features/workspace/pages/Domains";
@@ -96,7 +95,6 @@ const workspacePages: [string, ReactNode][] = [
   ["bulk", <Bulk />],
   ["bulk/new", <NewCampaign />],
   ["bulk/:id", <CampaignDetail />],
-  ["temp-inboxes", <TempInboxes />],
   ["captures", <Sandbox />],
   ["captures/:id", <CaptureDetail />],
   ["domains", <Domains />],
