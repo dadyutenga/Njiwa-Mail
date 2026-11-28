@@ -13,6 +13,7 @@ import (
 	"io"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -160,8 +161,17 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 	if v.to, ok = NormalizeEmail(req.To); !ok {
 		return nil, invalid("invalid_recipient")
 	}
+	// A template may pin the sender, so a request can leave it out. The
+	// fingerprint keeps what the caller asked for, so a retry still matches.
+	askedFrom := req.From
+	if strings.TrimSpace(req.From) == "" && req.Template != "" && pinned == nil {
+		req.From = s.templateSender(ctx, p.ProjectID, req.Template)
+	}
 	if v.from, ok = NormalizeEmail(req.From); !ok {
 		return nil, invalid("invalid_sender")
+	}
+	if len(p.AllowedSenders) > 0 && !slices.Contains(p.AllowedSenders, v.from) {
+		return nil, &Error{Status: 403, Code: "sender_not_allowed", Message: "this API key may not send from that address"}
 	}
 	if v.locale = tmpl.NormalizeLocale(req.Locale); v.locale == "" {
 		v.locale = "en"
@@ -217,9 +227,9 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 	}
 
 	// Approved sender enforcement.
-	var name string
-	err := s.Pool.QueryRow(ctx, `SELECT display_name FROM sender_identities WHERE environment_id=$1 AND project_id=$2 AND email=$3`,
-		p.EnvironmentID, p.ProjectID, v.from).Scan(&name)
+	var name, senderReplyTo string
+	err := s.Pool.QueryRow(ctx, `SELECT display_name, reply_to FROM sender_identities WHERE environment_id=$1 AND project_id=$2 AND email=$3 AND disabled_at IS NULL`,
+		p.EnvironmentID, p.ProjectID, v.from).Scan(&name, &senderReplyTo)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil, newErr(403, "sender_not_approved")
 	}
@@ -256,7 +266,11 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 		AttachmentSHA      []string `json:",omitempty"`
 		WebView            bool     `json:",omitempty"`
 	}
-	doc := canonDoc{From: v.from, To: v.to, Template: v.tpl.Slug, Version: asked, Vars: v.vars,
+	canonFrom := v.from
+	if strings.TrimSpace(askedFrom) == "" {
+		canonFrom = ""
+	}
+	doc := canonDoc{From: canonFrom, To: v.to, Template: v.tpl.Slug, Version: asked, Vars: v.vars,
 		TTL: int64(v.ttl / time.Second), RequestID: v.requestID, Locale: locale}
 	if v.priority != "" && v.priority != "normal" {
 		doc.Priority = v.priority
@@ -279,6 +293,9 @@ func (s *Service) validateRequest(ctx context.Context, p *Principal, req SendReq
 	}
 	canon, _ := json.Marshal(doc)
 	v.canonical = canon
+	if v.replyTo == "" {
+		v.replyTo = senderReplyTo
+	}
 	return v, nil
 }
 

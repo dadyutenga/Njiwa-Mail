@@ -35,7 +35,8 @@ All of them answer `429 rate_limited` (or `503 queue_full`). Wait `Retry-After` 
 | `invalid_api_key` | 401 | Missing, wrong, revoked or expired key |
 | `ip_not_allowed` | 403 | The caller's address is not on the key's allowlist |
 | `missing_scope` | 403 | The key lacks the scope this call needs |
-| `sender_not_approved` | 403 | `from` is not an approved sender for this key's environment |
+| `sender_not_approved` | 403 | `from` is not an approved, enabled sender for this key's environment |
+| `sender_not_allowed` | 403 | This API key is limited to other senders |
 | `project_disabled` | 403 | The operator disabled the project or environment |
 | `domain_not_registered` | 403 | Live: the sender's domain is not a sending domain of this project |
 | `domain_claimed_elsewhere` | 403 | Live: another project holds the domain, or it awaits operator review |

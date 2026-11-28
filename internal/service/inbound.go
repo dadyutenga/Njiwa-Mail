@@ -366,7 +366,7 @@ func headerOne(h map[string][]string, name string) string {
 // It uses the environment's first approved sender. No sender means the copy is skipped.
 func (s *Service) queueForward(ctx context.Context, tx *db.Tx, r *inboundRoute, p *ParsedInbound) error {
 	var from, name string
-	err := tx.QueryRow(ctx, `SELECT email, display_name FROM sender_identities WHERE environment_id=$1 LIMIT 1`, r.EnvironmentID).Scan(&from, &name)
+	err := tx.QueryRow(ctx, `SELECT email, display_name FROM sender_identities WHERE environment_id=$1 AND disabled_at IS NULL ORDER BY `+senderPick+` LIMIT 1`, r.EnvironmentID).Scan(&from, &name)
 	if errors.Is(err, db.ErrNoRows) {
 		return nil
 	}

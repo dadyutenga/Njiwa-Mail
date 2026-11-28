@@ -230,7 +230,7 @@ func (s *Service) OpenInbox(ctx context.Context, sc *Scope, id string) (map[stri
 	_, _ = s.Pool.Exec(ctx, `UPDATE inbound_messages SET read_at=COALESCE(read_at, now()) WHERE id=$1 AND environment_id=$2`, id, sc.EnvID)
 	extra, err := s.one(ctx, `SELECT m.read_at, m.archived_at, to_jsonb(m.labels) AS labels, m.in_reply_to_message_id::text AS in_reply_to,
   a.local_part || '@' || a.domain AS mailbox, a.id::text AS mailbox_id,
-  (SELECT si.email FROM sender_identities si WHERE si.environment_id=m.environment_id AND split_part(si.email,'@',2)=a.domain LIMIT 1) AS reply_sender,
+  (SELECT si.email FROM sender_identities si WHERE si.environment_id=m.environment_id AND split_part(si.email,'@',2)=a.domain AND si.disabled_at IS NULL ORDER BY (si.purpose='support') DESC, si.is_default DESC, si.created_at LIMIT 1) AS reply_sender,
   EXISTS (SELECT 1 FROM blocked_senders b WHERE b.environment_id=m.environment_id AND b.sender=lower(m.envelope_from)) AS sender_blocked
 FROM inbound_messages m LEFT JOIN inbound_addresses a ON a.id=m.address_id WHERE m.id=$1`, id)
 	if err != nil {

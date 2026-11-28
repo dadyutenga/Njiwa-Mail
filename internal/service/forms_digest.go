@@ -91,8 +91,8 @@ WHERE form_id=$1 AND notified_at IS NULL AND action IN ('allow','flag') ORDER BY
 		return 0, nil
 	}
 	var from, fromName string
-	err = tx.QueryRow(ctx, `SELECT email, display_name FROM sender_identities WHERE environment_id=$1
-ORDER BY (email=$2) DESC, is_default DESC, created_at LIMIT 1`, envID, replyFrom).Scan(&from, &fromName)
+	err = tx.QueryRow(ctx, `SELECT email, display_name FROM sender_identities WHERE environment_id=$1 AND disabled_at IS NULL
+ORDER BY (email=$2) DESC, `+senderPick+` LIMIT 1`, envID, replyFrom).Scan(&from, &fromName)
 	if errors.Is(err, db.ErrNoRows) {
 		return 0, errors.New("no sender address in this environment")
 	}

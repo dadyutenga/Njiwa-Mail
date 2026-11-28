@@ -27,6 +27,7 @@ deploy (migration `0043`). Owner still: certificate, `.env`, firewall and reinst
 Item 10 done: a new installation starts with a one-time setup wizard (migration `0044`, optional `SETUP_TOKEN`).
 Item 4 done: temporary inboxes are gone; migration `0045` is destructive (restore the pre-deploy dump to go back).
 Item 8 done: projects can be renamed, have all keys revoked, be archived, restored and deleted (migration `0046`).
+Item 2 done (light mode; not yet looked at in a browser). Items 5/6 done: sender purposes, limits and relations (`0047`).
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of

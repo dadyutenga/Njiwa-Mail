@@ -23,7 +23,7 @@ Content type: `application/json`. Required.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `messages` | array of object | yes | at least 1 items. at most 100 items. |
-| `messages[].from` | string | yes | An approved sender identity for the key's project and environment. |
+| `messages[].from` | string | no | An approved sender identity for the key's project and environment. Required, unless the template pins a default sender. |
 | `messages[].to` | string | yes | One recipient (bare address). Together with cc and bcc at most 10 addresses. |
 | `messages[].template` | string | no | A built-in template (otp, password-reset, account-notice, notification) or one published for the project. Omit it for a raw send. |
 | `messages[].template_version` | integer | no | Omit it to use the newest published version. minimum 1. |

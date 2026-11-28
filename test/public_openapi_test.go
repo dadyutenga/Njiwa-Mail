@@ -307,7 +307,7 @@ func TestPublicOpenAPISchemasMatchGoTypes(t *testing.T) {
 	if want := jsonTags(reflect.TypeOf(service.BatchResult{})); !reflect.DeepEqual(got, want) {
 		t.Errorf("batch result: %v vs %v", got, want)
 	}
-	if got, want := strs(dig(g, "components", "schemas", "SendRequest", "required")), []string{"from", "to"}; !reflect.DeepEqual(got, want) {
+	if got, want := strs(dig(g, "components", "schemas", "SendRequest", "required")), []string{"to"}; !reflect.DeepEqual(got, want) { // from may come from the template
 		t.Errorf("SendRequest.required %v", got)
 	}
 }

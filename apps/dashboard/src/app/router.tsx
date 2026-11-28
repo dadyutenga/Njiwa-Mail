@@ -19,7 +19,8 @@ import {
   UnknownQueue,
 } from "@/features/workspace/pages/Mail";
 import { DnsGuide, DomainDetail, Domains } from "@/features/workspace/pages/Domains";
-import { Complaints, Mailboxes, Senders, Suppressions } from "@/features/workspace/pages/Workspace";
+import { Complaints, Mailboxes, Suppressions } from "@/features/workspace/pages/Workspace";
+import { Senders } from "@/features/workspace/pages/Senders";
 import { Templates } from "@/features/workspace/pages/Templates";
 import { Automations } from "@/features/workspace/pages/Automations";
 import { Bulk, CampaignDetail, NewCampaign } from "@/features/workspace/pages/Bulk";

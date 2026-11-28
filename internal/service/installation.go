@@ -198,7 +198,7 @@ func (s *Service) QueueTransportTest(ctx context.Context, sc *Scope, user, from,
 		return nil, &Error{Status: 409, Code: "live_only", Message: "a transport test uses the Live environment; Sandbox never reaches a mail server"}
 	}
 	if from == "" {
-		if err := s.Pool.QueryRow(ctx, `SELECT email FROM sender_identities WHERE environment_id=$1 ORDER BY is_default DESC, created_at LIMIT 1`, sc.EnvID).Scan(&from); err != nil {
+		if err := s.Pool.QueryRow(ctx, `SELECT email FROM sender_identities WHERE environment_id=$1 AND disabled_at IS NULL ORDER BY `+senderPick+` LIMIT 1`, sc.EnvID).Scan(&from); err != nil {
 			return nil, &Error{Status: 409, Code: "no_default_sender", Message: "add a verified Live sender to this project first"}
 		}
 	}

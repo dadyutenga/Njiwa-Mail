@@ -225,8 +225,9 @@ func (s *Service) RotateKey(ctx context.Context, prefix string, grace time.Durat
 		return "", "", err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO api_keys(prefix, secret_hash, project_id, environment_id, scopes, label) VALUES ($1,$2,$3,$4,$5,$6)`,
-		newPrefix, hash, pid, eid, scopes, label); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO api_keys(prefix, secret_hash, project_id, environment_id, scopes, label, allowed_senders, ip_allowlist, rate_per_minute)
+SELECT $1,$2,$3,$4,$5,$6, allowed_senders, ip_allowlist, rate_per_minute FROM api_keys WHERE prefix=$7`,
+		newPrefix, hash, pid, eid, scopes, label, prefix); err != nil {
 		return "", "", err
 	}
 	if grace <= 0 {

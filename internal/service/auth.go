@@ -26,6 +26,9 @@ type Principal struct {
 	Allowlist                  []string
 	PerMinute, PerDay          int
 	RcptPerMinute, RcptPerHour int
+	// AllowedSenders limits the key to these From addresses; empty means any
+	// sender of the environment.
+	AllowedSenders []string
 }
 
 // AllowIP reports whether ip may use this key. An empty allowlist allows any address.
@@ -104,14 +107,14 @@ func (s *Service) Authenticate(ctx context.Context, header string) (*Principal, 
 		mode                    string
 	)
 	err := s.Pool.QueryRow(ctx, `
-SELECT k.id, k.secret_hash, k.scopes, k.ip_allowlist, k.rate_per_minute, k.expires_at, k.revoked_at,
+SELECT k.id, k.secret_hash, k.scopes, k.ip_allowlist, k.rate_per_minute, k.expires_at, k.revoked_at, k.allowed_senders,
        p.id, p.enabled, p.send_per_minute, p.send_per_day, p.recipient_per_minute, p.recipient_per_hour,
        e.id, e.mode, e.enabled, e.approved_origins, e.restrict_recipients, e.recipient_allowlist
 FROM api_keys k
 JOIN environments e ON e.id = k.environment_id AND e.project_id = k.project_id
 JOIN projects p ON p.id = k.project_id
 WHERE k.prefix = $1`, parts[2]).Scan(
-		&p.KeyID, &hash, &p.Scopes, &p.IPAllowlist, &p.KeyPerMinute, &expires, &revoked,
+		&p.KeyID, &hash, &p.Scopes, &p.IPAllowlist, &p.KeyPerMinute, &expires, &revoked, &p.AllowedSenders,
 		&p.ProjectID, &projEnabled, &p.PerMinute, &p.PerDay, &p.RcptPerMinute, &p.RcptPerHour,
 		&p.EnvironmentID, &mode, &envEnabled, &p.Origins, &p.RestrictRecipients, &p.Allowlist)
 	if errors.Is(err, db.ErrNoRows) {

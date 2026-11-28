@@ -342,6 +342,13 @@ that state and can send one Sandbox message through it with a two-minute key (`R
 "Running" is evidence that it listens, not proof that applications can reach the port. Never publish it beyond `127.0.0.1`
 without a firewall rule for exactly that port; AUTH is only offered over TLS.
 
+## Sender addresses
+
+Each sender has a purpose (transactional, marketing, support, system), an optional reply-to and one default per purpose.
+Marketing senders must be on a bulk domain. A disabled sender cannot send; its history stays. A template can pin a sender
+(sends may then leave `from` out), and an API key can be limited to chosen senders (`403 sender_not_allowed`). Deleting a
+sender that templates, keys, campaigns, forms, chats or report schedules use asks for a replacement.
+
 ## Managing projects
 
 The Projects page shows what each project holds. Its owners (and operators) can rename it (the name is its dashboard

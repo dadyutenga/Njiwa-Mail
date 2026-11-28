@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePhrase } from "@/features/i18n/i18n";
 import { useWorkspace, useWsKey, useSendingEnvironment, type Env } from "../context";
+import { TemplateSender } from "./Senders";
 import {
   ConfirmButton,
   DataState,
@@ -49,6 +50,7 @@ type Version = {
   content: Record<string, Content>;
 };
 type Template = {
+  default_sender?: string;
   id: string;
   slug: string;
   description: string;
@@ -632,7 +634,9 @@ function Editor({ id }: { id: string }) {
     client.invalidateQueries({ queryKey: key("template", id) });
     client.invalidateQueries({ queryKey: key("templates") });
   };
-  const verified = (senders.data?.items ?? []).filter((x) => x.status === "verified");
+  const verified = (senders.data?.items ?? []).filter(
+    (x) => x.status === "verified" && !x.disabled_at,
+  );
   return (
     <DataState q={q}>
       {(tpl) => (
@@ -701,6 +705,11 @@ function Editor({ id }: { id: string }) {
               </div>
             }
           >
+            {!shared && (
+              <div className="mb-3 max-w-md">
+                <TemplateSender id={id} current={s(tpl.default_sender)} />
+              </div>
+            )}
             {shared && (
               <p className="mb-3 text-sm text-muted-foreground">
                 {phrase(

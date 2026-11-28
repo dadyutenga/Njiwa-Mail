@@ -400,8 +400,8 @@ func (s *Service) renderAutoReply(ctx context.Context, tx *db.Tx, r *rule, f *in
 func (s *Service) queueAutomationMail(ctx context.Context, tx *db.Tx, f *inboundFacts, to, subject, text, html string, sys map[string]string) (string, string, error) {
 	var from, name string
 	_, domain, _ := splitAddr(f.Recipient)
-	err := tx.QueryRow(ctx, `SELECT email, display_name FROM sender_identities WHERE environment_id=$1
-ORDER BY (split_part(email,'@',2)=$2) DESC, is_default DESC, created_at LIMIT 1`, f.EnvID, domain).Scan(&from, &name)
+	err := tx.QueryRow(ctx, `SELECT email, display_name FROM sender_identities WHERE environment_id=$1 AND disabled_at IS NULL
+ORDER BY (split_part(email,'@',2)=$2) DESC, `+senderPick+` LIMIT 1`, f.EnvID, domain).Scan(&from, &name)
 	if errors.Is(err, db.ErrNoRows) {
 		return "", "no sender address in this environment", nil
 	}

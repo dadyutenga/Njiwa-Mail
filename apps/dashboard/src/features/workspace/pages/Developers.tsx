@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin } from "@/lib/admin-api";
 import { docsHome, referencePages, welcomeLinks } from "@/features/welcome/config";
+import { KeySendersButton, SenderChoice } from "./Senders";
 import { useWorkspace, useWsKey, useSendingEnvironment, type Env } from "../context";
 import {
   ConfirmButton,
@@ -129,6 +130,23 @@ export function ApiKeys() {
                 render: (r) => ((r.scopes as string[]) ?? []).join(", "),
               },
               {
+                key: "allowed_senders",
+                label: phrase("Senders"),
+                render: (r) => (
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs">
+                      {((r.allowed_senders as string[]) ?? []).join(", ") || phrase("Any sender")}
+                    </span>
+                    {r.status === "active" && (
+                      <KeySendersButton
+                        prefix={s(r.prefix)}
+                        current={(r.allowed_senders as string[]) ?? []}
+                      />
+                    )}
+                  </span>
+                ),
+              },
+              {
                 key: "status",
                 label: phrase("State"),
                 render: (r) => <StateBadge state={s(r.status)} />,
@@ -219,6 +237,12 @@ function KeyDialog({
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<string[]>(["emails:send", "emails:read"]);
   const [ttl, setTtl] = useState("0");
+  const [limit, setLimit] = useState<string[]>([]);
+  const senders = useQuery({
+    queryKey: key("senders"),
+    queryFn: () => api.get<Page>("/senders?limit=100"),
+    enabled: open,
+  });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -240,6 +264,7 @@ function KeyDialog({
                 label,
                 scopes,
                 ttl_hours: Number(ttl),
+                ...(limit.length ? { allowed_senders: limit } : {}),
               });
               client.invalidateQueries({ queryKey: key("keys") });
               client.invalidateQueries({ queryKey: key("checklist") });
@@ -281,6 +306,7 @@ function KeyDialog({
               </label>
             ))}
           </fieldset>
+          <SenderChoice value={limit} onChange={setLimit} senders={senders.data?.items ?? []} />
           <Field label={phrase("Expires")}>
             <select className={selectClass} value={ttl} onChange={(e) => setTtl(e.target.value)}>
               <option value="0">{phrase("Never")}</option>

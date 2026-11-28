@@ -196,10 +196,15 @@ export function ComposePanel({
     queryFn: () => api.get<Page<Row>>("/senders?limit=100"),
     enabled: open,
   });
-  const verified = (senders.data?.items ?? []).filter((r) => r.status === "verified");
+  const verified = (senders.data?.items ?? []).filter(
+    (r) => r.status === "verified" && !r.disabled_at,
+  );
   useEffect(() => {
     if (!from && verified.length) {
-      const def = verified.find((r) => r.is_default) ?? verified[0];
+      const def =
+        verified.find((r) => r.is_default && r.purpose !== "marketing") ??
+        verified.find((r) => r.is_default) ??
+        verified[0];
       setFrom(s(def.email));
     }
   }, [verified, from]);

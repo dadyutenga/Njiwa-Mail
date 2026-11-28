@@ -166,18 +166,21 @@ func (s *Service) AdminSenders(ctx context.Context, pg Page) ([]map[string]any, 
 FROM sender_identities si JOIN projects p ON p.id=si.project_id JOIN environments e ON e.id=si.environment_id ORDER BY si.email, p.name, e.mode`)
 }
 
+// DeleteSender removes a sender nothing uses (the installation-wide route).
+// One in use is removed from its project, where a replacement can be chosen.
 func (s *Service) DeleteSender(ctx context.Context, id string) error {
 	if !uuidRe.MatchString(id) {
 		return newErr(404, "not_found")
 	}
-	tag, err := s.Pool.Exec(ctx, `DELETE FROM sender_identities WHERE id=$1`, id)
+	var sc Scope
+	err := s.Pool.QueryRow(ctx, `SELECT project_id::text, environment_id::text FROM sender_identities WHERE id=$1`, id).Scan(&sc.ProjectID, &sc.EnvID)
+	if errors.Is(err, db.ErrNoRows) {
+		return newErr(404, "not_found")
+	}
 	if err != nil {
 		return unavailable("sender_delete", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return newErr(404, "not_found")
-	}
-	return nil
+	return s.WSDeleteSender(ctx, &sc, id, "")
 }
 
 const suppressionCols = `s.id::text AS id, s.recipient_masked AS recipient, s.reason, s.source, s.bounce_id::text AS bounce_id, s.created_at`

@@ -61,7 +61,7 @@ func (s *Service) WorkspaceContext(ctx context.Context, sc *Scope) (map[string]a
   p.bulk_max_per_campaign, p.bulk_max_per_day,
   (SELECT count(*) FROM sender_identities si WHERE si.environment_id=e.id) AS senders,
   (SELECT count(*) FROM sender_identities si WHERE si.environment_id=e.id AND `+senderVerifiedSQL+`) AS verified_senders,
-  (SELECT si.email FROM sender_identities si WHERE si.environment_id=e.id AND si.is_default) AS default_sender,
+  (SELECT si.email FROM sender_identities si WHERE si.environment_id=e.id AND si.is_default AND si.disabled_at IS NULL ORDER BY (si.purpose='transactional') DESC, si.created_at LIMIT 1) AS default_sender,
   (SELECT count(*) FROM domains d WHERE d.project_id=p.id) AS domains,
   (SELECT count(*) FROM inbound_addresses a WHERE a.environment_id=e.id) AS mailboxes,
   (SELECT count(*) FROM inbound_messages im WHERE im.environment_id=e.id AND im.read_at IS NULL AND im.archived_at IS NULL) AS unread
@@ -603,85 +603,12 @@ func (s *Service) DeleteDraftMail(ctx context.Context, sc *Scope, id string) err
 	return nil
 }
 
-// ---------------------------------------------------------------- senders
-
-func (s *Service) WSSenders(ctx context.Context, sc *Scope, pg Page) ([]map[string]any, bool, error) {
-	return s.page(ctx, pg, `SELECT si.id::text AS id, si.email, si.display_name, split_part(si.email,'@',2) AS domain,
-  (SELECT d.id::text FROM domains d WHERE d.project_id=si.project_id AND d.name=split_part(si.email,'@',2) ORDER BY d.purpose LIMIT 1) AS domain_id,
-  CASE WHEN `+senderVerifiedSQL+` THEN 'verified'
-       WHEN EXISTS (SELECT 1 FROM domains d WHERE d.project_id=si.project_id AND d.name=split_part(si.email,'@',2)) THEN 'domain_pending'
-       ELSE 'domain_not_added' END AS status,
-  si.is_default, si.last_used_at, si.created_at
-FROM sender_identities si WHERE si.environment_id=$1 ORDER BY si.is_default DESC, si.email`, sc.EnvID)
-}
-
-// WSAddSender adds a sender, but only on a sending domain of this project
-// whose ownership is verified.
-func (s *Service) WSAddSender(ctx context.Context, sc *Scope, email, display string) (string, error) {
-	e, ok := NormalizeEmail(strings.ToLower(strings.TrimSpace(email)))
-	if !ok {
-		return "", badRequest("enter a full email address")
-	}
-	domain := e[strings.LastIndexByte(e, '@')+1:]
-	var verified bool
-	err := s.Pool.QueryRow(ctx, `SELECT bool_or(verified_at IS NOT NULL) FROM domains WHERE project_id=$1 AND name=$2 AND purpose IN ('sending','both')`,
-		sc.ProjectID, domain).Scan(&verified)
-	if err != nil || !verified {
-		return "", &Error{Status: 409, Code: "domain_not_verified", Message: "add " + domain + " on the Domains page and verify it before adding senders on it"}
-	}
-	if err := s.AddSender(ctx, sc.Project, sc.Mode, e, display); err != nil {
-		return "", opErr(err)
-	}
-	var id string
-	if err := s.Pool.QueryRow(ctx, `SELECT id::text FROM sender_identities WHERE environment_id=$1 AND email=$2`, sc.EnvID, e).Scan(&id); err != nil {
-		return "", notFound(err)
-	}
-	// The first sender becomes the default.
-	_, _ = s.Pool.Exec(ctx, `UPDATE sender_identities SET is_default=true WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM sender_identities WHERE environment_id=$2 AND is_default)`, id, sc.EnvID)
-	return id, nil
-}
-
-func (s *Service) SetDefaultSender(ctx context.Context, sc *Scope, id string) error {
-	if !uuidRe.MatchString(id) {
-		return newErr(404, "not_found")
-	}
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return unavailable("begin", err)
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE sender_identities SET is_default=false WHERE environment_id=$1 AND is_default`, sc.EnvID); err != nil {
-		return unavailable("default_sender", err)
-	}
-	tag, err := tx.Exec(ctx, `UPDATE sender_identities SET is_default=true WHERE id=$1 AND environment_id=$2`, id, sc.EnvID)
-	if err != nil {
-		return unavailable("default_sender", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return newErr(404, "not_found")
-	}
-	return opErr(tx.Commit(ctx))
-}
-
-func (s *Service) WSDeleteSender(ctx context.Context, sc *Scope, id string) error {
-	if !uuidRe.MatchString(id) {
-		return newErr(404, "not_found")
-	}
-	tag, err := s.Pool.Exec(ctx, `DELETE FROM sender_identities WHERE id=$1 AND environment_id=$2`, id, sc.EnvID)
-	if err != nil {
-		return unavailable("sender_delete", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return newErr(404, "not_found")
-	}
-	return nil
-}
-
 // ---------------------------------------------------------------- scoped views of existing records
 
 func (s *Service) WSKeys(ctx context.Context, sc *Scope, pg Page) ([]map[string]any, bool, error) {
 	return s.page(ctx, pg, `SELECT k.prefix, k.label, to_jsonb(k.scopes) AS scopes, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
   CASE WHEN k.revoked_at IS NOT NULL THEN 'revoked' WHEN k.expires_at IS NOT NULL AND k.expires_at <= now() THEN 'expired' ELSE 'active' END AS status,
+  to_jsonb(k.allowed_senders) AS allowed_senders,
   (SELECT count(*) FROM messages m WHERE m.api_key_id=k.id) AS messages
 FROM api_keys k WHERE k.environment_id=$1 ORDER BY k.created_at DESC`, sc.EnvID)
 }
@@ -764,7 +691,7 @@ func (s *Service) WSTemplates(ctx context.Context, sc *Scope, pg Page) ([]map[st
 	return s.page(ctx, pg, `SELECT t.id::text AS id, t.slug, t.description, t.archived, t.project_id IS NULL AS shared,
   (SELECT max(version) FROM template_versions v WHERE v.template_id=t.id AND v.published_at IS NOT NULL) AS published_version,
   (SELECT max(version) FROM template_versions v WHERE v.template_id=t.id AND v.published_at IS NULL) AS draft_version,
-  (SELECT count(*) FROM messages m WHERE m.environment_id=$2 AND m.template=t.slug) AS messages, t.created_at
+  (SELECT count(*) FROM messages m WHERE m.environment_id=$2 AND m.template=t.slug) AS messages, t.created_at, t.default_sender
 FROM templates t WHERE t.project_id=$1 OR t.project_id IS NULL ORDER BY t.archived, t.slug`, sc.ProjectID, sc.EnvID)
 }
 

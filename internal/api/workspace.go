@@ -635,18 +635,32 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	})
 	h("POST", "/senders", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
-			Email       string `json:"email"`
-			DisplayName string `json:"display_name"`
+			Email string `json:"email"`
+			service.SenderInput
 		}
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		id, err := svc.WSAddSender(ctx(c), sc, in.Email, in.DisplayName)
+		id, err := svc.WSAddSender(ctx(c), sc, in.Email, in.SenderInput)
 		if err != nil {
 			return nil, err
 		}
 		s.audit(c, u, "sender.upsert", "sender", id, scoped(sc, nil))
 		return map[string]string{"id": id}, nil
+	})
+	h("PATCH", "/senders/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.SenderInput
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.UpdateSender(ctx(c), sc, c.Params("id"), in); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "sender.update", "sender", c.Params("id"), scoped(sc, map[string]any{"purpose": in.Purpose, "disabled": in.Disabled}))
+		return nil, nil
+	})
+	h("GET", "/senders/:id/usage", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return svc.SenderUsageOf(ctx(c), sc, c.Params("id"))
 	})
 	h("POST", "/senders/:id/default", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.SetDefaultSender(ctx(c), sc, c.Params("id")); err != nil {
@@ -656,10 +670,18 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		return nil, nil
 	})
 	h("DELETE", "/senders/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
-		if err := svc.WSDeleteSender(ctx(c), sc, c.Params("id")); err != nil {
+		var in struct {
+			ReplaceWith string `json:"replace_with"`
+		}
+		if len(c.Body()) > 0 {
+			if err := decode(c, &in); err != nil {
+				return nil, err
+			}
+		}
+		if err := svc.WSDeleteSender(ctx(c), sc, c.Params("id"), in.ReplaceWith); err != nil {
 			return nil, err
 		}
-		s.audit(c, u, "sender.delete", "sender", c.Params("id"), scoped(sc, nil))
+		s.audit(c, u, "sender.delete", "sender", c.Params("id"), scoped(sc, map[string]any{"replaced_with": in.ReplaceWith}))
 		return nil, nil
 	})
 
@@ -708,6 +730,19 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 			return nil, err
 		}
 		s.audit(c, u, "template.update", "template", c.Params("id"), scoped(sc, map[string]any{"archived": in.Archived}))
+		return nil, nil
+	}))
+	h("PUT", "/templates/:id/default-sender", tpl(true, func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Email string `json:"email"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.SetTemplateSender(ctx(c), sc, c.Params("id"), in.Email); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "template.default_sender", "template", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	}))
 	h("PUT", "/templates/:id/draft", tpl(true, func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
@@ -982,9 +1017,10 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	})
 	h("POST", "/keys", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		var in struct {
-			Scopes   []string `json:"scopes"`
-			Label    string   `json:"label"`
-			TTLHours int      `json:"ttl_hours"`
+			Scopes         []string `json:"scopes"`
+			Label          string   `json:"label"`
+			TTLHours       int      `json:"ttl_hours"`
+			AllowedSenders []string `json:"allowed_senders"`
 		}
 		if err := decode(c, &in); err != nil {
 			return nil, err
@@ -996,8 +1032,27 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		if err != nil {
 			return nil, service.OpErr(err)
 		}
-		s.audit(c, u, "api_key.create", "api_key", prefix, scoped(sc, map[string]any{"scopes": in.Scopes}))
+		if len(in.AllowedSenders) > 0 {
+			if err := svc.SetKeySenders(ctx(c), sc, prefix, in.AllowedSenders); err != nil {
+				_ = svc.RevokeKey(ctx(c), prefix) // never leave an unlimited key behind
+				return nil, err
+			}
+		}
+		s.audit(c, u, "api_key.create", "api_key", prefix, scoped(sc, map[string]any{"scopes": in.Scopes, "allowed_senders": len(in.AllowedSenders)}))
 		return map[string]string{"prefix": prefix, "key": tok}, nil
+	})
+	h("PUT", "/keys/:prefix/senders", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			Senders []string `json:"senders"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.SetKeySenders(ctx(c), sc, c.Params("prefix"), in.Senders); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "api_key.senders", "api_key", c.Params("prefix"), scoped(sc, map[string]any{"allowed_senders": len(in.Senders)}))
+		return nil, nil
 	})
 	h("POST", "/keys/:prefix/rotate", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.KeyInScope(ctx(c), sc, c.Params("prefix")); err != nil {

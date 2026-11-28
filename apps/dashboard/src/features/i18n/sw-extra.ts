@@ -9,6 +9,50 @@ import { swTools } from "./sw-tools";
 import { swReports } from "./sw-reports";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "Used by": "Inatumiwa na",
+  "What sends as this address in this environment.":
+    "Kinachotuma kwa anwani hii katika mazingira haya.",
+  Transactional: "Miamala",
+  "Marketing and newsletters": "Masoko na majarida",
+  Support: "Msaada",
+  "Needs DNS": "Inahitaji DNS",
+  "Claimed elsewhere": "Inamilikiwa kwingine",
+  "Domain not added": "Kikoa hakijaongezwa",
+  "Live mail is blocked until the domain's DNS records are verified.":
+    "Barua za Live zimezuiwa hadi rekodi za DNS za kikoa zithibitishwe.",
+  "Live mail is blocked: another project holds this domain.":
+    "Barua za Live zimezuiwa: mradi mwingine unamiliki kikoa hiki.",
+  "Live mail is blocked: add the domain to this project and verify it.":
+    "Barua za Live zimezuiwa: ongeza kikoa kwenye mradi huu na ukithibitishe.",
+  "the addresses this environment may send from. Each purpose has its own default.":
+    "anwani ambazo mazingira haya yanaweza kutuma nazo. Kila kusudi lina chaguomsingi lake.",
+  "Reply-to": "Majibu yaende",
+  "The address can send again.": "Anwani inaweza kutuma tena.",
+  "Nothing can send from this address until it is enabled again. Its history is kept.":
+    "Hakuna kinachoweza kutuma kutoka anwani hii hadi iwezeshwe tena. Historia yake inabaki.",
+  "The address itself cannot change. Add another sender for a new address.":
+    "Anwani yenyewe haiwezi kubadilishwa. Ongeza mtumaji mwingine kwa anwani mpya.",
+  "Optional: where replies go, when a message names no reply-to itself.":
+    "Hiari: majibu yanakokwenda, ujumbe usipotaja anwani ya majibu.",
+  "Marketing senders must use a bulk domain.":
+    "Watumaji wa masoko lazima watumie kikoa cha barua nyingi.",
+  Campaigns: "Kampeni",
+  "This sender is in use. Choose a sender to take its place, or cancel.":
+    "Mtumaji huyu anatumika. Chagua mtumaji wa kuchukua nafasi yake, au ghairi.",
+  "Nothing uses this sender. Sent mail is kept.":
+    "Hakuna kinachomtumia mtumaji huyu. Barua zilizotumwa zinabaki.",
+  "Replace with": "Badilisha na",
+  "Choose a sender": "Chagua mtumaji",
+  "Delete sender": "Futa mtumaji",
+  "Limit to senders": "Weka kikomo cha watumaji",
+  "Choose none to let the key send from any sender of this environment.":
+    "Usichague yoyote ili ufunguo utume kutoka kwa mtumaji yeyote wa mazingira haya.",
+  "Senders of key": "Watumaji wa ufunguo",
+  "A send from any other address is refused with sender_not_allowed.":
+    "Kutuma kutoka anwani nyingine yoyote kunakataliwa kwa sender_not_allowed.",
+  "Any sender": "Mtumaji yeyote",
+  "Used when a send names no sender of its own.": "Hutumika pale utumaji usipotaja mtumaji wake.",
+  "None: the request names the sender": "Hakuna: ombi linataja mtumaji",
   revoked: "zimebatilishwa",
   "Domain claims (released)": "Umiliki wa vikoa (unaachiliwa)",
   "Received messages": "Ujumbe uliopokelewa",

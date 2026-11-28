@@ -181,9 +181,9 @@ func (s *Service) CheckCampaignRecipients(ctx context.Context, sc *Scope, text s
 // BulkSenders lists senders on this project's verified bulk domains.
 func (s *Service) BulkSenders(ctx context.Context, sc *Scope) ([]map[string]any, error) {
 	return s.maps(ctx, `SELECT si.id::text AS id, si.email, si.display_name, si.is_default FROM sender_identities si
-WHERE si.environment_id=$1 AND EXISTS (SELECT 1 FROM domains d WHERE d.project_id=si.project_id AND d.name=split_part(si.email,'@',2)
+WHERE si.environment_id=$1 AND si.disabled_at IS NULL AND EXISTS (SELECT 1 FROM domains d WHERE d.project_id=si.project_id AND d.name=split_part(si.email,'@',2)
   AND d.bulk AND d.purpose IN ('sending','both') AND d.verified_at IS NOT NULL AND d.spf_ok AND d.dkim_ok AND d.dmarc_ok)
-ORDER BY si.is_default DESC, si.email`, sc.EnvID)
+ORDER BY (si.is_default AND si.purpose='marketing') DESC, si.is_default DESC, si.email`, sc.EnvID)
 }
 
 func (s *Service) CreateCampaign(ctx context.Context, sc *Scope, user string, in CampaignInput) (string, *RecipientReport, error) {
@@ -194,12 +194,16 @@ func (s *Service) CreateCampaign(ctx context.Context, sc *Scope, user string, in
 	if in.Name == "" {
 		return "", nil, badRequest("give the announcement a name")
 	}
+	if strings.TrimSpace(in.SenderEmail) == "" {
+		// No sender named: the project's default marketing sender.
+		_ = s.Pool.QueryRow(ctx, `SELECT email FROM sender_identities WHERE environment_id=$1 AND purpose='marketing' AND is_default AND disabled_at IS NULL`, sc.EnvID).Scan(&in.SenderEmail)
+	}
 	sender, ok := NormalizeEmail(strings.ToLower(strings.TrimSpace(in.SenderEmail)))
 	if !ok {
 		return "", nil, badRequest("choose a sender")
 	}
 	var bulkOK bool
-	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sender_identities si WHERE si.environment_id=$1 AND si.email=$2
+	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sender_identities si WHERE si.environment_id=$1 AND si.email=$2 AND si.disabled_at IS NULL
   AND EXISTS (SELECT 1 FROM domains d WHERE d.project_id=si.project_id AND d.name=split_part(si.email,'@',2) AND d.bulk
     AND d.verified_at IS NOT NULL AND d.spf_ok AND d.dkim_ok AND d.dmarc_ok))`, sc.EnvID, sender).Scan(&bulkOK); err != nil {
 		return "", nil, unavailable("bulk_sender", err)

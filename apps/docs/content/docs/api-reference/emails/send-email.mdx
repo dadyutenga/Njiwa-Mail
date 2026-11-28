@@ -30,7 +30,7 @@ Unknown fields are rejected with 422 invalid_request. (Not expressed as addition
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `from` | string | yes | An approved sender identity for the key's project and environment. |
+| `from` | string | no | An approved sender identity for the key's project and environment. Required, unless the template pins a default sender. |
 | `to` | string | yes | One recipient (bare address). Together with cc and bcc at most 10 addresses. |
 | `template` | string | no | A built-in template (otp, password-reset, account-notice, notification) or one published for the project. Omit it for a raw send. |
 | `template_version` | integer | no | Omit it to use the newest published version. minimum 1. |
@@ -359,7 +359,8 @@ Errors share one shape: `error.code` is stable, `error.message` is optional deta
 | `invalid_api_key` | 401 | Missing, wrong, revoked or expired key |
 | `ip_not_allowed` | 403 | The caller's address is not on the key's allowlist |
 | `missing_scope` | 403 | The key lacks the scope this call needs |
-| `sender_not_approved` | 403 | `from` is not an approved sender for this key's environment |
+| `sender_not_approved` | 403 | `from` is not an approved, enabled sender for this key's environment |
+| `sender_not_allowed` | 403 | This API key is limited to other senders |
 | `project_disabled` | 403 | The operator disabled the project or environment |
 | `domain_not_registered` | 403 | Live: the sender's domain is not a sending domain of this project |
 | `domain_claimed_elsewhere` | 403 | Live: another project holds the domain, or it awaits operator review |

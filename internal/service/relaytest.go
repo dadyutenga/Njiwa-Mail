@@ -45,7 +45,7 @@ func (s *Service) TestRelay(ctx context.Context, sc *Scope, requestHost string) 
 	if err := s.Pool.QueryRow(ctx, `SELECT p.name FROM environments e JOIN projects p ON p.id=e.project_id WHERE e.id=$1`, sc.EnvID).Scan(&project); err != nil {
 		return nil, unavailable("relay_test", err)
 	}
-	if err := s.Pool.QueryRow(ctx, `SELECT email FROM sender_identities WHERE environment_id=$1 ORDER BY is_default DESC, created_at LIMIT 1`, sc.EnvID).Scan(&from); err != nil {
+	if err := s.Pool.QueryRow(ctx, `SELECT email FROM sender_identities WHERE environment_id=$1 AND disabled_at IS NULL ORDER BY `+senderPick+` LIMIT 1`, sc.EnvID).Scan(&from); err != nil {
 		return nil, &Error{Status: 409, Code: "no_default_sender", Message: "add a Sandbox sender to this project first"}
 	}
 	name, _, port := s.relayEndpoint(requestHost)
