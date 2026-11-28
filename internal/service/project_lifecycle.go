@@ -29,7 +29,7 @@ var ProjectTables = map[string]string{
 	"dns_oauth_states": "cascade", "dns_setups": "cascade", "domain_claims": "cascade", "domains": "explicit",
 	"drafts": "cascade", "environments": "explicit", "form_filters": "cascade", "form_submissions": "cascade",
 	"forms": "cascade", "inbound_addresses": "explicit", "inbound_ingest": "cascade", "inbound_messages": "explicit",
-	"messages": "explicit", "monthly_usage": "cascade", "project_members": "cascade", "report_schedules": "cascade",
+	"messages": "explicit", "monthly_usage": "cascade", "newsletter_issues": "cascade", "project_members": "cascade", "report_schedules": "cascade",
 	"sender_identities": "explicit", "suppressions": "explicit", "template_styles": "cascade", "templates": "explicit",
 	"webhook_endpoints": "explicit",
 }

@@ -342,6 +342,13 @@ that state and can send one Sandbox message through it with a two-minute key (`R
 "Running" is evidence that it listens, not proof that applications can reach the port. Never publish it beyond `127.0.0.1`
 without a firewall rule for exactly that port; AUTH is only offered over TLS.
 
+## Campaigns and newsletters
+
+Audience, Campaigns, Scheduled and Newsletters are tabs of one area. A newsletter is written as blocks and saved as a draft;
+sending or scheduling it creates a campaign, so the same rules apply: a sender on a verified bulk domain, suppressed and
+unsubscribed contacts left out, and an unsubscribe link and one-click header on every copy. A test goes only to the signed-in
+person.
+
 ## Sender addresses
 
 Each sender has a purpose (transactional, marketing, support, system), an optional reply-to and one default per purpose.

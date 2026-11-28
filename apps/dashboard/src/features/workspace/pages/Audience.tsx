@@ -848,6 +848,33 @@ export function ContactDetail() {
                 </ul>
               )}
             </Section>
+            <Section title={phrase("Campaigns and newsletters")} className="lg:col-span-2">
+              {((c.campaigns as Row[]) ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {phrase("Not included in any yet.")}
+                </p>
+              ) : (
+                <ul className="divide-y text-sm">
+                  {(c.campaigns as Row[]).map((x) => (
+                    <li key={s(x.id)} className="flex flex-wrap items-center gap-2 py-2">
+                      <Link
+                        className="mr-auto font-medium text-primary"
+                        to={to(
+                          x.newsletter_id ? `newsletters/${s(x.newsletter_id)}` : `bulk/${s(x.id)}`,
+                        )}
+                      >
+                        {s(x.name)}
+                      </Link>
+                      <StateBadge state={s(x.state)} />
+                      {x.skip_reason ? (
+                        <span className="text-xs text-muted-foreground">{s(x.skip_reason)}</span>
+                      ) : null}
+                      <Time value={x.created_at} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Section>
             <Section title={phrase("Attributes")} className="lg:col-span-2">
               <pre className="whitespace-pre-wrap text-xs">
                 {JSON.stringify(c.attributes ?? {}, null, 2)}
@@ -940,6 +967,17 @@ export function Lists() {
                 key: "created_at",
                 label: phrase("Created"),
                 render: (r) => <Time value={r.created_at} relative />,
+              },
+              {
+                key: "send",
+                label: <span className="sr-only">{phrase("Send")}</span>,
+                render: (r) => (
+                  <Button asChild size="sm" variant="outline">
+                    <Link to={to(`bulk/new?list=${s(r.id)}`)}>
+                      {phrase("Send a campaign to this list")}
+                    </Link>
+                  </Button>
+                ),
               },
               {
                 key: "x",

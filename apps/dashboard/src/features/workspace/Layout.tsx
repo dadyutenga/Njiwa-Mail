@@ -237,6 +237,7 @@ function WorkspaceSwitcher({ compact }: { compact?: boolean }) {
 // ---------------------------------------------------------------- sidebar
 
 function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () => void }) {
+  const currentPage = useLocation().pathname.split("/")[3] ?? "";
   const { user } = useAuth();
   const phrase = usePhrase();
   const { to, api, info } = useWorkspace();
@@ -281,7 +282,7 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
                 </p>
               )}
               <ul className="space-y-0.5">
-                {items.map(({ path, label, icon: Icon, badge, external }) => (
+                {items.map(({ path, label, icon: Icon, badge, external, also }) => (
                   <li key={path}>
                     {external === "docs" ? (
                       <a
@@ -307,7 +308,7 @@ function Sidebar({ compact, onNavigate }: { compact?: boolean; onNavigate?: () =
                         className={({ isActive }) =>
                           cn(
                             "flex items-center gap-3 rounded-[var(--od-app-radius)] px-3 py-2 text-sm font-medium transition",
-                            isActive
+                            isActive || also?.includes(currentPage)
                               ? "bg-secondary text-secondary-foreground"
                               : "text-muted-foreground hover:bg-muted hover:text-foreground",
                             compact && "justify-center px-0",

@@ -21,6 +21,9 @@ import {
 import { DnsGuide, DomainDetail, Domains } from "@/features/workspace/pages/Domains";
 import { Complaints, Mailboxes, Suppressions } from "@/features/workspace/pages/Workspace";
 import { Senders } from "@/features/workspace/pages/Senders";
+import { Tabbed } from "@/features/workspace/pages/CampaignTabs";
+import { ScheduledCampaigns } from "@/features/workspace/pages/ScheduledCampaigns";
+import { NewsletterEditor, Newsletters } from "@/features/workspace/pages/Newsletters";
 import { Templates } from "@/features/workspace/pages/Templates";
 import { Automations } from "@/features/workspace/pages/Automations";
 import { Bulk, CampaignDetail, NewCampaign } from "@/features/workspace/pages/Bulk";
@@ -78,8 +81,26 @@ const workspacePages: [string, ReactNode][] = [
   ["setup", <Checklist />],
   ["inbox", <Inbox />],
   ["sent", <Sent />],
-  ["scheduled", <Scheduled />],
-  ["contacts", <Contacts />],
+  [
+    "scheduled",
+    <Tabbed>
+      <ScheduledCampaigns />
+      <Scheduled />
+    </Tabbed>,
+  ],
+  [
+    "contacts",
+    <Tabbed>
+      <Contacts />
+    </Tabbed>,
+  ],
+  [
+    "newsletters",
+    <Tabbed>
+      <Newsletters />
+    </Tabbed>,
+  ],
+  ["newsletters/:id", <NewsletterEditor />],
   ["contacts/:id", <ContactDetail />],
   ["chat", <ChatWidgets />],
   ["chat/conversations", <ChatConversations />],
@@ -93,7 +114,12 @@ const workspacePages: [string, ReactNode][] = [
   ["members", <Members />],
   ["verify", <CheckAddresses />],
   ["relay", <RelayStatus />],
-  ["bulk", <Bulk />],
+  [
+    "bulk",
+    <Tabbed>
+      <Bulk />
+    </Tabbed>,
+  ],
   ["bulk/new", <NewCampaign />],
   ["bulk/:id", <CampaignDetail />],
   ["captures", <Sandbox />],

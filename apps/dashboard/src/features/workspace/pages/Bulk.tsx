@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -156,6 +156,9 @@ export function NewCampaign() {
     queryKey: key("templates"),
     queryFn: () => api.get<Page>("/templates?limit=100"),
   });
+  // "Send a campaign to this list" arrives with the list chosen.
+  const [params] = useSearchParams();
+  const presetList = params.get("list") ?? "";
   const [f, setF] = useState({
     name: "",
     sender_email: "",
@@ -165,10 +168,10 @@ export function NewCampaign() {
     recipients: "",
     send_at: "",
     rate_per_minute: "60",
-    list_id: "",
+    list_id: presetList,
   });
   const [mode, setMode] = useState<"write" | "template">("write");
-  const [audience, setAudience] = useState<"paste" | "list">("paste");
+  const [audience, setAudience] = useState<"paste" | "list">(presetList ? "list" : "paste");
   const [track, setTrack] = useState({ opens: false, clicks: false });
   const lists = useQuery({
     queryKey: key("lists"),
@@ -595,6 +598,30 @@ export function CampaignDetail() {
                       {phrase("starts")} <Time value={c.send_at} />
                     </>
                   ) : null}
+                  {c.list_id ? (
+                    <>
+                      {" · "}
+                      <Link
+                        className="text-primary underline"
+                        to={to(`contacts?list=${s(c.list_id)}`)}
+                      >
+                        {phrase("Audience")}: {s(c.list_name)}
+                      </Link>
+                    </>
+                  ) : c.segment_name ? (
+                    <>
+                      {" · "}
+                      {phrase("Segment")}: {s(c.segment_name)}
+                    </>
+                  ) : null}
+                  {state === "scheduled" && (
+                    <>
+                      {" · "}
+                      <Link className="text-primary underline" to={to("scheduled")}>
+                        {phrase("Schedule")}
+                      </Link>
+                    </>
+                  )}
                 </>
               }
               action={

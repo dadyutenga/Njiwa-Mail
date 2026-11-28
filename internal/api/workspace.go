@@ -137,6 +137,19 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 		s.audit(c, u, "message.cancel", "message", c.Params("id"), scoped(sc, nil))
 		return nil, nil
 	})
+	h("POST", "/messages/:id/reschedule", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			SendAt string `json:"send_at"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.RescheduleMessage(ctx(c), sc, c.Params("id"), in.SendAt); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "message.reschedule", "message", c.Params("id"), scoped(sc, map[string]any{"send_at": in.SendAt}))
+		return nil, nil
+	})
 	h("POST", "/messages/:id/send-now", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.SendNow(ctx(c), sc, c.Params("id")); err != nil {
 			return nil, err
@@ -960,6 +973,83 @@ func (s *Server) workspaceRoutes(app *fiber.App) {
 	})
 	h("GET", "/campaigns/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		return svc.GetCampaign(ctx(c), sc, c.Params("id"))
+	})
+	h("POST", "/campaigns/:id/reschedule", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			SendAt string `json:"send_at"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		if err := svc.RescheduleCampaign(ctx(c), sc, c.Params("id"), in.SendAt); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "campaign.reschedule", "campaign", c.Params("id"), scoped(sc, map[string]any{"send_at": in.SendAt}))
+		return nil, nil
+	})
+	// ---- newsletters
+	h("GET", "/newsletters", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		items, more, err := svc.ListNewsletters(ctx(c), sc, pageOf(c))
+		return list(c, items, more, err)
+	})
+	h("POST", "/newsletters/preview", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in service.NewsletterInput
+		if err := decodeLarge(c, &in); err != nil {
+			return nil, err
+		}
+		html, text := service.RenderNewsletter(in.PreviewText, in.Blocks)
+		return map[string]string{"html": html, "text": text}, nil
+	})
+	save := func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope, id string) (any, error) {
+		var in service.NewsletterInput
+		if err := decodeLarge(c, &in); err != nil {
+			return nil, err
+		}
+		got, err := svc.SaveNewsletter(ctx(c), sc, id, u.Email, in)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "newsletter.save", "newsletter", got, scoped(sc, nil))
+		return map[string]string{"id": got}, nil
+	}
+	h("POST", "/newsletters", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return save(c, u, sc, "")
+	})
+	h("GET", "/newsletters/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return svc.GetNewsletter(ctx(c), sc, c.Params("id"))
+	})
+	h("PUT", "/newsletters/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		return save(c, u, sc, c.Params("id"))
+	})
+	h("DELETE", "/newsletters/:id", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		if err := svc.DeleteNewsletter(ctx(c), sc, c.Params("id")); err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "newsletter.delete", "newsletter", c.Params("id"), scoped(sc, nil))
+		return nil, nil
+	})
+	// A test goes to the signed-in person only.
+	h("POST", "/newsletters/:id/test", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		acc, err := svc.TestNewsletter(ctx(c), sc, c.Params("id"), u.Email, u.Email)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "newsletter.test", "newsletter", c.Params("id"), scoped(sc, nil))
+		return acc, nil
+	})
+	h("POST", "/newsletters/:id/send", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
+		var in struct {
+			SendAt string `json:"send_at"`
+		}
+		if err := decode(c, &in); err != nil {
+			return nil, err
+		}
+		campaign, rep, err := svc.SendNewsletter(ctx(c), sc, c.Params("id"), u.Email, in.SendAt)
+		if err != nil {
+			return nil, err
+		}
+		s.audit(c, u, "newsletter.send", "newsletter", c.Params("id"), scoped(sc, map[string]any{"recipients": rep.Valid, "send_at": in.SendAt}))
+		return map[string]any{"campaign_id": campaign, "report": rep}, nil
 	})
 	h("POST", "/campaigns/:id/:action", func(c fiber.Ctx, u *service.AdminUser, sc *service.Scope) (any, error) {
 		if err := svc.CampaignAction(ctx(c), sc, c.Params("id"), c.Params("action")); err != nil {

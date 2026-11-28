@@ -6,7 +6,6 @@ import {
   BookOpen,
   Bot,
   Cable,
-  CalendarClock,
   ClipboardCheck,
   ClipboardList,
   Contact,
@@ -47,6 +46,8 @@ export type NavItem = {
   label: string;
   icon: ComponentType<{ size?: number; className?: string }>;
   badge?: "unread";
+  /** Other pages this entry stands for (its tabs). */
+  also?: string[];
   /** Only installation operators see this entry. */
   operator?: boolean;
   /** Hidden unless the server turned this feature on. */
@@ -69,14 +70,19 @@ export const navGroups: NavGroup[] = [
     items: [
       { path: "inbox", label: "Inbox", icon: Inbox, badge: "unread" },
       { path: "sent", label: "Sent", icon: Send },
-      { path: "scheduled", label: "Scheduled", icon: CalendarClock },
-      { path: "bulk", label: "Bulk send", icon: Megaphone },
       { path: "captures", label: "Sandbox", icon: TestTube2 },
     ],
   },
   {
     label: "Audience",
-    items: [{ path: "contacts", label: "Audience", icon: Contact }],
+    items: [
+      {
+        path: "contacts",
+        label: "Campaigns & Audience",
+        icon: Contact,
+        also: ["bulk", "scheduled", "newsletters"],
+      },
+    ],
   },
   {
     label: "Forms",
@@ -152,7 +158,7 @@ export const detailLabels: Record<string, string> = {
 
 export function findNav(segment: string): { group: NavGroup; item: NavItem } | undefined {
   for (const group of navGroups) {
-    const item = group.items.find((i) => i.path === segment);
+    const item = group.items.find((i) => i.path === segment || i.also?.includes(segment));
     if (item) return { group, item };
   }
   return undefined;

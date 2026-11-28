@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { problemFixes } from "@/features/installation/Installation";
+import { Reschedule } from "./ScheduledCampaigns";
 import { usePhrase } from "@/features/i18n/i18n";
 import { Sessions } from "@/features/mail/Sessions";
 import { useWorkspace, useWsKey, useSendingEnvironment } from "../context";
@@ -1441,6 +1442,12 @@ export function MessageDetail() {
                     >
                       {phrase("Delete record")}
                     </ConfirmButton>
+                  )}
+                  {state === "scheduled" && (
+                    <Reschedule
+                      path={`/messages/${id}/reschedule`}
+                      onDone={() => window.location.reload()}
+                    />
                   )}
                   {state === "scheduled" && (
                     <Button

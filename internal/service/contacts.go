@@ -213,6 +213,14 @@ FROM contacts c WHERE c.id=$1 AND c.environment_id=$2`, id, sc.EnvID)
 	if err != nil {
 		return nil, err
 	}
+	// The campaigns and newsletters this address was included in.
+	if m["campaigns"], err = s.maps(ctx, `SELECT c.id::text AS id, c.name, r.state, r.skip_reason, c.created_at,
+  (SELECT n.id::text FROM newsletter_issues n WHERE n.campaign_id=c.id LIMIT 1) AS newsletter_id
+FROM contacts k JOIN campaigns c ON c.environment_id=k.environment_id
+JOIN campaign_recipients r ON r.campaign_id=c.id AND r.recipient_hash=k.email_hash
+WHERE k.id=$1 ORDER BY c.created_at DESC LIMIT 100`, id); err != nil {
+		return nil, err
+	}
 	var enc []byte
 	if err := s.Pool.QueryRow(ctx, `SELECT data_enc FROM contacts WHERE id=$1`, id).Scan(&enc); err != nil {
 		return nil, notFound(err)

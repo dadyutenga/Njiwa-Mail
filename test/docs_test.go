@@ -17,6 +17,7 @@ import (
 
 var tableDocs = map[string]string{
 	"removed_inbound_files": "Mail removed by a migration whose attachment files the scheduler still has to delete.",
+	"newsletter_issues":     "Newsletter issues: blocks, audience and sender; sending one creates a campaign.",
 	"organization":          "The installation's organization, created by the first-run setup.",
 	"alert_channels":        "Where operator alerts are sent (webhook or email), per alert kind.",
 	"alerts":                "Operator alerts (policy bounces, disabled webhooks, failing checks) with acknowledgement.",
