@@ -53,7 +53,7 @@ func TestPlanOnEnterpriseLinux9(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pl.PackageManager != "dnf" || strings.Join(pl.MissingPackages, " ") != "epel-release opendkim postfix" {
+	if pl.PackageManager != "dnf" || strings.Join(pl.MissingPackages, " ") != "epel-release nftables opendkim postfix" {
 		t.Fatalf("%s %v", pl.PackageManager, pl.MissingPackages)
 	}
 	var main string
@@ -69,7 +69,7 @@ func TestPlanOnEnterpriseLinux9(t *testing.T) {
 	if !strings.Contains(main, "compatibility_level = 2\n") || !strings.Contains(main, "relay_clientcerts = hash:") || !dropIn {
 		t.Fatalf("dropIn=%v\n%s", dropIn, main)
 	}
-	if !strings.Contains(pl.Summary(), "install   packages epel-release opendkim postfix (dnf; nothing is removed)") ||
+	if !strings.Contains(pl.Summary(), "install   packages epel-release nftables opendkim postfix (dnf; nothing is removed)") ||
 		!strings.Contains(pl.Summary(), "enable    repository crb") || strings.Join(pl.EnableRepos, " ") != "crb" {
 		t.Fatal(pl.Summary())
 	}
@@ -81,11 +81,11 @@ func TestPlanOnEnterpriseLinux9(t *testing.T) {
 	}
 	calls := strings.Join(run.calls, "\n")
 	// In this order: EPEL, then CRB (OpenDKIM's libraries), then the dry run.
-	if !strings.Contains(calls, "dnf install -y epel-release\ndnf config-manager --set-enabled crb\ndnf install --assumeno opendkim postfix\ndnf install -y opendkim postfix") ||
+	if !strings.Contains(calls, "dnf install -y epel-release\ndnf config-manager --set-enabled crb\ndnf install --assumeno nftables opendkim postfix\ndnf install -y nftables opendkim postfix") ||
 		!strings.Contains(calls, "postmap hash:") {
 		t.Errorf("unexpected calls:\n%s", calls)
 	}
-	if rc.PackageManager != "dnf" || strings.Join(rc.InstalledPackages, " ") != "epel-release opendkim postfix" || strings.Join(rc.EnabledRepos, " ") != "crb" {
+	if rc.PackageManager != "dnf" || strings.Join(rc.InstalledPackages, " ") != "epel-release nftables opendkim postfix" || strings.Join(rc.EnabledRepos, " ") != "crb" {
 		t.Fatalf("%+v", rc)
 	}
 	p.RemovePackages = true
@@ -94,7 +94,7 @@ func TestPlanOnEnterpriseLinux9(t *testing.T) {
 		t.Fatal(err)
 	}
 	// CRB is disabled before epel-release (which brought config-manager) goes.
-	if !strings.Contains(strings.Join(run.calls, "\n"), "dnf config-manager --set-disabled crb\ndnf remove -y epel-release opendkim postfix") {
+	if !strings.Contains(strings.Join(run.calls, "\n"), "dnf config-manager --set-disabled crb\ndnf remove -y epel-release nftables opendkim postfix") {
 		t.Fatalf("%v", run.calls)
 	}
 }
@@ -105,7 +105,7 @@ func TestCRBOnlyWhenNeeded(t *testing.T) {
 	p := rhelParams(t, "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"9.8\"\n")
 	os.Remove(filepath.Join(p.Root, "/usr/sbin/opendkim"))
 	writeFileAtomic(filepath.Join(p.Root, "/etc/yum.repos.d/rocky.repo"), []byte("[baseos]\nenabled=1\n[crb]\nname=Rocky Linux $releasever - CRB\nenabled=1\n[devel]\nenabled=0\n"), 0o644)
-	if pl, _ := BuildPlan(p); len(pl.EnableRepos) != 0 || strings.Join(pl.MissingPackages, " ") != "epel-release opendkim" {
+	if pl, _ := BuildPlan(p); len(pl.EnableRepos) != 0 || strings.Join(pl.MissingPackages, " ") != "epel-release nftables opendkim" {
 		t.Fatalf("%v %v", pl.EnableRepos, pl.MissingPackages)
 	}
 	// A disabled [crb] section is not enabled.
@@ -151,7 +151,7 @@ func TestPlanOnFedoraWithSELinuxAndFirewalld(t *testing.T) {
 	writeFileAtomic(filepath.Join(p.Root, "/sys/fs/selinux/enforce"), []byte("1"), 0o644)
 	writeFileAtomic(filepath.Join(p.Root, "/run/firewalld/firewalld.pid"), []byte("1"), 0o644)
 	pl, _ := BuildPlan(p)
-	if strings.Join(pl.MissingPackages, " ") != "postfix-lmdb" {
+	if strings.Join(pl.MissingPackages, " ") != "nftables postfix-lmdb" {
 		t.Fatalf("%v", pl.MissingPackages)
 	}
 	sum := pl.Summary()

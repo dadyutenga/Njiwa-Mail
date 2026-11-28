@@ -114,6 +114,10 @@ type Agent struct {
 	Runner  Runner
 	Token   string
 	Domains DomainManager
+	// Installer, when set (-allow-install), lets the dashboard plan, install and
+	// roll back the managed mail server.
+	Installer Installer
+	install   installState
 	// Signer is the DKIM signing unit checked for Status (default opendkim).
 	Signer string
 	// Postfix is the unit checked for Status (default postfix).
@@ -153,6 +157,7 @@ func (a *Agent) Handler() http.Handler {
 	mux.HandleFunc("POST /queue/{id}/{action}", a.guard(a.act))
 	mux.HandleFunc("POST /flush", a.guard(a.flush))
 	mux.HandleFunc("GET /log", a.guard(a.log))
+	a.installRoutes(mux)
 	mux.HandleFunc("POST /domains/plan", a.guard(a.domains))
 	mux.HandleFunc("POST /domains/apply", a.guard(a.domains))
 	mux.HandleFunc("POST /discovery", a.guard(func(w http.ResponseWriter, r *http.Request) {

@@ -128,7 +128,8 @@ any point and continue later from any device, because every step is read from th
    - *Existing mail server:* click "Use these settings" next to a server the scan found, or enter any SMTP server. Then enter the
      login, save, run "Test connection" and the test send. TLS is always verified. If the server uses a private CA, see
      `docs/MAILCOW_SETUP.md`.
-   - *Managed:* on the host, as root:
+   - *Managed:* from the dashboard (Admin → Mail host) if you allowed the host agent to install (see OPERATIONS.md, "From the
+     dashboard"); otherwise on the host, as root:
 
      ```bash
      njiwa-mail preflight -hostname mail.example.com -ip 203.0.113.10

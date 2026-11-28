@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -44,6 +45,11 @@ type Server struct {
 
 	// MTA is the host agent behind the mail queue controls (E10); nil when none is configured.
 	MTA MTAAgent
+	// The last automatic key creation that failed, so it is not retried at once.
+	hostRecord   sync.Mutex
+	hostMu       sync.Mutex
+	hostFailed   string
+	hostFailedAt time.Time
 	// DiscoverHost is set only for a native host process; containers use the host agent.
 	DiscoverHost   func(context.Context) (*discover.Report, error)
 	DiscoveryNeeds discover.Needs

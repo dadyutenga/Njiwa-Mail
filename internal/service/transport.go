@@ -373,7 +373,7 @@ func (s *Service) ProfileSMTP(ctx context.Context, id string) (cfg mailer.SMTPCo
 			return cfg, "", 0, unavailable("open_profile", err)
 		}
 		if !ok {
-			return cfg, "", 0, &Error{Status: 409, Code: "managed_not_installed", Message: "run the host installer first: njiwa-mail installer apply"}
+			return cfg, "", 0, &Error{Status: 409, Code: "managed_not_installed", Message: "install the mail server first, from the Mail host page"}
 		}
 		return cfg, "", rev, nil
 	}

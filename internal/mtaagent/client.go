@@ -73,8 +73,9 @@ func (c *Client) do(ctx context.Context, method, path string, out any) error {
 
 // AgentError is an error answer from the agent.
 type AgentError struct {
-	Status int
-	Code   string
+	Status  int
+	Code    string
+	Message string
 }
 
 func (e *AgentError) Error() string { return fmt.Sprintf("mta agent: %d %s", e.Status, e.Code) }

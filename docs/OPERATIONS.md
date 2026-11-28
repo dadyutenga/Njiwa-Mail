@@ -189,7 +189,8 @@ without it. Your provider's firewall and SSH rules remain yours to manage.
 
 ## Managed delivery: installing the mail service
 
-The installer is a root-only command on the mail host; the Njiwa web process never changes host configuration. Run the read-only
+The installer runs as root on the mail host, either from a shell or through the host agent when you allow it (see "From the
+dashboard" below). The Njiwa web process never changes host configuration itself. Run the read-only
 scan first (`sh scripts/discover.sh`, see [INSTALL.md](INSTALL.md)). On Debian/Ubuntu the plan installs missing `postfix` and `opendkim`
 packages itself (Postfix preseeded to "No configuration"; refused if apt would remove any package). Then:
 
@@ -220,6 +221,40 @@ njiwa-mail installer apply -hostname mailout.example.com -domains notify.example
   claimed domains).
 - Verification on a host: `go test -tags managed_e2e ./internal/installer/managed -run E2E -v` (as root, after apply with the test
   domains in that file) checks no open relay, mTLS-only submission, sender restrictions and DKIM signing end to end.
+
+### From the dashboard (host agent)
+
+Off by default. To allow it on a host meant for "Send from my VPS":
+
+1. Install the `njiwa-mail` binary at `/usr/local/bin/njiwa-mail` and the queue agent (see "Mail queue controls").
+2. Add the drop-in that switches installing on:
+
+```
+install -D -m 0644 deploy/njiwa-mail-mta-agent.allow-install.conf /etc/systemd/system/njiwa-mail-mta-agent.service.d/allow-install.conf
+systemctl daemon-reload && systemctl restart njiwa-mail-mta-agent
+```
+
+3. Open Admin → Mail host, press **Plan**, read it, tick the digest and press **Approve and install**.
+
+**What runs as root, and why.** The agent already runs as root (Postfix queue commands need it). With `-allow-install` it also runs
+the installer, which installs packages (Postfix, OpenDKIM, nftables), writes under `/etc` and `/var/lib/njiwa-mail`, creates keys
+and reloads services. None of that can be done without root. The limits:
+
+- It listens only on a Unix socket, requires the shared token, and opens no network port.
+- The dashboard chooses only the hostname, bounce domain and digest; the domains are the installation's claimed ones. It cannot
+  pass paths, adopt an existing configuration, drop the firewall or remove packages.
+- It applies only the plan whose digest was approved, backs up, validates, restores on failure, and refuses a host where a mail
+  service is in use (Mailcow, Postfix, Exim). `-allow-install` is refused together with `-postfix-container`.
+- The drop-in removes the systemd sandbox of the queue-only agent. Anyone who is an installation operator in the dashboard, or who
+  holds the agent token, can then change this host. Remove the drop-in after installing if you do not want that.
+- The worker's client key travels from the agent to the API over that socket, is sealed in the database and is never sent to a
+  browser.
+
+When installing is allowed, the API also records a finished install by itself and creates the DKIM key for a newly verified domain
+(checked every minute; a failure is retried after 30 minutes). Publish the DKIM record shown on the domain page.
+
+`/etc/njiwa-mail/env`, used by the host commands, holds `DATABASE_URL`, `ENCRYPTION_KEY`, `HMAC_KEY`, `MAIL_HOSTNAME` and
+`OUTBOUND_IP`.
 
 ## Bounce reports
 
@@ -597,23 +632,21 @@ Hard bounces are suppressed automatically once bounce routing is set up; until t
 
 ## Mail host screen (managed mode)
 
-Admin → Mail host (operators) shows what the installer recorded: its runs (action, result, Postfix version, approver, plan digest,
-rollback state), whether delivery evidence is arriving (last event and count per source; silence is reported as a fact, not as a
-fault), verified sending domains that still have no DKIM key on the host (with the exact `installer plan`/`apply` commands to paste), and a
-staged DKIM rotation. For the rotation to appear, run `installer dkim-rotate prepare|activate|cancel|retire` with `-record`; while it is
-prepared the page checks in DNS that each new key is published and says when it is safe to activate. An existing-SMTP profile can be edited in
-place (Admin → Delivery infrastructure → Edit; a blank password keeps the stored one; editing invalidates the earlier connection test).
-With the queue agent set up, the delivery health card also shows Postfix and signer state and the deferred/held counts.
+Admin → Mail host (operators) has, in order:
 
-## Mail host screen (managed mode)
+- **Setup progress:** scan, choose the delivery mode, install, DNS, connection test, activate. Each step is derived from what is
+  recorded, so it resumes after a reload. The DNS step is done only when every sending domain passed a check made after its key was
+  recorded. A host that already runs a mail server shows the step as blocked and links to "connect the existing mail server".
+- **Set up this mail host:** plan, approve the digest, install, progress and roll back, through the host agent.
+- **Commands to run on the host instead:** complete `installer plan` and `apply` commands (they read `/etc/njiwa-mail/env`). The
+  apply command appears after you enter the digest of the plan you reviewed.
+- **Installer runs** (result, Postfix version, approver, plan digest, rollback state), whether delivery evidence is arriving
+  (silence is reported as a fact, not as a fault), domains that still have no DKIM key, and a staged DKIM rotation. For the
+  rotation to appear, run `installer dkim-rotate prepare|activate|cancel|retire` with `-record`; this stays a host command.
 
-Admin → Mail host (operators) shows what the installer recorded: its runs (action, result, Postfix version, approver, plan digest,
-rollback state), whether delivery evidence is arriving (last event and count per source; silence is reported as a fact, not as a
-fault), verified sending domains that still have no DKIM key on the host (with the exact `installer plan`/`apply` commands to paste), and a
-staged DKIM rotation. For the rotation to appear, run `installer dkim-rotate prepare|activate|cancel|retire` with `-record`; while it is
-prepared the page checks in DNS that each new key is published and says when it is safe to activate. An existing-SMTP profile can be edited in
-place (Admin → Delivery infrastructure → Edit; a blank password keeps the stored one; editing invalidates the earlier connection test).
-With the queue agent set up, the delivery health card also shows Postfix and signer state and the deferred/held counts.
+An existing-SMTP profile can be edited in place (Admin → Delivery infrastructure → Edit; a blank password keeps the stored one;
+editing invalidates the earlier connection test). With the queue agent set up, the delivery health card also shows Postfix and
+signer state and the deferred/held counts.
 
 ## Per-domain return path (D04)
 

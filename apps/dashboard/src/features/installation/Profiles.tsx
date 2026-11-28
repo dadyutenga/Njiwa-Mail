@@ -72,8 +72,7 @@ const blockerText: Record<string, string> = {
   profile_not_verified:
     "Run the connection test for this profile first; it must pass for its current settings.",
   profile_incomplete: "This profile has no host or password yet.",
-  managed_not_installed:
-    "Run the host installer on the server first (njiwa-mail installer apply -record).",
+  managed_not_installed: "Install this server's mail service first, from the Mail host page.",
   unknown_jobs_require_reconciliation:
     "Some messages have an unknown outcome. Record their real outcome on the Unknown page first; they are never moved to another server.",
 };

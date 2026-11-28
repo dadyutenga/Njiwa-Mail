@@ -85,8 +85,7 @@ func (s *Service) SetupJourney(ctx context.Context, project string) (*SetupJourn
 		t.Detail = "Enter the SMTP host, port, encryption and a login, then run the connection test and a test send."
 	case installation.ModeManaged:
 		t.Title = "Install the Njiwa-managed mail server"
-		t.Detail = "On the server, as root: njiwa-mail preflight -record, then installer plan, review it, and installer apply -approve <digest> -record. Then run the connection test."
-		t.Command = "njiwa-mail installer plan"
+		t.Detail = "Open the Mail host page: review the plan, approve it and install, or copy the commands it shows. Then run the connection test."
 	}
 	if w.SelectedMode != "" {
 		if rd.Status == installation.Ready {
@@ -157,8 +156,8 @@ WHERE project_id=$1 AND purpose IN ('sending','both') AND name = ANY($2)`, pid, 
 			if x.Status == "ready" {
 				x.Status = "needs_action"
 			}
-			x.Detail = "The mail host has no DKIM key yet for " + strings.Join(missing, ", ") + ". Run the installer again on the host (the Mail host page shows the exact commands), then publish the DKIM record it prints."
-			x.Command, x.Route = "njiwa-mail installer plan", "mail-host"
+			x.Detail = "The mail host has no DKIM key yet for " + strings.Join(missing, ", ") + ". Open the Mail host page to create it (this happens by itself when the host agent may install), then publish the DKIM record shown on the domain page."
+			x.Command, x.Route = "", "mail-host"
 		}
 	}
 	step("sender", "Create a sender address", "Add a Live sender on the verified domain (for example noreply@your-domain).",

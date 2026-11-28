@@ -700,6 +700,13 @@ func missingPackages(p Params) ([]string, string) {
 			miss = append(miss, "postfix-lmdb")
 		}
 	}
+	// The firewall table needs nft: where a package manager can install it, it
+	// is part of the plan.
+	if !p.NoFirewall && p.Platform.packageManager() != "" {
+		if _, err := os.Stat(p.path("/usr/sbin/nft")); err != nil {
+			miss = append(miss, "nftables")
+		}
+	}
 	sort.Strings(miss)
 	if len(miss) == 0 {
 		return nil, ""

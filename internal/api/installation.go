@@ -56,12 +56,14 @@ func (s *Server) installationRoutes(app *fiber.App) {
 		if err != nil {
 			return nil, err
 		}
+		commands, needs := svc.SuggestedInstallerCommands(reqCtx(c), c.Query("hostname"), c.Query("digest"))
 		return map[string]any{"receipts": receipts, "evidence": evidence, "domains_missing_key": missing,
-			"suggested_commands": svc.SuggestedInstallerCommands(reqCtx(c)), "dkim_rotation": rotation}, nil
+			"suggested_commands": commands, "commands_need": needs, "dkim_rotation": rotation}, nil
 	})
 	// Domain expansion on an installation the host agent already owns. The
 	// operator reviews the exact digest; the agent refuses a different plan.
 	// The host CLI remains the path when the agent is not configured.
+	s.hostInstallRoutes(h)
 	h("POST", "/domains/plan", func(c fiber.Ctx, u *service.AdminUser) (any, error) {
 		domains, err := s.claimedDomainRequest(c)
 		if err != nil {

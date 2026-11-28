@@ -9,6 +9,62 @@ import { swTools } from "./sw-tools";
 import { swReports } from "./sw-reports";
 // Kiswahili for the strings that predate the installation screens. Keys are the exact English text passed to phrase().
 export const swExtra: Record<string, string> = {
+  "Install this server's mail service first, from the Mail host page.":
+    "Sakinisha huduma ya barua ya seva hii kwanza, kutoka ukurasa wa Seva ya barua.",
+  "Plan, approve and install": "Panga, idhinisha na usakinishe",
+  "Test the connection": "Jaribu muunganisho",
+  Activate: "Washa",
+  Later: "Baadaye",
+  "Scan now": "Chunguza sasa",
+  "Go to the installer": "Nenda kwenye kisakinishi",
+  "Open Domains": "Fungua Vikoa",
+  "Run connection test": "Jaribu muunganisho",
+  "Connect the existing mail server": "Unganisha seva ya barua iliyopo",
+  "Read-only: it finds mail servers, busy ports and certificates.":
+    "Kusoma tu: hutafuta seva za barua, milango inayotumika na vyeti.",
+  'Choose "Send from my VPS".': 'Chagua "Tuma kutoka VPS yangu".',
+  "A mail server is already on this host. Connect it as an existing mail server; Njiwa-Mail never replaces it.":
+    "Seva ya barua tayari ipo kwenye seva hii. Iunganishe kama seva ya barua iliyopo; Njiwa-Mail haiibadilishi kamwe.",
+  "Plan, approve the exact digest, install.": "Panga, idhinisha digest hiyo hasa, sakinisha.",
+  "Publish SPF, DKIM and DMARC for every sending domain, then check each domain.":
+    "Chapisha SPF, DKIM na DMARC kwa kila kikoa cha kutuma, kisha ukague kila kikoa.",
+  "Connect to the installed mail server.": "Unganisha na seva ya barua iliyosakinishwa.",
+  "Send Live mail through this host.": "Tuma barua za Live kupitia seva hii.",
+  "Commands to run on the host instead": "Amri za kuendesha kwenye seva badala yake",
+  "Hostname for the commands": "Jina la seva kwa amri",
+  "Enter the public mail hostname.": "Ingiza jina la umma la seva ya barua.",
+  "Verify a sending domain in a project first.": "Thibitisha kikoa cha kutuma kwenye mradi kwanza.",
+  "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. When the host agent allows installing, this happens by itself.":
+    "Andaa mpango wa seva, kagua digest yake, kisha uutekeleze. Seva ya barua inaunda funguo. Wakala wa seva akiruhusu kusakinisha, hili hufanyika lenyewe.",
+  "Set up the mail server on this host, see what the installer did, whether delivery evidence is arriving, and the state of DKIM keys.":
+    "Sanidi seva ya barua kwenye seva hii, ona kisakinishi kilichofanya, kama ushahidi wa uwasilishaji unafika, na hali ya funguo za DKIM.",
+  "Run the host installer from the Mail host page: review the plan, approve it and install. The same page shows commands to copy if the host agent may not install.":
+    "Endesha kisakinishi cha seva kutoka ukurasa wa Seva ya barua: kagua mpango, uidhinishe na usakinishe. Ukurasa huo pia unaonyesha amri za kunakili ikiwa wakala wa seva haruhusiwi kusakinisha.",
+  "Open the Mail host page, plan again, approve and install. This renews the certificate and records it; mail keeps flowing during the change.":
+    "Fungua ukurasa wa Seva ya barua, panga tena, idhinisha na usakinishe. Hii inahuisha cheti na kukirekodi; barua zinaendelea wakati wa mabadiliko.",
+  "Open the Mail host page, plan again, approve and install to renew the certificate. Live mail stays queued until the new certificate is recorded.":
+    "Fungua ukurasa wa Seva ya barua, panga tena, idhinisha na usakinishe ili kuhuisha cheti. Barua za Live zinabaki kwenye foleni hadi cheti kipya kirekodiwe.",
+  "The host agent shows what it would change, and installs only after you approve that exact plan. It backs up first, rolls back on failure, and refuses a host that already runs a mail server.":
+    "Wakala wa seva anaonyesha atakachobadilisha, na anasakinisha tu baada ya kuidhinisha mpango huo hasa. Anahifadhi nakala kwanza, anarudisha hali ya awali ikishindikana, na anakataa seva ambayo tayari ina seva ya barua.",
+  "Public mail hostname": "Jina la umma la seva ya barua",
+  "Leave empty to use MAIL_HOSTNAME.": "Acha tupu ili kutumia MAIL_HOSTNAME.",
+  "Bounce domain": "Kikoa cha barua zinazorudi",
+  "Leave empty to use the domain of BOUNCE_ADDRESS.":
+    "Acha tupu ili kutumia kikoa cha BOUNCE_ADDRESS.",
+  "Connect the mail server that is already here as an existing mail server. Njiwa-Mail never replaces it.":
+    "Unganisha seva ya barua iliyopo kama seva ya barua iliyopo. Njiwa-Mail haiibadilishi kamwe.",
+  "I reviewed the plan with digest": "Nimekagua mpango wenye digest",
+  Installation: "Usakinishaji",
+  Finished: "Imekamilika",
+  "Publish these DKIM records, then check each domain on its page.":
+    "Chapisha rekodi hizi za DKIM, kisha kagua kila kikoa kwenye ukurasa wake.",
+  "Then run the connection test and activate.": "Kisha jaribu muunganisho na uwashe.",
+  "Roll back the last installation": "Rudisha usakinishaji wa mwisho",
+  "Type ROLL BACK to confirm": "Andika ROLL BACK kuthibitisha",
+  "Digest of the plan you reviewed": "Digest ya mpango uliokagua",
+  "Run the plan command, then enter its digest to get the apply command.":
+    "Endesha amri ya mpango, kisha ingiza digest yake ili kupata amri ya kusakinisha.",
+  "Use “Set up this mail host” above.": "Tumia “Sanidi seva hii ya barua” hapo juu.",
   "Campaigns & Audience": "Kampeni na Hadhira",
   Newsletters: "Majarida",
   "Send time changed.": "Muda wa kutuma umebadilishwa.",
@@ -735,8 +791,8 @@ export const swExtra: Record<string, string> = {
     "Kila badiliko lililofanywa na mtu au ufunguo wa API.",
   "Every message of this project and environment, from every source. Metadata only.":
     "Kila ujumbe wa mradi na mazingira haya, kutoka kila chanzo. Metadata pekee.",
-  "Every new key is published. You can activate on the host: njiwa-mail installer dkim-rotate activate.":
-    "Kila ufunguo mpya umechapishwa. Unaweza kuwasha kwenye seva: njiwa-mail installer dkim-rotate activate.",
+  "Every new key is published. You can now activate the rotation on the mail host (see Rotating DKIM keys in Operations).":
+    "Kila ufunguo mpya umechapishwa. Sasa unaweza kuwasha mzunguko huo kwenye seva ya barua (angalia Rotating DKIM keys katika Operations).",
   "Every project's ownership proof for it is reset: the new owner must check its DNS again, and the previous owner's senders stop being verified at once.":
     "Uthibitisho wa umiliki wa kila mradi kwa kikoa hiki unawekwa upya: mmiliki mpya lazima akague DNS yake tena, na watumaji wa mmiliki wa awali wanaacha kuthibitishwa mara moja.",
   "Everything the mail server accepted has been handed on.":
@@ -1076,8 +1132,6 @@ export const swExtra: Record<string, string> = {
   "Run `njiwa-mail mta-agent` on the mail host and set MTA_AGENT_SOCKET and MTA_AGENT_TOKEN for the API (see Operations: Mail queue controls).":
     "Endesha `njiwa-mail mta-agent` kwenye seva ya barua na uweke MTA_AGENT_SOCKET na MTA_AGENT_TOKEN kwa API (angalia Operations: Mail queue controls).",
   "Run history": "Historia ya uendeshaji",
-  "Run njiwa-mail installer apply -record on the mail host.":
-    "Endesha njiwa-mail installer apply -record kwenye seva ya barua.",
   "Run the installer again so it creates their keys, then publish the DKIM records it prints.":
     "Endesha kisakinishi tena ili kiunde funguo zao, kisha chapisha rekodi za DKIM inazochapisha.",
   "Run this request. The sender is this project's default sender.":
@@ -1511,6 +1565,21 @@ export const swExtra: Record<string, string> = {
   "Port 587 with STARTTLS is selected by default. TLS certificate verification is always enabled.":
     "Port 587 na STARTTLS imechaguliwa kwa chaguo-msingi. Uthibitishaji wa cheti cha TLS huwa umewashwa kila wakati.",
   "Prepare host plan": "Andaa mpango wa seva",
+  "Set up this mail host": "Sanidi seva hii ya barua",
+  "Scan the host, review the exact plan and digest, then approve installation through the authenticated host agent.":
+    "Changanua seva, kagua mpango halisi na muhtasari wake, kisha uidhinishe usakinishaji kupitia wakala wa seva aliyeidhinishwa.",
+  "Prepare plan": "Andaa mpango",
+  "Approve and install": "Idhinisha na sakinisha",
+  "Plan digest": "Muhtasari wa mpango",
+  Packages: "Pakiti",
+  Blockers: "Vizuizi",
+  Warnings: "Maonyo",
+  "Installing on the host": "Inasakinisha kwenye seva",
+  "Host installation completed": "Usakinishaji wa seva umekamilika",
+  "Roll back": "Rudisha nyuma",
+  "The mail host plan could not be prepared.": "Mpango wa seva ya barua haukuweza kuandaliwa.",
+  "The approved plan could not be applied.": "Mpango ulioidhinishwa haukuweza kutekelezwa.",
+  "The host could not be rolled back.": "Seva haikuweza kurudishwa.",
   "Prepare signing domain": "Andaa kikoa cha kusaini",
   "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. The commands below remain when the host agent is not connected.":
     "Andaa mpango wa seva, kagua muhtasari wake, kisha uutekeleze. Seva ya barua hutengeneza funguo. Amri zilizo hapa chini hubaki pale wakala wa seva hajaunganishwa.",

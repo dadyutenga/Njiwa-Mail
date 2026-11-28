@@ -37,9 +37,18 @@ func TestMailHostView(t *testing.T) {
 		t.Fatalf("a claimed domain without a key should be listed: %v", missing)
 	}
 	cmds := mh["suggested_commands"].([]any)
-	if len(cmds) != 2 || !strings.Contains(cmds[0].(string), "-domains notify.example.com,second.example.org") ||
-		!strings.Contains(cmds[0].(string), "-submission 172.30.0.1:10587") || !strings.Contains(cmds[1].(string), "-record") {
+	if len(cmds) != 1 || !strings.Contains(cmds[0].(string), "-domains notify.example.com,second.example.org") ||
+		!strings.Contains(cmds[0].(string), "-submission 172.30.0.1:10587") || strings.ContainsAny(cmds[0].(string), "<>") {
 		t.Fatalf("commands: %v", cmds)
+	}
+	with := e.admOK(op, "GET", "/admin/v1/installation/mail-host?digest=abcdef0123456789", nil).JSON["suggested_commands"].([]any)
+	if len(with) != 2 || !strings.Contains(with[1].(string), "-approve abcdef0123456789 -record") || strings.ContainsAny(with[1].(string), "<>") {
+		t.Fatalf("apply command: %v", with)
+	}
+	// Nothing a person types can break out of the command.
+	bad := e.admOK(op, "GET", "/admin/v1/installation/mail-host?hostname=a.example%27%3Brm+-rf+/&digest=abcdef0123456789", nil)
+	if strings.Contains(bad.Raw, "rm -rf") {
+		t.Fatalf("injected: %s", bad.Raw)
 	}
 	if r := e.admOK(op, "GET", "/admin/v1/installation/mail-host", nil); strings.Contains(r.Raw, "BEGIN") {
 		t.Fatal("key material in the mail host view")

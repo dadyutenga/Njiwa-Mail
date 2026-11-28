@@ -712,7 +712,7 @@ func TestPackagesAreInstalledSafely(t *testing.T) {
 	os.Remove(filepath.Join(p.Root, "/usr/sbin/opendkim"))
 	writeFileAtomic(filepath.Join(p.Root, "/etc/os-release"), []byte("ID=ubuntu\nVERSION_ID=\"24.04\"\n"), 0o644)
 	pl, _ := BuildPlan(p)
-	if strings.Join(pl.MissingPackages, " ") != "opendkim postfix" || pl.PackageManager != "apt" || !strings.Contains(pl.Summary(), "install   packages opendkim postfix") {
+	if strings.Join(pl.MissingPackages, " ") != "nftables opendkim postfix" || pl.PackageManager != "apt" || !strings.Contains(pl.Summary(), "install   packages nftables opendkim postfix") {
 		t.Fatalf("%+v\n%s", pl, pl.Summary())
 	}
 	// apt would remove another package: refused, rolled back, nothing installed.
@@ -729,11 +729,11 @@ func TestPackagesAreInstalledSafely(t *testing.T) {
 	// Clean install.
 	run = &fakeRun{}
 	rc, err = Apply(p, pl.Digest, run, now)
-	if err != nil || strings.Join(rc.InstalledPackages, " ") != "opendkim postfix" {
+	if err != nil || strings.Join(rc.InstalledPackages, " ") != "nftables opendkim postfix" {
 		t.Fatalf("%v %+v", err, rc)
 	}
 	joined := strings.Join(run.calls, "\n")
-	if !strings.Contains(joined, "debconf-set-selections") || !strings.Contains(joined, "env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends opendkim postfix") {
+	if !strings.Contains(joined, "debconf-set-selections") || !strings.Contains(joined, "env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nftables opendkim postfix") {
 		t.Fatalf("%s", joined)
 	}
 	// Rollback without -remove-packages keeps them; with it, purges exactly them.
@@ -742,7 +742,7 @@ func TestPackagesAreInstalledSafely(t *testing.T) {
 	if _, err := Rollback(p, "", run); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(run.calls, "\n"), "apt-get purge -y opendkim postfix") {
+	if !strings.Contains(strings.Join(run.calls, "\n"), "apt-get purge -y nftables opendkim postfix") {
 		t.Fatalf("%v", run.calls)
 	}
 }
@@ -823,7 +823,7 @@ func TestFailedApplyRemovesThePackagesItInstalled(t *testing.T) {
 	if !strings.HasPrefix(run.calls[0], "env DEBIAN_FRONTEND=noninteractive apt-get update") {
 		t.Fatalf("apt-get update must run first: %v", run.calls[0])
 	}
-	if !strings.Contains(calls, "env DEBIAN_FRONTEND=noninteractive apt-get purge -y opendkim postfix") {
+	if !strings.Contains(calls, "env DEBIAN_FRONTEND=noninteractive apt-get purge -y nftables opendkim postfix") {
 		t.Fatalf("installed packages not removed after the failure:\n%s", calls)
 	}
 	if got := read(t, p, "/etc/opendkim.conf"); got != pkgConf {

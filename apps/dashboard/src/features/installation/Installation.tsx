@@ -193,6 +193,9 @@ export const statusLabels: Record<StepStatus, string> = {
 
 // What to do about each stable problem code. Unknown codes fall back to the
 // server's safe message.
+// Runs as it is on the mail host: the environment file holds the database URL.
+const preflightCommand = "sudo sh -c 'set -a; . /etc/njiwa-mail/env; njiwa-mail preflight -record'";
+
 export const problemFixes: Record<string, string> = {
   TRANSPORT_NOT_SELECTED: "Choose how this installation sends mail.",
   SMTP_CONFIG_INCOMPLETE:
@@ -201,7 +204,7 @@ export const problemFixes: Record<string, string> = {
   CHECK_STALE: "The settings changed or the result is old. Run the check again.",
   CHECK_FAILED: "Fix the problem shown in the test result, then run the check again.",
   INSTALLER_NOT_AVAILABLE:
-    "Run the host installer on this server as root: njiwa-mail installer plan, then installer apply -approve <digest> -record. Until then, mail cannot be sent directly from this VPS.",
+    "Run the host installer from the Mail host page: review the plan, approve it and install. The same page shows commands to copy if the host agent may not install.",
   SMTP_EGRESS_BLOCKED:
     "Outbound port 25 is blocked. Ask your VPS provider to open it, or connect an existing mail server instead.",
   SMTP_DNS_FAILED: "The host name does not resolve. Check the spelling, or its DNS record.",
@@ -235,9 +238,9 @@ export const problemFixes: Record<string, string> = {
   BOUNCE_LISTENER_DOWN:
     "Start the inbound role (docker compose --profile inbound up -d) so bounce reports can be received.",
   CLIENT_CERT_EXPIRING:
-    "On the mail host run the installer again (njiwa-mail installer plan, then installer apply -record with the new digest). It renews the certificate and records it; mail keeps flowing during the change.",
+    "Open the Mail host page, plan again, approve and install. This renews the certificate and records it; mail keeps flowing during the change.",
   CLIENT_CERT_EXPIRED:
-    "On the mail host run njiwa-mail installer plan -renew-certs, then installer apply -record with the new digest. Live mail stays queued until the new certificate is recorded.",
+    "Open the Mail host page, plan again, approve and install to renew the certificate. Live mail stays queued until the new certificate is recorded.",
   TRANSPORT_FAILING:
     "Live mail is not reaching the mail server right now. Messages stay queued and are retried, nothing is lost. Run the connection test to see what is wrong.",
   SMTP_SERVER_TEMP_REFUSED:
@@ -322,7 +325,7 @@ function StaleAction({ step }: { step: string }) {
   if (step === "preflight")
     return (
       <p className="mt-1 text-xs">
-        {phrase("Run this on the mail host:")} <code>njiwa-mail preflight -record</code>
+        {phrase("Run this on the mail host:")} <code>{preflightCommand}</code>
       </p>
     );
   return null;
@@ -632,7 +635,7 @@ export function DeliveryInfrastructure({
                   )}
                 </p>
                 <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs">
-                  <code>njiwa-mail preflight -record</code>
+                  <code>{preflightCommand}</code>
                 </pre>
               </div>
             )}

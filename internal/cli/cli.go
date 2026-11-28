@@ -54,7 +54,9 @@ Runtime:
   dns-check                   run the read-only DNS health check now and print the results
   dkim-verify [-file message.eml|-]
                               verify every DKIM signature on a received message (needs DNS, not the database)
-  mta-agent [-socket P] [-token-file F] [-group G] [-postfix-container C] [-signer-container C]   host service behind the dashboard's mail queue controls (run as root on the mail host)
+  mta-agent [-socket P] [-token-file F] [-group G] [-postfix-container C] [-signer-container C] [-allow-install]
+                              host service behind the dashboard's mail queue controls (run as root on the mail host);
+                              -allow-install also lets the dashboard install the managed mail server
   mta-log [-file /var/log/mail.log|-] [-follow]
                               record delivery evidence (sent, deferred, bounced) from Postfix log lines,
                               correlated to messages by queue ID; "-" reads stdin (journalctl -fu postfix | ...)
@@ -407,7 +409,7 @@ func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 			return discover.Scan(discover.HostEnv(true)), nil
 		}
 	}
-	app := (&api.Server{
+	server := &api.Server{
 		MTA:          agent,
 		DiscoverHost: scanHost, DiscoveryNeeds: discoverNeeds(),
 		Svc: svc, MaxBodyBytes: cfg.MaxBodyBytes, EmailMaxBytes: 6 << 20,
@@ -415,7 +417,11 @@ func serve(ctx context.Context, cfg *config.Config, svc *service.Service) {
 		SMTPConfigured: cfg.SMTP.Configured(),
 		EnvSMTP:        envSMTP(cfg),
 		TrustProxy:     cfg.TrustProxy, InsecureCookies: cfg.InsecureCookies, MetricsToken: cfg.MetricsToken,
-	}).App()
+	}
+	app := server.App()
+	if agent != nil {
+		go server.WatchHost(ctx, time.Minute)
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- app.Listen(cfg.ListenAddr, fiber.ListenConfig{DisableStartupMessage: true}) }()
 	select {
@@ -1304,7 +1310,11 @@ func runMTAAgent(args []string) {
 	group := fs.String("group", "", "group allowed to use the socket (name or numeric id); default root only")
 	container := fs.String("postfix-container", "", "Docker container that runs Postfix (Mailcow: mailcowdockerized-postfix-mailcow-1); default: Postfix on the host")
 	signerContainer := fs.String("signer-container", "", "Docker container of the DKIM signer, for the health view (Mailcow: mailcowdockerized-rspamd-mailcow-1)")
+	allowInstall := fs.Bool("allow-install", false, "let the dashboard plan, install and roll back the managed mail server on this host (runs as root)")
 	fs.Parse(args)
+	if *allowInstall && *container != "" {
+		die(errors.New("-allow-install cannot be used with -postfix-container: a host that runs its mail server in Docker is not one to install on"))
+	}
 	token := strings.TrimSpace(os.Getenv("MTA_AGENT_TOKEN"))
 	if *tokenFile != "" {
 		b, err := os.ReadFile(*tokenFile)
@@ -1331,7 +1341,10 @@ func runMTAAgent(args []string) {
 	defer stop()
 	a := &mtaagent.Agent{Runner: mtaagent.ExecRunner{}, Token: token, Domains: &managed.DomainManager{Runner: execRunner{}},
 		Container: *container, SignerContainer: *signerContainer}
-	slog.Info("mta agent listening", "socket", *socket, "postfix_container", *container)
+	if *allowInstall {
+		a.Installer = &mtaagent.ManagedInstaller{Runner: execRunner{}}
+	}
+	slog.Info("mta agent listening", "socket", *socket, "postfix_container", *container, "install_allowed", *allowInstall)
 	if err := a.Listen(ctx, *socket, mode, gid); err != nil {
 		die(err)
 	}

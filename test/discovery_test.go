@@ -204,7 +204,7 @@ func TestSetupJourneyAsksForTheInstallerAfterANewDomain(t *testing.T) {
 		t.Fatalf("another project's domain reopened acme's step: %v", d)
 	}
 	d := dnsStep("other")
-	if d["status"] != "needs_action" || d["command"] != "njiwa-mail installer plan" || !strings.Contains(d["detail"].(string), "other.example.org") {
+	if d["status"] != "needs_action" || d["command"] != nil && d["command"] != "" || d["route"] != "mail-host" || !strings.Contains(d["detail"].(string), "other.example.org") {
 		t.Fatalf("other: %v", d)
 	}
 	if r := e.admOK(owner, "GET", "/admin/v1/installation/setup?project=other", nil); r.JSON["project"] != "other" {

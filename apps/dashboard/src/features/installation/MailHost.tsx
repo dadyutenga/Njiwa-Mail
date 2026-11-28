@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePhrase } from "@/features/i18n/i18n";
 import { admin, AdminError } from "@/lib/admin-api";
+import { HostFlow } from "./HostFlow";
+import { HostInstall } from "./HostInstall";
 import {
   CopyButton,
   DataState,
@@ -26,6 +28,7 @@ type MailHost = {
   evidence: { smtp: Source; mta_log: Source; dsn: Source; submitted_24h: number };
   domains_missing_key: string[];
   suggested_commands: string[];
+  commands_need?: string[];
   dkim_rotation: {
     state: string;
     from?: string;
@@ -55,9 +58,16 @@ export function MailHost() {
   const [plan, setPlan] = useState<DomainPlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  // What the server cannot know, asked here so the commands are complete.
+  const [hostField, setHostField] = useState("");
+  const [digestField, setDigestField] = useState("");
+  const asked = new URLSearchParams();
+  if (hostField.trim()) asked.set("hostname", hostField.trim());
+  if (/^[0-9a-f]{12,64}$/.test(digestField.trim())) asked.set("digest", digestField.trim());
+  const query = asked.toString();
   const q = useQuery({
-    queryKey: ["mail-host"],
-    queryFn: () => admin.get<MailHost>("/installation/mail-host"),
+    queryKey: ["mail-host", query],
+    queryFn: () => admin.get<MailHost>("/installation/mail-host" + (query ? `?${query}` : "")),
     refetchInterval: 30_000,
   });
   return (
@@ -65,7 +75,7 @@ export function MailHost() {
       <PageHeader
         title={phrase("Mail host")}
         description={phrase(
-          "What the installer did on your mail server, whether delivery evidence is arriving, and the state of DKIM keys. Changes are made with the installer on the server.",
+          "Set up the mail server on this host, see what the installer did, whether delivery evidence is arriving, and the state of DKIM keys.",
         )}
       />
       <DataState q={q}>
@@ -90,7 +100,7 @@ export function MailHost() {
                     )}{" "}
                     <strong>{missing.join(", ")}</strong>.{" "}
                     {phrase(
-                      "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. The commands below remain when the host agent is not connected.",
+                      "Prepare the host plan, review its digest, then apply it. The mail host creates the keys. When the host agent allows installing, this happens by itself.",
                     )}
                   </p>
                   <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -159,21 +169,60 @@ export function MailHost() {
                       {note}
                     </p>
                   )}
-                  <ol className="space-y-2 text-xs">
-                    {commands.map((c) => (
-                      <li key={c} className="flex items-start gap-2">
-                        <code className="break-all rounded bg-muted p-2">{c}</code>
-                        <CopyButton text={c} label="command" />
-                      </li>
-                    ))}
-                  </ol>
                 </Section>
               )}
+              <HostFlow />
+              <div id="host-install" className="scroll-mt-24">
+                <HostInstall />
+              </div>
+              <Section title={phrase("Commands to run on the host instead")}>
+                <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                  <label className="grid gap-1">
+                    {phrase("Hostname for the commands")}
+                    <input
+                      className="rounded border bg-background px-2 py-1"
+                      value={hostField}
+                      onChange={(e) => setHostField(e.target.value)}
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    {phrase("Digest of the plan you reviewed")}
+                    <input
+                      className="rounded border bg-background px-2 py-1"
+                      value={digestField}
+                      onChange={(e) => setDigestField(e.target.value)}
+                    />
+                  </label>
+                </div>
+                {(d.commands_need ?? []).includes("hostname") && (
+                  <p className="mb-2 text-xs">{phrase("Enter the public mail hostname.")}</p>
+                )}
+                {(d.commands_need ?? []).includes("domain") && (
+                  <p className="mb-2 text-xs">
+                    {phrase("Verify a sending domain in a project first.")}
+                  </p>
+                )}
+                {(d.commands_need ?? []).includes("digest") && (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    {phrase(
+                      "Run the plan command, then enter its digest to get the apply command.",
+                    )}
+                  </p>
+                )}
+                <ol className="space-y-2 text-xs">
+                  {commands.map((c) => (
+                    <li key={c} className="flex items-start gap-2">
+                      <code className="break-all rounded bg-muted p-2">{c}</code>
+                      <CopyButton text={c} label="command" />
+                    </li>
+                  ))}
+                </ol>
+              </Section>
               <Section title={phrase("Installer runs")}>
                 {receipts.length === 0 ? (
                   <Empty
                     title={phrase("The installer has not run yet")}
-                    description={phrase("Run njiwa-mail installer apply -record on the mail host.")}
+                    description={phrase("Use “Set up this mail host” above.")}
                   />
                 ) : (
                   <Table
@@ -272,7 +321,7 @@ export function MailHost() {
                     <p role="status" className="mt-2 text-xs">
                       {rotation.ready_to_activate
                         ? phrase(
-                            "Every new key is published. You can activate on the host: njiwa-mail installer dkim-rotate activate.",
+                            "Every new key is published. You can now activate the rotation on the mail host (see Rotating DKIM keys in Operations).",
                           )
                         : phrase(
                             "Publish the new records first; activating earlier would make mail fail DKIM.",

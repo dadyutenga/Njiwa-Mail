@@ -29,6 +29,8 @@ Item 4 done: temporary inboxes are gone; migration `0045` is destructive (restor
 Item 8 done: projects can be renamed, have all keys revoked, be archived, restored and deleted (migration `0046`).
 Item 2 done (light mode; not yet looked at in a browser). Items 5/6 done: sender purposes, limits and relations (`0047`).
 Item 3 done: Campaigns & Audience tabs and newsletters (`0048`).
+Item 9 done in code: plan, approve, install and roll back from the Mail host page through the host agent (off until the
+`allow-install` drop-in is added), a guided setup list, automatic DKIM keys and complete commands. Not run on a clean VM.
 
 Start here when continuing. This file is self-contained: it lists every open item, how to set up the PC, the exact server runbook, and what "done" means for
 each item. The detailed history of what is already done (with test evidence) is in [`STATUS.md`](STATUS.md); the short list of

@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -84,32 +86,36 @@ func (s *Service) DomainsMissingKey(ctx context.Context) ([]string, error) {
 	return missing, nil
 }
 
-// SuggestedInstallerCommands builds the plan and apply commands for the current
-// facts, so the operator can paste them (the digest from plan goes into apply).
-func (s *Service) SuggestedInstallerCommands(ctx context.Context) []string {
-	claimed, _ := s.ClaimedDomains(ctx)
-	sel, _, host, port := s.managedKeys(ctx)
-	if sel == "" {
-		sel = s.Opts.DKIMSelector
+// SuggestedInstallerCommands builds commands that run as they are: every value
+// is filled in. What the server cannot know is named in needs (ask for it in
+// the form). The apply command appears once the plan's digest is given.
+func (s *Service) SuggestedInstallerCommands(ctx context.Context, hostname, digest string) (commands, needs []string) {
+	commands, needs = []string{}, []string{}
+	f, err := s.InstallerFacts(ctx, hostname, "", "")
+	if err != nil {
+		var e *Error
+		if errors.As(err, &e) && e.Code == "no_verified_domain" {
+			return commands, []string{"domain"}
+		}
+		return commands, []string{"hostname"}
 	}
-	if sel == "" {
-		sel = "njiwa"
+	flags := "-hostname " + f.Hostname + " -domains " + strings.Join(f.Domains, ",") + " -selector " + f.Selector +
+		" -submission " + f.SubmissionBind + " -compose-subnet " + f.ComposeSubnet
+	if f.BounceDomain != "" {
+		flags += " -bounce-domain " + f.BounceDomain + " -inbound " + f.InboundRelay
 	}
-	sub := "172.30.0.1:10587"
-	if host != "" && port != "" {
-		sub = host + ":" + port
+	// /etc/njiwa-mail/env holds DATABASE_URL and the keys on the mail host.
+	wrap := func(cmd string) string { return "sudo sh -c 'set -a; . /etc/njiwa-mail/env; " + cmd + "'" }
+	commands = append(commands, wrap("njiwa-mail installer plan "+flags))
+	if installDigestShown.MatchString(digest) {
+		commands = append(commands, wrap("njiwa-mail installer apply "+flags+" -approve "+digest+" -record"))
+	} else {
+		needs = append(needs, "digest")
 	}
-	flags := "-hostname " + s.Opts.MailHost + " -domains " + strings.Join(claimed, ",") + " -selector " + sel + " -submission " + sub
-	bds := make([]string, 0, 4)
-	for d := range s.bounceDomains(ctx) {
-		bds = append(bds, d)
-	}
-	sort.Strings(bds)
-	if len(bds) > 0 {
-		flags += " -bounce-domain " + strings.Join(bds, ",")
-	}
-	return []string{"njiwa-mail installer plan " + flags, "njiwa-mail installer apply " + flags + " -approve <digest from the plan> -record"}
+	return commands, needs
 }
+
+var installDigestShown = regexp.MustCompile(`^[0-9a-f]{12,64}$`)
 
 // RecordRotation stores the installer's view of a staged DKIM rotation.
 func (s *Service) RecordRotation(ctx context.Context, a Actor, state map[string]any) error {
